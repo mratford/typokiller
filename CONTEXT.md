@@ -59,7 +59,7 @@ _Avoid_: intro, warm-up
 ### Analysis
 
 **Weakness model**:
-A named, swappable method that ranks a Board's characters and pairs by cost, so different methods can be compared.
+A named, swappable method that ranks the characters and pairs typed on one Board with one Letter layout by cost, so different methods can be compared.
 _Avoid_: scorer, algorithm
 
 **Error**:
