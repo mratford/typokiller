@@ -8,13 +8,14 @@ FastAPI checks the shape of each batch of key events with Pydantic models, and i
 
 ## Job runner: tasks inside the server process
 
-Background work (Lesson generation, git clones, the Gutenberg catalogue refresh) will run as `asyncio` tasks in the server process, reading from an `asyncio.Queue` so that requests wait in order. Blocking work runs through `asyncio.to_thread`. There is no separate worker process and no Redis. This is not built yet, because #18 has no background work.
+Background work (Lesson generation, git clones, the Gutenberg catalogue refresh) will run as `asyncio` tasks in the server process, reading from an `asyncio.Queue` so that requests wait in order. Blocking work runs through `asyncio.to_thread`. There is no separate worker process and no Redis. #21 added the first background work, the Gutenberg catalogue refresh: one task started with the app that checks every hour, so it needs no queue.
 
 ## Project layout
 
 - `pyproject.toml`, managed with `uv`. `uv run typokiller` starts the server on port 8000 on all interfaces.
-- `src/typokiller/app.py`: the schema, the API and the static file mount.
+- `src/typokiller/app.py`: the schema, the API, the static file mount, and the downloads from gutenberg.org with the catalogue refresh.
 - `src/typokiller/keymap.py`: reads the QMK settings and the Letter layout from a `.vil` and a `vial.json`.
+- `src/typokiller/sources.py`: the `ascii-v1` normaliser, splitting a Gutenberg book into Passages, and searching the Gutenberg catalogue.
 - `src/typokiller/static/`: the page. `typing.js` holds the typing rules and has no DOM code, so Node can test it.
 - `tests/`: `pytest` for the API, `node --test` for `typing.js`.
 - The database is `typokiller.db` in the working directory. The settings file is `typokiller.toml` next to it; it is created with defaults and comments when it is missing.
@@ -26,6 +27,9 @@ Background work (Lesson generation, git clones, the Gutenberg catalogue refresh)
 - A Session has no stored end time. It is computed when the data is read, as `started` plus the `t` of the Session's last key event. `t` counts from page load, which is a little before `started`, so the result is a little late. A stored end time was tried, but it could not be sent reliably when the tab closes. The spec (§5) lists "end" on Session; this is the change.
 - The browser keeps key events until the server confirms it has stored them, and sends them again until then. The server ignores events it already has, so batches may overlap. The last batch before the page closes is sent with `keepalive`, which Chrome limits to 64 KB, so only that batch uses it.
 - The server stores an Attempt when it receives the Attempt's first key event. The Attempt stays abandoned unless the page reports it as finished. So an Attempt with no key events, such as a restart before typing anything, is not stored.
-- There is no Passage table yet. The ticket that imports Sources adds it, and adds a Passage column to Attempt. Every Attempt stored before then typed the `PASSAGE` text in `app.py`, so that ticket links them to it.
+- #21 added the `source` and `passage` tables and `attempt.passage`. The `PASSAGE` text in `app.py` is Passage 1, which has no Source. It is typed when no Source is open, and every Attempt stored before #21 is linked to it.
+- A Source's bookmark is the ord of its next Passage. Paragraphs skipped because of the `[passages]` settings (`max_dropped`, `min_length`) are not stored as Passages, so the ords have no gaps. A Source stores its number of Passages as `total`, and it is finished when its bookmark equals `total`. The last used Source is the one with the latest `opened` time; setting the bookmark updates it.
+- The server serves a Passage together with the one after it. After a Source's last Passage, the built-in Passage comes next, so the page always has a next Passage to show at once.
+- The Gutenberg catalogue is `pg_catalog.csv` next to the database. It is downloaded when it is missing or a week old, and read again for each search. Downloads use the `truststore` package so that certificates are checked with the macOS keychain: Python's default certificate file lacks the root certificate that gutenberg.org uses.
 - The page reads the settings file when an Attempt starts and sends those settings with the Attempt's key events. Attempt stores them as JSON in its `settings` column, so the wrong-key mode is `settings ->> '$.typing.wrong_key_mode'`; there is no separate column for it. Attempts stored before #19 have no settings; they were all typed in "keep typing" mode.
 - Attempt does not yet store whether the Keymap was shown (spec §5). The ticket that draws the Keymap under the Passage adds it.

@@ -4,7 +4,12 @@ import { applyKey } from './typing.js';
 const MENU = [
   ['Practice', [
     ['Escape', 'resume', () => { screen = 'typing'; }],
+    ['s', 'skip this Passage', () => { advance(); nextAttempt(); screen = 'typing'; }],
     ['r', 'restart this Passage', () => { nextAttempt(); screen = 'typing'; }],
+  ]],
+  ['Sources', [
+    ['o', 'open a Source', async () => { await showSources(); screen = 'sources'; }],
+    ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
   ['Session', [
     ['b', 'change Board', () => showBoards()],
@@ -22,8 +27,15 @@ const CHOICES = { 'typing.wrong_key_mode': ['keep typing', 'locked until fixed']
 // the three steps of adding a Board.
 const START = ['boards', 'keymaps', 'name', 'vil', 'vial'];
 
-let session, passage;
-let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings' or 'ended'
+let session;
+let passage, nextPassage; // each { id, text }; nextPassage is shown faint below
+let source = null; // the open Source: { id, title, at, total }, where `at` is its bookmark;
+                   // null while the built-in Passage is typed
+let sources = []; // from the server, unfinished first, the last opened first
+let query = ''; // typed into the Gutenberg search
+let results = []; // the Gutenberg search results
+let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings', 'sources', 'import',
+                       // 'gutenberg', 'results' or 'ended'
 let boards = []; // from the server, each with its Keymaps, last used first
 let board = null; // the Board chosen on the start screen
 let boardLabel = ''; // the status line's "Board · Letter layout"
@@ -31,10 +43,11 @@ let draft = {}; // the name and .vil of a Board being added
 
 let seq = 0;
 let ord = 0; // the current Attempt's order in the Session
-let attemptSettings = []; // attemptSettings[ord] holds the settings Attempt ord is typed with
+let attempts = []; // attempts[ord] holds the Passage id Attempt ord types and its settings
 let typed = '';
 let sel = 0; // the selected line of the list or menu on screen
 let settings = null; // the settings file's values while the settings page is open
+let editing = null; // the text typed for the selected number setting while it is edited
 let message = '';
 const heldIn = new Map(); // code -> the Attempt that recorded its keydown
 let events = []; // not yet stored by the server
@@ -44,6 +57,8 @@ const getJSON = url => fetch(url).then(r => r.json());
 const getSettings = () => getJSON('/api/settings');
 const send = (url, body, { method = 'POST', keepalive = false } = {}) =>
   fetch(url, { method, keepalive, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const sendJSON = (...args) => send(...args).then(r => r.json());
+const chooseHint = 'Press a number, or <kbd>j</kbd>/<kbd>k</kbd> and <kbd>Enter</kbd>.';
 
 // Moves the selection with j and k. Returns whether the key was j or k.
 function moveSel(e, count) {
@@ -53,10 +68,71 @@ function moveSel(e, count) {
   return true;
 }
 
+// Chooses from a numbered list by its number, or with j/k and Enter.
+function listKey(e, items, choose) {
+  if (moveSel(e, items.length)) return;
+  const item = e.key === 'Enter' ? items[sel] : items[Number(e.key) - 1];
+  if (item) choose(item);
+}
+
+// The text in a form after one more key.
+const edit = (text, e) =>
+  e.key === 'Backspace' ? text.slice(0, -1) : e.key.length === 1 && !e.metaKey && !e.ctrlKey ? text + e.key : text;
+
+async function showSources() {
+  sources = await getJSON('/api/sources');
+  sel = 0;
+}
+
+// The Source a new Session resumes: the last opened one that is not finished.
+const resume = () => sources.find(s => s.at < s.total);
+
+// Shows what the server serves: a Passage and the one after it. After a Source's
+// last Passage comes the built-in one, and a finished Source is closed.
+const show = served => ({ source, passages: [passage, nextPassage] } = served);
+
+const openSource = async (id, at) => show(await sendJSON(`/api/sources/${id}/bookmark`, { at }, { method: 'PUT' }));
+
+// Finishing or skipping a Passage moves the bookmark on. The next Passage is
+// shown at once, and the server then sends the one after it.
+function advance() {
+  if (!source) return;
+  const { id, at, title } = source;
+  passage = nextPassage;
+  openSource(id, at + 1).then(() => { if (!source) message = `Finished ${title}.`; render(); });
+}
+
+async function chooseSource(s) {
+  await openSource(s.id, s.at < s.total ? s.at : 0); // a finished Source opens from the start
+  nextAttempt();
+  screen = 'typing';
+  render();
+}
+
+async function search() {
+  const r = await fetch(`/api/gutenberg?q=${encodeURIComponent(query)}`);
+  if (!r.ok) { message = (await r.json()).detail; render(); return; }
+  results = await r.json();
+  sel = 0;
+  screen = 'results';
+  render();
+}
+
+async function importBook(book) {
+  message = `Importing ${book.title}…`;
+  render();
+  const r = await send('/api/gutenberg', { number: book.number, title: book.title });
+  if (!r.ok) { message = `Could not import ${book.title}.`; render(); return; }
+  const imported = await r.json();
+  message = `Imported ${book.title}: ${imported.passages} Passages, ${imported.skipped} paragraphs skipped.`;
+  await chooseSource({ id: imported.source, at: 0, total: imported.passages });
+}
+
 async function showBoards(id) {
   screen = 'boards';
   const listed = await getJSON('/api/boards');
   boards = listed.boards;
+  await showSources();
   sel = Math.max(0, boards.findIndex(b => b.id === (id ?? listed.last)));
   render();
 }
@@ -67,8 +143,13 @@ async function startSession(keymap) {
   await flush();
   events = [];
   finished = [];
-  attemptSettings = [await getSettings()];
-  ({ session, passage } = await (await send('/api/sessions', { keymap_version: keymap.version })).json());
+  const settings = await getSettings();
+  const started = await sendJSON('/api/sessions', { keymap_version: keymap.version });
+  session = started.session;
+  show(started);
+  const resumed = resume();
+  if (resumed) await openSource(resumed.id, resumed.at);
+  attempts = [{ passage: passage.id, settings }];
   boardLabel = `${board.name} · ${keymap.letter_layout}`;
   seq = 0;
   ord = 0;
@@ -96,38 +177,33 @@ function pickFile(accept, then) {
 function startKey(e) {
   if (screen === 'name') {
     if (e.key === 'Escape') screen = 'boards';
-    else if (e.key === 'Backspace') draft.name = draft.name.slice(0, -1);
     else if (e.key === 'Enter' && draft.name) screen = 'vil';
-    else if (e.key.length === 1) draft.name += e.key;
+    else draft.name = edit(draft.name, e);
   } else if (screen === 'vil' || screen === 'vial') {
     if (e.key === 'Escape') screen = 'boards';
     else if (e.key === 'Enter' && screen === 'vil') pickFile('.vil', text => { draft.vil = text; screen = 'vial'; });
     else if (e.key === 'Enter') pickFile('.json', async text => {
-      const added = await (await send('/api/boards', { ...draft, vial: text })).json();
+      const added = await sendJSON('/api/boards', { ...draft, vial: text });
       await showBoards(added.board);
     });
-  } else {
-    const items = screen === 'boards' ? boards : board.keymaps;
-    const choose = screen === 'boards' ? chooseBoard : startSession;
-    if (moveSel(e, items.length)) return;
-    if (e.key === 'Enter' && items[sel]) choose(items[sel]);
-    else if (items[Number(e.key) - 1]) choose(items[Number(e.key) - 1]);
-    else if (e.key === 'n' && screen === 'boards') { screen = 'name'; draft = { name: '' }; }
-    else if (e.key === 'Escape') screen = 'boards';
-  }
+  } else if (e.key === 'n' && screen === 'boards') { screen = 'name'; draft = { name: '' }; }
+  else if (e.key === 'Escape') screen = 'boards';
+  else if (screen === 'boards') listKey(e, boards, chooseBoard);
+  else listKey(e, board.keymaps, startSession);
 }
 
-// Reads the settings file again, so each Attempt uses the settings as they are now.
-// Keys typed before the file has been read use the previous Attempt's settings.
+// Starts an Attempt at the current Passage. Reads the settings file again, so each
+// Attempt uses the settings as they are now. Keys typed before the file has been
+// read use the previous Attempt's settings.
 function nextAttempt() {
   ord++;
   typed = '';
-  attemptSettings[ord] = attemptSettings[ord - 1];
-  const attempt = ord;
-  getSettings().then(s => { attemptSettings[attempt] = s; render(); });
+  const attempt = { passage: passage.id, settings: attempts[ord - 1].settings };
+  attempts[ord] = attempt;
+  getSettings().then(s => { attempt.settings = s; render(); });
 }
 
-const wrongKeyMode = () => attemptSettings[ord].typing.wrong_key_mode;
+const wrongKeyMode = () => attempts[ord].settings.typing.wrong_key_mode;
 
 function record(e, attempt) {
   events.push({
@@ -143,7 +219,7 @@ async function flush(keepalive = false) {
   if (!events.length && !finished.length) return;
   const batch = {
     events: [...events], finished: [...finished],
-    settings: Object.fromEntries(events.map(e => [e.attempt, attemptSettings[e.attempt]])),
+    attempts: Object.fromEntries(events.map(e => [e.attempt, attempts[e.attempt]])),
   };
   try {
     const r = await send(`/api/sessions/${session}/batch`, batch, { keepalive });
@@ -166,30 +242,40 @@ async function openSettings() {
 const settingRows = () =>
   Object.entries(settings).flatMap(([table, values]) => Object.entries(values).map(([k, v]) => [table, k, v]));
 
+// Enter moves a choice setting to its next value, or edits a number setting:
+// type the new number, then Enter saves it.
 function settingsKey(e) {
   const rows = settingRows();
-  if (moveSel(e, rows.length)) return;
-  if (e.key === 'Escape') { screen = 'menu'; sel = 0; }
-  else if (e.key === 'Enter') {
-    const [table, key, value] = rows[sel];
-    const choices = CHOICES[`${table}.${key}`];
-    settings[table][key] = choices[(choices.indexOf(value) + 1) % choices.length];
-    send('/api/settings', settings, { method: 'PUT' });
-    message = 'Settings saved. They apply from the next Attempt.';
-  }
+  const [table, key, value] = rows[sel];
+  const choices = CHOICES[`${table}.${key}`];
+  if (editing !== null && e.key !== 'Enter') { editing = edit(editing, e); return; }
+  if (editing === null && (moveSel(e, rows.length) || e.key !== 'Enter')) return;
+  if (choices) settings[table][key] = choices[(choices.indexOf(value) + 1) % choices.length];
+  else if (editing === null) { editing = String(value); return; }
+  else if (editing.trim() && !isNaN(editing)) settings[table][key] = Number(editing);
+  editing = null;
+  send('/api/settings', settings, { method: 'PUT' });
+  message = 'Settings saved. They apply from the next Attempt.';
 }
 
-function menuKey(e) {
-  if (screen === 'settings') settingsKey(e);
-  else if (screen === 'help') { if (e.key === 'Escape') screen = 'menu'; }
-  else if (moveSel(e, ITEMS.length)) return;
-  else if (e.key === 'Enter') ITEMS[sel][2]();
-  else ITEMS.find(([k]) => k === e.key)?.[2]();
+// Esc in any panel goes back to the menu.
+async function menuKey(e) {
+  if (e.key === 'Escape' && screen !== 'menu') { screen = 'menu'; sel = 0; editing = null; }
+  else if (screen === 'settings') settingsKey(e);
+  else if (screen === 'sources') listKey(e, sources, chooseSource);
+  else if (screen === 'import') { if (e.key === 'g') { screen = 'gutenberg'; query = ''; } }
+  else if (screen === 'gutenberg') { if (e.key === 'Enter') search(); else query = edit(query, e); }
+  else if (screen === 'results') listKey(e, results, importBook);
+  else if (screen === 'menu' && !moveSel(e, ITEMS.length)) {
+    await (e.key === 'Enter' ? ITEMS[sel] : ITEMS.find(([k]) => k === e.key))?.[2]();
+  }
+  render();
 }
 
 // Keys used on the start screens and in the menu are not key events of any Attempt,
 // so they are not recorded.
-// An Attempt that is left without finishing (r, b, q, closing or reloading) stays abandoned.
+// An Attempt that is left without finishing (s, r, o, b, q, closing or reloading) stays
+// abandoned. Only finishing and s move the Source's bookmark on.
 addEventListener('keydown', e => {
   if (screen === 'ended') return;
   if (!e.metaKey) e.preventDefault(); // let Cmd shortcuts such as Cmd-R work
@@ -199,10 +285,11 @@ addEventListener('keydown', e => {
   else {
     record(e, ord);
     heldIn.set(e.code, ord);
-    typed = applyKey(passage, typed, e, wrongKeyMode());
-    if (typed === passage) {
+    typed = applyKey(passage.text, typed, e, wrongKeyMode());
+    if (typed === passage.text) {
       finished.push(ord);
       message = '✓ finished';
+      advance();
       nextAttempt();
     }
   }
@@ -216,6 +303,13 @@ addEventListener('keyup', e => {
   heldIn.delete(e.code);
 });
 
+// Pasting a book number or URL into the Gutenberg search.
+addEventListener('paste', e => {
+  if (screen !== 'gutenberg') return;
+  query += e.clipboardData.getData('text');
+  render();
+});
+
 addEventListener('pagehide', () => flush(true));
 setInterval(flush, 1000);
 
@@ -223,15 +317,22 @@ const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&
 const label = k => (k === 'Escape' ? 'Esc' : k);
 
 function passageHTML() {
+  const text = passage.text;
   let h = '';
-  for (let j = 0; j < passage.length; j++) {
-    let cls = '', shown = passage[j];
+  for (let j = 0; j < text.length; j++) {
+    let cls = '', shown = text[j];
     if (j === typed.length) cls = 'cur';
-    else if (j < typed.length && typed[j] === passage[j]) cls = 'ok';
+    else if (j < typed.length && typed[j] === text[j]) cls = 'ok';
     else if (j < typed.length) { cls = 'bad'; shown = typed[j] === ' ' ? '·' : typed[j]; }
     h += `<span class="${cls}">${esc(shown)}</span>`;
   }
-  return `<div class="p">${h}</div>`;
+  return `<div class="p">${h}</div>${nextPassage ? `<div class="p next">${esc(nextPassage.text)}</div>` : ''}`;
+}
+
+// A Passage taller than the screen scrolls to keep the cursor's line a third of the way down.
+function scrollToCursor() {
+  const main = document.querySelector('main'), cur = main.querySelector('.cur');
+  if (cur) main.scrollTop = cur.offsetTop - main.clientHeight / 3;
 }
 
 function menuHTML() {
@@ -244,9 +345,38 @@ function menuHTML() {
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
+const sourceLabel = s => `${s.title} · ${s.at < s.total ? `§${s.at + 1} of ${s.total}` : 'finished, opens from the start'}`;
+
+function sourcesHTML() {
+  return `<div class="menu">${listHTML('Open a Source', sources.map(sourceLabel))}`
+    + `<div class="hint">${sources.length ? chooseHint : 'No Sources yet. <kbd>i</kbd> in the menu imports one.'} <kbd>Esc</kbd> goes back.</div></div>`;
+}
+
+function importHTML() {
+  if (screen === 'import') {
+    return '<div class="menu"><h4>Import a Source</h4><div class="item"><kbd>g</kbd> Project Gutenberg book</div>'
+      + '<div class="hint"><kbd>Esc</kbd> goes back.</div></div>';
+  }
+  if (screen === 'gutenberg') {
+    return `<div class="menu"><h4>Gutenberg: search title and author, or paste a book number or URL</h4>`
+      + `<div class="p">${esc(query)}<span class="cur"> </span></div>`
+      + '<div class="hint"><kbd>Enter</kbd> searches. <kbd>Esc</kbd> goes back.</div></div>';
+  }
+  const labels = results.map(r => `${r.title} · ${r.authors} · #${r.number}`);
+  return `<div class="menu">${listHTML(`Gutenberg books for "${esc(query)}"`, labels)}`
+    + `<div class="hint">${results.length ? '<kbd>Enter</kbd> imports and opens it.' : 'No books found.'} <kbd>Esc</kbd> goes back.</div></div>`;
+}
+
+const PANELS = {
+  menu: menuHTML, help: menuHTML, settings: settingsHTML, sources: sourcesHTML,
+  import: importHTML, gutenberg: importHTML, results: importHTML,
+};
+
 function settingsHTML() {
-  const items = settingRows().map(([table, key, value], i) =>
-    `<div class="item ${i === sel ? 'sel' : ''}">${table}.${key} = ${esc(String(value))}</div>`).join('');
+  const items = settingRows().map(([table, key, value], i) => {
+    const shown = i === sel && editing !== null ? `${esc(editing)}<span class="cur"> </span>` : esc(String(value));
+    return `<div class="item ${i === sel ? 'sel' : ''}">${table}.${key} = ${shown}</div>`;
+  }).join('');
   return `<div class="menu"><h4>Settings</h4>${items}<div class="hint"><kbd>j</kbd>/<kbd>k</kbd> select, <kbd>Enter</kbd> changes the value, <kbd>Esc</kbd> goes back. They are saved in typokiller.toml.</div></div>`;
 }
 
@@ -257,13 +387,14 @@ function listHTML(title, labels) {
 }
 
 function startHTML() {
-  const choose = 'Press a number, or <kbd>j</kbd>/<kbd>k</kbd> and <kbd>Enter</kbd>.';
+  const resumed = resume();
+  const resumes = resumed ? `Resumes ${esc(sourceLabel(resumed))}.` : 'No Source to resume: types the built-in Passage.';
   if (screen === 'boards') {
-    return `${listHTML('Board', boards.map(b => b.name))}<p class="hint">${choose} <kbd>n</kbd> adds a Board.</p>`;
+    return `${listHTML('Board', boards.map(b => b.name))}<p class="hint">${chooseHint} <kbd>n</kbd> adds a Board.</p><p>${resumes}</p>`;
   }
   if (screen === 'keymaps') {
     return `${listHTML(`Keymap on ${esc(board.name)}`, board.keymaps.map(k => k.letter_layout))}`
-      + `<p class="hint">${choose} <kbd>Esc</kbd> goes back.</p>`;
+      + `<p class="hint">${chooseHint} <kbd>Esc</kbd> goes back.</p><p>${resumes}</p>`;
   }
   const step = screen === 'name' ? `Name: ${esc(draft.name)}<span class="cur"> </span>`
     : `Press <kbd>Enter</kbd> to choose the <code>${screen === 'vil' ? '.vil' : 'vial.json'}</code> file.`;
@@ -276,10 +407,12 @@ function render() {
   const mode = starting ? 'start' : { typing: 'typing', ended: 'ended' }[screen] ?? 'paused';
   document.getElementById('app').innerHTML = `
     <main>${screen === 'ended' ? '<p>Session ended. Reload the page to start a new Session.</p>' : starting ? startHTML() : passageHTML()}</main>
-    ${screen === 'settings' ? settingsHTML() : screen === 'menu' || screen === 'help' ? menuHTML() : ''}
-    <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(boardLabel)}</span><span class="grow">built-in Passage</span>
+    ${PANELS[screen]?.() ?? ''}
+    <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(boardLabel)}</span>
+      <span class="grow">${starting ? '' : source ? esc(sourceLabel(source)) : 'built-in Passage'}</span>
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc(message)}</div>`;
+  scrollToCursor();
 }
 
 showBoards();
