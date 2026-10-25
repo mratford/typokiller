@@ -29,7 +29,7 @@ Somewhere text comes from: a Gutenberg book, a code repo or folder, an article s
 _Avoid_: content, material, feed
 
 **Lesson**:
-A Source written by the LLM on request, such as "async with examples".
+A Source the LLM writes on request about a programming topic in one language, such as "async with examples", mixing explanation with examples that have been checked to run.
 _Avoid_: using "lesson" for typing practice in general
 
 **Passage**:
