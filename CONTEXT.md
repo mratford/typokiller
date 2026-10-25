@@ -41,5 +41,15 @@ One typing of a Passage within a Session, finished or abandoned; every keystroke
 _Avoid_: try, run, rep
 
 **Drill**:
-A Passage generated from measured weaknesses rather than taken from a Source.
+A Passage that typokiller generates around chosen Targets rather than taking from a Source; used to practise weaknesses, gather data, or simply practise.
 _Avoid_: exercise, lesson
+
+**Target**:
+A character or pair of characters that a Drill focuses on, because it is measured as weak or has not been measured enough yet.
+_Avoid_: weak spot, focus
+
+### Analysis
+
+**Weakness model**:
+A named, swappable method that ranks a Board's characters and pairs by cost, so different methods can be compared.
+_Avoid_: scorer, algorithm
