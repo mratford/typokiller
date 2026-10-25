@@ -61,3 +61,15 @@ _Avoid_: intro, warm-up
 **Weakness model**:
 A named, swappable method that ranks a Board's characters and pairs by cost, so different methods can be compared.
 _Avoid_: scorer, algorithm
+
+**Error**:
+The first keystroke in a run that doesn't match the Passage at the cursor; it is charged to the character that should have been typed.
+_Avoid_: typo, mispress, mistake (when the counted thing is meant)
+
+**Off-track**:
+A keystroke typed after an Error and before it is fixed; it counts neither as an Error nor towards timings.
+_Avoid_: error (for these keystrokes)
+
+**Fix**:
+Getting from an Error back to the right character in its place; its duration is the fix time.
+_Avoid_: correction
