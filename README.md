@@ -10,3 +10,5 @@ uv run pyright src tests   # type check
 ```
 
 The database is `typokiller.db` in the current directory.
+
+The server tests read real `.vil` and `vial.json` files from the `sweep-layouts` repo, which must sit next to this repo.

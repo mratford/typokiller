@@ -14,13 +14,15 @@ Background work (Lesson generation, git clones, the Gutenberg catalogue refresh)
 
 - `pyproject.toml`, managed with `uv`. `uv run typokiller` starts the server on port 8000 on all interfaces.
 - `src/typokiller/app.py`: the schema, the API and the static file mount.
+- `src/typokiller/keymap.py`: reads the QMK settings and the Letter layout from a `.vil` and a `vial.json`.
 - `src/typokiller/static/`: the page. `typing.js` holds the typing rules and has no DOM code, so Node can test it.
 - `tests/`: `pytest` for the API, `node --test` for `typing.js`.
 - The database is `typokiller.db` in the working directory.
 
 ## Consequences
 
-- The schema is created with `CREATE TABLE IF NOT EXISTS`. A later ticket that changes a table has to add its own `ALTER TABLE`.
+- The schema is created with `CREATE TABLE IF NOT EXISTS`. A later ticket that changes a table has to add its own `ALTER TABLE`. #20 added `session.keymap_version` this way; Sessions stored before then have NULL there.
+- A Board stores its `vial.json` and has one row in `keymap_version` for each distinct `.vil`, keyed by a hash of the file. A Keymap is not stored: it is a Board with one Letter layout, and its versions are the `.vil` files of that Board with that Letter layout. A new Session uses the newest version. Adding a Board with a name that exists adds the `.vil` to that Board and replaces its `vial.json`. The Letter layout is computed on read, so a `.vil` that changes its letters starts a new Keymap.
 - A Session has no stored end time. It is computed when the data is read, as `started` plus the `t` of the Session's last key event. `t` counts from page load, which is a little before `started`, so the result is a little late. A stored end time was tried, but it could not be sent reliably when the tab closes. The spec (§5) lists "end" on Session; this is the change.
 - The browser keeps key events until the server confirms it has stored them, and sends them again until then. The server ignores events it already has, so batches may overlap. The last batch before the page closes is sent with `keepalive`, which Chrome limits to 64 KB, so only that batch uses it.
 - The server stores an Attempt when it receives the Attempt's first key event. The Attempt stays abandoned unless the page reports it as finished. So an Attempt with no key events, such as a restart before typing anything, is not stored.

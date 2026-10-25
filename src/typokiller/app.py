@@ -1,3 +1,5 @@
+import hashlib
+import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,6 +10,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from typokiller.keymap import letter_layout
+
 # A placeholder until Sources are imported.
 PASSAGE = (
     "It is a truth universally acknowledged, that a single man in possession "
@@ -15,7 +19,9 @@ PASSAGE = (
 )
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS session (id INTEGER PRIMARY KEY, started TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS board (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, vial TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS keymap_version (hash TEXT PRIMARY KEY, board INTEGER NOT NULL, vil TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS session (id INTEGER PRIMARY KEY, started TEXT NOT NULL, keymap_version TEXT);
 CREATE TABLE IF NOT EXISTS attempt (
     session INTEGER NOT NULL,
     ord INTEGER NOT NULL,
@@ -59,17 +65,71 @@ class Batch(BaseModel):
     finished: list[int] = []  # the ords of Attempts that finished
 
 
+class NewSession(BaseModel):
+    keymap_version: str  # its hash
+
+
+class NewBoard(BaseModel):
+    name: str
+    vil: str  # the text of the .vil file
+    vial: str  # the text of the vial.json file
+
+
 def create_app(db_path: Path) -> FastAPI:
     db = sqlite3.connect(db_path, check_same_thread=False)
     db.executescript(SCHEMA)
+    # Databases made before Sessions had a Keymap version get the column here.
+    # Their Sessions keep NULL.
+    if "keymap_version" not in [column[1] for column in db.execute("PRAGMA table_info(session)")]:
+        db.execute("ALTER TABLE session ADD COLUMN keymap_version TEXT")
 
     app = FastAPI()
 
+    # Adding a Board with a name that exists adds the .vil to that Board and
+    # replaces its vial.json. A .vil that is already stored changes nothing.
+    @app.post("/api/boards")
+    async def add_board(new: NewBoard):
+        with db:
+            (board,) = db.execute(
+                "INSERT INTO board (name, vial) VALUES (?, ?)"
+                " ON CONFLICT (name) DO UPDATE SET vial = excluded.vial RETURNING id",
+                (new.name, new.vial),
+            ).fetchone()
+            db.execute(
+                "INSERT OR IGNORE INTO keymap_version VALUES (?, ?, ?)",
+                (hashlib.sha256(new.vil.encode()).hexdigest(), board, new.vil),
+            )
+        return {"board": board}
+
+    # A Keymap is a Board with one Letter layout. Its versions are the .vil files
+    # with that Letter layout, and a new Session uses the newest one. Each Board
+    # lists its Keymaps with the last used first. `last` is the last used Board.
+    @app.get("/api/boards")
+    async def boards():
+        found: dict[int, dict] = {}
+        for board, name, vial, version, vil, used in db.execute(
+            "SELECT board.id, name, vial, hash, vil, (SELECT max(id) FROM session WHERE keymap_version = hash)"
+            " FROM board JOIN keymap_version ON board = board.id"
+            " ORDER BY board.id, keymap_version.rowid"  # oldest version first
+        ):
+            keymaps = found.setdefault(board, {"id": board, "name": name, "keymaps": {}})["keymaps"]
+            layout = letter_layout(json.loads(vil), json.loads(vial))
+            used = max(used or 0, keymaps.get(layout, {"used": 0})["used"])  # the last Session's id, or 0
+            keymaps[layout] = {"letter_layout": layout, "version": version, "used": used}
+        last = db.execute(
+            "SELECT board FROM session JOIN keymap_version ON hash = keymap_version ORDER BY session.id DESC LIMIT 1"
+        ).fetchone()
+        for b in found.values():
+            b["keymaps"] = sorted(b["keymaps"].values(), key=lambda k: -k["used"])
+        return {"boards": list(found.values()), "last": last and last[0]}
+
     @app.post("/api/sessions")
-    async def start_session():
+    async def start_session(new: NewSession):
         with db:
             started = datetime.now(UTC).isoformat()
-            session = db.execute("INSERT INTO session (started) VALUES (?)", (started,)).lastrowid
+            session = db.execute(
+                "INSERT INTO session (started, keymap_version) VALUES (?, ?)", (started, new.keymap_version)
+            ).lastrowid
         return {"session": session, "passage": PASSAGE}
 
     # An Attempt is stored with its first key event and stays abandoned unless a
