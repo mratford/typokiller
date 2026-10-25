@@ -319,6 +319,61 @@ A cheap calibration experiment answers most of these: record a session of mixed 
 keys with a simple page that logs `keydown`/`keyup`, `event.timeStamp`, `performance.now()` and `repeat`, and look at
 the distribution of dwell and inter-event gaps by key class.
 
+## 11. Calibration on real hardware (ticket #12, 2026-10-25)
+
+Recorded with the throwaway page in [`key-calibration/`](key-calibration/) (`server.py`, `index.html`; summary in
+`analyse.py`; raw logs in `key-calibration/logs/`). One Board, the **Cheapino v2 running the QWERTY keymap**
+(`sweep-layouts/vil/cheapino.vil`, same QMK settings as every other Board), wired, on macOS, one run each in **Chrome
+155** and **Firefox**: about 1,200 and 1,050 key events across 17 scripted steps. The Sweep, Sofle and Q3 Max were
+dropped: the event shapes come from the firmware and its settings, which all Boards share, and the free-range Boards
+would have meant hunting for keys.
+
+### Confirmed
+
+| Prediction | Observed (Chrome / Firefox) |
+| --- | --- |
+| Tapped mod-tap arrives as down+up at the physical release | Dwell median 0.3 / 0.0 ms; 97% / 83% under 2 ms (the rest are quick taps, below) |
+| Tapped layer-tap (Space, Esc, Tab) likewise | Dwell median 0.4 / 0.0 ms; 99% / 91% under 2 ms |
+| Quick tap term: re-tap within 120 ms is immediate | Firefox run re-tapped each mod-tap ~100 ms after the first: second tap kept a real 35-80 ms dwell |
+| Held mod-tap alone: modifier down, nothing typed on release | Shift down, Shift up at release, no letter (retro tapping off) |
+| Held layer-tap invisible | No event for the held Space; SYM keys arrive with their own codes |
+| Combo constituents typed alone lose up to 40 ms of dwell | J/K/L dwell median 34 / 44 ms against 86 / 83 ms for other plain keys (L alone: 30 / 36 ms) |
+| Combo output is one key event, constituents invisible | J+K, J+L, K+L gave one Escape / Enter / Backspace each, with a 40-90 ms dwell to the last release |
+| Shifted keycodes wrap the key in a synthetic Shift | ShiftLeft down 0.3-1.8 ms before the key, up 0.2-0.8 ms after its up, for the key's full dwell |
+| Caps Word: no event for the toggle, Shift tied to the letters | ShiftLeft down < 1 ms before the first letter, held across the word, up < 1 ms before Space; times out after 5 s idle |
+| Shift + `_` override gives `-` with a Shift flicker | Shift up, `Minus` down (`-`, no Shift), then at the trigger's release Shift down, `Minus` up |
+| Browser clocks | Chrome 0.1 ms steps; Firefox whole ms. Handler lag (`now - timeStamp`) median 3-4 ms, p95 ~15 ms, max 67 ms: irrelevant because `timeStamp` is used |
+| Auto-repeat marked `repeat` | Chrome: first repeat 500 ms after the press, then every ~34 ms |
+
+### Different from the predictions
+
+1. **Firefox drops the key-up of a key pressed while Cmd is held.** All 4 Cmd+A chords in Firefox had no `KeyA`
+   keyup, and a 2.6 s hold produced no repeat events either. Chrome delivered every keyup (and repeats). The recorder
+   must close key-downs that never get a key-up (for example at the modifier's release) and flag them, and Chrome is
+   the better browser for practice.
+2. **A key-up's `key` can differ from its key-down's.** The override sends `Minus` down as `-` and up as `_`; rolling
+   two shifted symbols (`}` then `?`) shared one synthetic Shift, so `?` went down as `?` and came up as `/` after the
+   first key released it. Pair down and up by `code`, take the character from the key-down, never match on `key`.
+3. **Macros are ~1 ms per event, not ~10 ms.** `->` and `|>` arrive as 6-8 events within about 3 ms in total (0 ms
+   at Firefox's resolution): `tap_code_delay` (setting 18) is not set in the `.vil`, so it is 0. Macro detection by
+   timing: a burst of events a few ms apart from no preceding press. `|>` typed `|>` on macOS, as expected.
+4. Twice in Chrome a held Shift mod-tap's modifier arrived < 1 ms before the nested key's down, with the nested key
+   keeping its full dwell: the tap-hold timeout settled on that key's press. Either way the modifier's down is not the
+   finger's down, as predicted.
+
+### Not tested
+
+- **Permissive hold** (a key tapped inside a mod-tap's 200 ms term, which should arrive with down = up): every nested
+  hold was held past the tapping term first, so all were timeouts.
+- **Rolls off a tap-hold key** (next key down < 2 ms after a collapsed tap): typing on the Cheapino was steady, with
+  almost no overlap (6 of 530 key-downs in Chrome, 53 of 468 in Firefox), and none touched a tap-hold key.
+- Quick-tap auto-repeat on Space, `-` under Caps Word, plain-key auto-repeat in Firefox.
+- The Q3 Max (`|>` probably typing `~>` under UK Windows), Windows browsers, wireless Boards, Safari.
+- Debounce and USB polling: not looked up. They are constant per event and cancel in dwell and flight.
+
+None of these change the design: raw events are stored and keys are classified from the Keymap, so these cases can
+be checked from real practice data later.
+
 ---
 
 ## Implications for typokiller
@@ -330,6 +385,8 @@ the distribution of dwell and inter-event gaps by key class.
 2. **Do not use cross-origin isolation, and do not worry about browser choice.** Browser clock resolution (0.1 ms
    Chrome, 1 ms Safari and Firefox) is below the 1 ms USB floor. Prefer `event.timeStamp` and keep one browser per
    Board for consistency. On Windows, prefer not to use Chrome for timing studies, or log which OS and browser.
+   *Calibration (section 11):* browser choice does matter for one thing: Firefox on macOS drops key-ups under Cmd.
+   Prefer Chrome, and pair key-downs with key-ups by `code`, tolerating a missing key-up.
 3. **Classify every physical key from the Keymap** (ticket #2 supplies the `.vil` import): plain, mod-tap, layer-tap,
    combo constituent, combo output, macro output. Tag each stored event with its class and the Board's QMK settings
    (tapping term, permissive hold, combo term, quick tap term, `tap_code_delay`, debounce) so analysis can apply the
@@ -354,6 +411,6 @@ the distribution of dwell and inter-event gaps by key class.
    all, until a model of tap-hold effects has been validated.
 8. **Make the settings part of the data.** If the Board's tapping term or combo term is changed in Vial, old data has
    different biases; record the settings in the Session (or Board revision) so analyses can stratify.
-9. **First build task: a calibration page.** Before trusting any statistic, record a Session on each Board with
+9. **First build task: a calibration page.** *(Done for the Cheapino: section 11.)* Before trusting any statistic, record a Session on each Board with
    deliberately varied keys and check the key-class dwell and gap distributions against the model in this note
    (answers section 10, and tells you the real `tap_code_delay`, debounce and polling effects).

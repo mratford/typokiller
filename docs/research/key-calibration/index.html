@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Key calibration</title>
+<style>
+  :root { --bg: #fafaf8; --fg: #1d1d1b; --mute: #6b6b66; --line: #ddd; --hi: #2a6df4; --warn: #b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #18181a; --fg: #e8e8e4; --mute: #9a9a94; --line: #333; --hi: #7aa6ff; --warn: #ff8a80; } }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 980px; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  select, button { font: inherit; padding: 4px 10px; }
+  #step { border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; margin: 12px 0; }
+  #step h2 { font-size: 16px; margin: 0 0 6px; }
+  #step .do { font-size: 17px; }
+  #step .predict { color: var(--mute); font-size: 13px; margin-top: 8px; }
+  code, kbd { font-family: ui-monospace, Menlo, monospace; }
+  kbd { border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; }
+  #echo { font: 20px/1.4 ui-monospace, Menlo, monospace; min-height: 1.6em; border-bottom: 2px solid var(--hi); padding: 4px 0; white-space: pre-wrap; word-break: break-all; }
+  #focus { color: var(--warn); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font: 12px ui-monospace, Menlo, monospace; margin-top: 8px; }
+  td, th { border-bottom: 1px solid var(--line); padding: 2px 6px; text-align: left; }
+  td.n { text-align: right; }
+  .up { color: var(--mute); }
+  #status { color: var(--mute); }
+</style>
+</head>
+<body>
+<h1>Key calibration</h1>
+<div class="row">
+  <label>Board <select id="board">
+    <option value="cheapino">Cheapino (QWERTY, macOS)</option>
+  </select></label>
+  <span id="env"></span>
+</div>
+<div class="row">
+  <button id="prev">◀ Back</button>
+  <button id="redo">Redo this step</button>
+  <button id="next">Next ▶</button>
+  <button id="save">Save to server</button>
+  <span id="status"></span>
+</div>
+<p style="color:var(--mute);font-size:13px;margin:0">Use the mouse for these buttons so they don't add key events. Every key you press is captured (and blocked from the browser) while this tab has focus. Don't press Cmd+Q or Cmd+W.</p>
+<div id="step"></div>
+<div id="focus"></div>
+<div id="echo"></div>
+<table><thead><tr><th>type</th><th>key</th><th>code</th><th>loc</th><th>mods</th><th>rep</th><th class="n">t (ms)</th><th class="n">Δ prev</th><th class="n">dwell</th><th class="n">lag</th></tr></thead><tbody id="log"></tbody></table>
+
+<script>
+// Per-board facts from ../sweep-layouts/vil/*.vil, used only to word the instructions.
+const BOARDS = {
+  cheapino: { os: "mac", plainWords: "rose tan site", modtaps: "z x c v   m , . '", rollWords: "move cave mix", lsft: "V", rsft: "M", cmdModtap: "'", realShift: null, realCmd: null,
+           space: "the Space thumb (hold = SYM)", capsCombo: "V+M together", jklCombos: true, repeatKey: "Space: tap it, then press and hold within 120 ms" },
+};
+
+function steps(b) {
+  const B = BOARDS[b];
+  const s = [
+    { id: "plain-slow", title: "Plain keys, slow", do: `Type <code>${B.plainWords}</code> slowly, one deliberate key at a time, 3 times. Tap Space between words.`,
+      predict: "Letters: down then up, dwell ~60–120 ms. Space (a layer-tap) arrives as down+up together at its release." },
+    { id: "plain-fast", title: "Plain keys, fast", do: `Type <code>${B.plainWords}</code> at full speed, 5 times.`,
+      predict: "Overlapping rolls between plain keys are visible (next down before previous up)." },
+    { id: "modtap-tap", title: "Mod-tap taps", do: `Tap each bottom-row mod-tap letter alone, slowly, twice each: <code>${B.modtaps}</code>`,
+      predict: "Each arrives at its physical release as down+up within ~0–2 ms. No modifier events." },
+    { id: "modtap-roll", title: "Mod-tap rolls", do: `Type <code>${B.rollWords}</code> at normal speed, 5 times.`,
+      predict: "A key rolled after a mod-tap arrives ~0–1 ms after the mod-tap's down+up. Rolls stay taps (no capitals)." },
+    { id: "modtap-hold-nested", title: "Mod-tap hold (permissive hold)", do: `Hold ${B.lsft} (left Shift mod-tap), tap <code>r</code>, release ${B.lsft}. Then hold ${B.rsft} (right Shift mod-tap), tap <code>s</code>, release. 3 times each.`,
+      predict: "ShiftLeft/ShiftRight down at the nested key's release, then R/S down+up together right after; Shift up at the mod-tap release." },
+    { id: "modtap-hold-timeout", title: "Mod-tap hold alone (timeout)", do: `Hold ${B.lsft} alone for about 1 second and release, without pressing anything else. 3 times.`,
+      predict: "ShiftLeft down ~200 ms after the finger went down, up at release. No letter (retro tapping off)." },
+    { id: "space-tap", title: "Layer-tap taps", do: `Tap ${B.space} slowly 5 times. Then tap Esc (thumb) 3 times${b === "q3_max" ? "" : " and Tab (thumb) 3 times"}.`,
+      predict: "Each tap: down+up together at the physical release." },
+    { id: "layer-hold", title: "Layer-tap hold", do: `Hold ${B.space}, type <code>&lt;&gt;&lt;&gt;</code> on SYM, release. 3 times.`,
+      predict: "Nothing for the held thumb. < and > each come with a ShiftLeft wrapped tightly around them (shifted keycodes)." },
+    { id: "shifted", title: "Shifted keycodes", do: `On SYM, type <code>! ( ) { } @ ~</code> slowly, then the same quickly.`,
+      predict: "ShiftLeft down a few ms or less before each key, Shift up right after the key up (or before the next key)." },
+    { id: "override", title: "Shift + _ override", do: `Hold ${B.lsft} (Shift mod-tap) and tap the <code>_</code> key: should type <code>-</code>. 3 times.${B.realShift ? ` Then the same with ${B.realShift} held, 3 times.` : ""}`,
+      predict: "Minus with shiftKey false; maybe a brief Shift up/down flicker around it." },
+    { id: "caps-word", title: "Caps Word", do: `Press ${B.capsCombo} to start Caps Word, type <code>rose_tan</code>, then Space. Twice. Then start it again, type <code>abc-def</code> (- from SYM), Space.`,
+      predict: "No event for the combo. ShiftLeft appears tied to each letter; _ stays _; - becomes _. Shift gone after Space." },
+    { id: "macros", title: "Macros", do: `On SYM, tap the <code>-&gt;</code> macro key 3 times, then the <code>|&gt;</code> macro key 3 times.`,
+      predict: b === "q3_max" ? "Bursts ~10 ms apart from one press. |> may type ~> under UK Windows." : "Bursts ~10 ms apart from one press: Minus, Shift+Period; Shift+Backslash, Shift+Period." },
+    { id: "repeat", title: "Auto-repeat", do: `Hold ${B.repeatKey} for about 2 seconds, release. Twice.`,
+      predict: "One non-repeat keydown, then repeat=true keydowns at the OS rate, one keyup." },
+  ];
+  if (B.jklCombos) s.splice(7, 0,
+    { id: "combos", title: "Combos", do: "Press J+K together (Esc) 3 times, J+L (Enter) 3 times, K+L (Backspace) 3 times.",
+      predict: "One Escape/Enter/Backspace event per combo; no J, K or L events." },
+    { id: "combo-keys-alone", title: "Combo keys typed alone", do: "Type <code>kill jolly lake</code> at normal speed, 3 times.",
+      predict: "J, K, L downs are up to 40 ms late; quick taps may arrive with down and up together." });
+  if (B.os === "mac") s.push(
+    { id: "cmd-chord", title: "Command chords", do: `Hold ${B.cmdModtap} (right Cmd mod-tap), tap <code>a</code>, release. 3 times.${B.realCmd ? ` Then the same with ${B.realCmd}, 3 times.` : ""} Then hold ${B.cmdModtap}, press A, and keep Cmd held while you release A slowly.`,
+      predict: "MetaRight down; the A keyup may be missing while Cmd is held (macOS quirk)." });
+  s.push({ id: "free", title: "Free typing", do: "Type <code>the quick brown fox jumps over the lazy dog</code> 3 times at natural speed, then <code>def f(x): return x * 2</code> once.",
+           predict: "Distribution of dwell and flight by key class." });
+  return s;
+}
+
+const env = (() => {
+  const ua = navigator.userAgent;
+  const browser = /Firefox\//.test(ua) ? "firefox" : /Edg\//.test(ua) ? "edge" : /Chrome\//.test(ua) ? "chrome" : /Safari\//.test(ua) ? "safari" : "other";
+  const os = /Mac OS X/.test(ua) ? "mac" : /Windows/.test(ua) ? "win" : "other";
+  return { browser, os, ua, crossOriginIsolated: self.crossOriginIsolated, timeOrigin: performance.timeOrigin };
+})();
+document.getElementById("env").textContent = `${env.browser} on ${env.os}`;
+
+const newRun = () => new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
+let run = newRun(), events = [], i = 0, list = steps(boardSel().value);
+function boardSel() { return document.getElementById("board"); }
+
+function render() {
+  const st = list[i];
+  document.getElementById("step").innerHTML =
+    `<h2>${i + 1}/${list.length} · ${st.title}</h2><div class="do">${st.do}</div><div class="predict">Prediction: ${st.predict}</div>`;
+  document.getElementById("echo").textContent = "";
+  document.getElementById("log").innerHTML = "";
+  last = null; downAt = {};
+}
+
+// A new Board starts a new run, so one log file never mixes Boards.
+boardSel().addEventListener("change", () => { list = steps(boardSel().value); i = 0; run = newRun(); events = []; render(); });
+document.getElementById("next").onclick = () => { if (i < list.length - 1) { i++; render(); } save(); };
+document.getElementById("prev").onclick = () => { if (i > 0) { i--; render(); } };
+document.getElementById("redo").onclick = () => { events = events.filter(e => e.step !== list[i].id); render(); };
+document.getElementById("save").onclick = save;
+
+let last = null, downAt = {};
+function onKey(e) {
+  const ev = {
+    step: list[i].id, type: e.type, key: e.key, code: e.code, location: e.location, repeat: e.repeat, isComposing: e.isComposing,
+    shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey,
+    altGraph: e.getModifierState("AltGraph"), capsLock: e.getModifierState("CapsLock"),
+    t: e.timeStamp, now: performance.now(),
+  };
+  events.push(ev);
+  e.preventDefault();
+  e.stopPropagation();
+  show(ev);
+}
+window.addEventListener("keydown", onKey, true);
+window.addEventListener("keyup", onKey, true);
+for (const type of ["blur", "focus"]) window.addEventListener(type, e => {
+  events.push({ step: list[i].id, type, t: e.timeStamp, now: performance.now() });
+  document.getElementById("focus").textContent = type === "blur" ? "Tab lost focus: click on the page before typing." : "";
+});
+
+function show(ev) {
+  const echo = document.getElementById("echo");
+  if (ev.type === "keydown") {
+    if (ev.key.length === 1) echo.textContent += ev.key;
+    else if (ev.key === "Backspace") echo.textContent = echo.textContent.slice(0, -1);
+    else if (ev.key === "Enter") echo.textContent += "⏎";
+  }
+  const mods = (ev.shift ? "S" : "") + (ev.ctrl ? "C" : "") + (ev.alt ? "A" : "") + (ev.meta ? "M" : "");
+  const dPrev = last == null ? "" : (ev.t - last).toFixed(1);
+  let dwell = "";
+  if (ev.type === "keydown" && !ev.repeat) downAt[ev.code] = ev.t;
+  if (ev.type === "keyup" && ev.code in downAt) { dwell = (ev.t - downAt[ev.code]).toFixed(1); delete downAt[ev.code]; }
+  last = ev.t;
+  const tr = document.createElement("tr");
+  if (ev.type === "keyup") tr.className = "up";
+  tr.innerHTML = [ev.type, JSON.stringify(ev.key), ev.code, ev.location, mods, ev.repeat ? "r" : "", ev.t.toFixed(1), dPrev, dwell, (ev.now - ev.t).toFixed(1)]
+    .map((v, k) => `<td${k >= 6 ? ' class="n"' : ""}>${v}</td>`).join("");
+  const log = document.getElementById("log");
+  log.prepend(tr);
+  while (log.children.length > 30) log.lastChild.remove();
+}
+
+async function save() {
+  const status = document.getElementById("status");
+  try {
+    const r = await fetch("/log", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run, board: boardSel().value, ...env, steps: list.map(s => s.id), events }) });
+    status.textContent = `saved ${(await r.json()).saved} (${events.length} events)`;
+  } catch (err) { status.textContent = `save failed: ${err}`; }
+}
+
+render();
+</script>
+</body>
+</html>
