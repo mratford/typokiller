@@ -157,3 +157,35 @@ DeepSeek and Mistral both fall short on verifiable data terms from the pages I c
 5. **OpenRouter is optional**: useful for the bake-off and as a single-key, single-cap way to switch models later, at the cost of a 5.5% credit fee and an extra intermediary. For production, going direct to one or two providers is simpler.
 6. **Design implications for typokiller**: (a) put model choice behind a provider-neutral Lesson-generation interface so model and language can be swapped per request; (b) validate generated Gleam (and Python) code blocks automatically before a Lesson is saved or split into Passages; (c) turn reasoning off or low and cap `max_tokens`; (d) keep a local month-to-date cost ledger and set a provider-side spend limit of about $6.70 (£5) as the backstop; (e) skip caching and Batch in v1.
 7. **Assumptions to re-check once real Lessons exist**: the 4,000-token output estimate (measure it), the £1 = $1.337 rate, prompt-token growth if a Gleam cheat sheet is added, and the unverified items flagged above (DeepSeek and Mistral data terms and caps, Anthropic's spend-limit minimum and lag, Gemini free-tier rate limits).
+
+## 8. Bake-off results (issue #11)
+
+Run 2026-10-25 through OpenRouter, total spend **$0.84**. Harness, prompts, all 48 Lessons and raw results are in `docs/research/lesson-trial/` (`trial.py`, `lessons/`, `results/`); `build_viewer.py` renders them side by side.
+
+**Setup.** 4 models (Claude Haiku 5.5, Claude Sonnet 5.5, GPT-6 Luna, GPT-6.1 Sol) x 2 languages (Gleam, Python) x 6 topics (pattern matching, error handling, lists and recursion, custom types, string processing, concurrency). Same system prompt for all: a 1,200 to 1,500 word Lesson with 3 to 5 examples, each a complete program (Gleam: full module with `pub fn main() -> Nil`, only gleam_stdlib 1.0, gleam_erlang 1.3, gleam_otp 1.3; Python: stdlib-only script), plain ASCII. Reasoning effort `low`, `max_tokens` 8,000. Every fenced block was built and run in isolation: `gleam build` then `gleam run -m lesson` (gleam 1.18.1), or `py_compile` then run (Python 3.14), with a timeout.
+
+| Model | Lang | Blocks compile | Blocks run | Lessons all-pass | Mean out tok | Mean reasoning tok | Mean cost | Mean secs |
+|---|---|---|---|---|---|---|---|---|
+| Haiku 5.5 | Gleam | 21/32 (66%) | 18/32 (56%) | 0/6 | 4,843 | 2,239 | $0.0024 | 22 |
+| Sonnet 5.5 | Gleam | 27/28 (96%) | 26/28 (93%) | 4/6 | 4,943 | 1,524 | $0.0499 | 33 |
+| GPT-6 Luna | Gleam | 20/28 (71%) | 20/28 (71%) | 2/6 | 2,612 | 976 | $0.0013 | 29 |
+| GPT-6.1 Sol | Gleam | 25/25 (100%) | 25/25 (100%) | 6/6 | 2,521 | 408 | $0.0256 | 53 |
+| Haiku 5.5 | Python | 27/27 | 27/27 | 6/6 | 3,224 | 1,078 | $0.0016 | 14 |
+| Sonnet 5.5 | Python | 29/29 | 29/29 | 6/6 | 3,414 | 223 | $0.0345 | 23 |
+| GPT-6 Luna | Python | 27/27 | 27/27 | 6/6 | 2,390 | 503 | $0.0012 | 25 |
+| GPT-6.1 Sol | Python | 24/24 | 24/24 | 6/6 | 2,293 | 129 | $0.0232 | 43 |
+
+**Gleam failure modes.**
+
+- Haiku 5.5: hallucinated or stale APIs (`list.range` x3, `process.start` in all 4 concurrency blocks), 3 syntax errors, 3 modules with no `main` (compile but break the prompt's rule).
+- GPT-6 Luna: old or invented syntax and APIs in concurrency (all 4 blocks fail, e.g. `process.receive_timeout`), `>` on Floats, unknown modules.
+- Sonnet 5.5: one `list.range`, one module with no `main`.
+- GPT-6.1 Sol: none.
+
+**Other observations.**
+
+- Python is solved: every model's every block ran. Haiku's Python Lessons often run short (751 to 1,267 words against a 1,200 to 1,500 target); Sol's are the most consistent (1,325 to 1,476 words).
+- Measured costs are close to section 3's estimates for the small models; Sonnet runs about 60% over (longer output plus reasoning tokens), still about 5 cents per Gleam Lesson.
+- Non-ASCII characters were near zero for every model (0 to 3 across 12 Lessons).
+
+**Decision** (human, after reading the Lessons side by side): **Claude Sonnet 5.5 writes Gleam Lessons; Claude Haiku 5.5 writes Python Lessons.** Sonnet's residual Gleam errors (about 1 block in 14) are what the build-and-run validation with regeneration (section 7 / recommendation 6b) exists to catch, and a missing `main` should count as a validation failure. GPT-6.1 Sol scored best on Gleam and stays the obvious swap behind the provider-neutral interface if Sonnet's failure rate proves annoying in practice.
