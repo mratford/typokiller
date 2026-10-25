@@ -48,6 +48,14 @@ _Avoid_: exercise, lesson
 A character or pair of characters that a Drill focuses on, because it is measured as weak or has not been measured enough yet.
 _Avoid_: weak spot, focus
 
+**Unlocked keys**:
+The keys of a Letter layout that Drills may use while that layout is being learned; the set only ever grows.
+_Avoid_: unlocked letters (punctuation keys count too), level
+
+**Introduction Drill**:
+A Drill built around a key that has just been unlocked.
+_Avoid_: intro, warm-up
+
 ### Analysis
 
 **Weakness model**:
