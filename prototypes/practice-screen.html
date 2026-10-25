@@ -1,0 +1,736 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. Answers the wayfinder ticket
+  "What does the practice screen look like and how is it driven?"
+  Three variants of the practice screen, switchable via ?variant=A|B|C or ←/→ (the floating pill).
+  Run: open prototypes/practice-screen.html
+  Everything is in memory and fake: no server, no events stored.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice Screen Prototype</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #23221f; --dim: #a29e94; --faint: #d9d5cc; --bad: #c62828; --badbg: #fde4e4;
+  --ok: #2e7d32; --acc: #3456d6; --line: #e5e1d8; --panel: #ffffff; --warn: #b26a00;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16171a; --fg: #e8e6e1; --dim: #75726b; --faint: #3a3a3d; --bad: #ff7070; --badbg: #3d1f23;
+    --ok: #7bd88f; --acc: #8fa8ff; --line: #2d2e33; --panel: #1f2024; --warn: #f0b04a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+kbd { font: 12px var(--mono); border: 1px solid var(--faint); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+.mono { font-family: var(--mono); }
+.dim { color: var(--dim); }
+input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; width: 100%; }
+input:focus { outline: 2px solid var(--acc); outline-offset: 0; }
+
+/* Passage characters, shared */
+.p { white-space: pre-wrap; word-break: break-word; }
+.p .u { color: var(--fg); }
+.p .ok { color: var(--dim); }
+.p .bad { color: var(--bad); background: var(--badbg); border-radius: 2px; }
+.p .cur { box-shadow: inset 0 -2px 0 var(--fg); }
+.p .nl { color: var(--faint); }
+.p .code-span { font-family: var(--mono); font-size: 0.92em; }
+.p.code { font-family: var(--mono); }
+
+/* Switcher (prototype only) */
+#switcher { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: 99;
+  display: flex; gap: 10px; align-items: center; background: #111; color: #fff; padding: 6px 14px; border-radius: 999px;
+  font: 12px var(--mono); box-shadow: 0 4px 16px rgba(0,0,0,.35); opacity: .85; }
+#switcher button { background: none; border: 0; color: #fff; font: inherit; cursor: pointer; padding: 0 4px; }
+
+/* Shared list styling */
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { padding: 3px 8px; border-radius: 4px; display: flex; gap: 10px; align-items: baseline; }
+.list li.sel { background: var(--acc); color: #fff; }
+.list li.sel .dim { color: #dfe5ff; }
+.list .k { font-family: var(--mono); min-width: 1.5em; }
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 6px 24px; }
+.groups h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+.groups .it { display: flex; gap: 8px; padding: 1px 0; }
+.groups .it.off { color: var(--dim); text-decoration: line-through; }
+.groups .new { font-size: 10px; color: var(--warn); }
+.panel-title { font-weight: 600; margin-bottom: 8px; }
+.hint { font-size: 12px; color: var(--dim); margin-top: 8px; }
+.refuse { color: var(--bad); }
+.keys30 { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; font-family: var(--mono); }
+.keys30 span { text-align: center; border-radius: 3px; padding: 1px 0; font-size: 13px; }
+.keys30 .on { background: var(--faint); }
+.keys30 .slow { background: var(--badbg); color: var(--bad); }
+.keys30 .next { outline: 2px dashed var(--acc); }
+.keys30 .off { color: var(--faint); }
+table.t { border-collapse: collapse; font-size: 13px; }
+table.t td, table.t th { padding: 2px 10px 2px 0; text-align: left; }
+table.t th { color: var(--dim); font-weight: 500; }
+
+/* ---------- Variant A: Zen ---------- */
+.A { min-height: 100vh; display: flex; flex-direction: column; }
+.A-top { height: 40px; padding: 10px 24px; font-size: 13px; color: var(--dim); display: flex; justify-content: space-between; }
+.A-main { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 760px; margin: 0 auto; width: 100%; padding: 0 24px 140px; }
+.A-head { color: var(--dim); font-size: 14px; margin-bottom: 10px; }
+.A .p { font-size: 26px; line-height: 1.6; }
+.A .p.code { font-size: 20px; }
+.A-foot { margin-top: 28px; font-size: 13px; color: var(--dim); }
+.A-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.25); display: flex; align-items: center; justify-content: center; }
+.A-modal { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; width: min(640px, 92vw); box-shadow: 0 10px 40px rgba(0,0,0,.2); }
+.A-sum { text-align: center; }
+.A-sum .big { font-size: 44px; font-weight: 600; }
+.A-sum .row { display: flex; gap: 48px; justify-content: center; margin: 12px 0; }
+.A-toasts { position: fixed; top: 12px; right: 16px; display: flex; flex-direction: column; gap: 6px; }
+.A-toast { font-size: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; color: var(--dim); }
+
+/* ---------- Variant B: Vim ---------- */
+.B { height: 100vh; display: flex; flex-direction: column; font-family: var(--mono); font-size: 15px; }
+.B-doc { flex: 1; overflow: hidden; padding: 24px 48px; max-width: 980px; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+.B-doc .ctx { color: var(--faint); max-height: 6em; overflow: hidden; }
+.B-doc h3 { margin: 0; font-size: 15px; color: var(--acc); }
+.B .p { font-size: 18px; line-height: 1.7; }
+.B-wk { border-top: 1px solid var(--line); background: var(--panel); padding: 10px 16px; }
+.B-status { display: flex; background: var(--acc); color: #fff; font-size: 13px; }
+.B-status > span { padding: 2px 10px; white-space: nowrap; }
+.B-status .mode { background: rgba(0,0,0,.25); font-weight: 700; }
+.B-status .grow { flex: 1; }
+.B-msg { height: 24px; padding: 2px 10px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Variant C: Cockpit ---------- */
+.C { min-height: 100vh; display: flex; flex-direction: column; }
+.C-hdr { display: flex; gap: 18px; padding: 8px 20px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+.C-hdr b { color: var(--fg); }
+.C-grid { flex: 1; display: grid; grid-template-columns: 1fr 340px; }
+.C-main { padding: 28px 36px; }
+.C-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 22px 26px; }
+.C .p { font-size: 21px; line-height: 1.65; }
+.C .p.code { font-size: 17px; }
+.C-meta { font-size: 13px; color: var(--dim); margin: 0 0 8px; display: flex; gap: 14px; }
+.C-side { border-left: 1px solid var(--line); padding: 16px; display: flex; flex-direction: column; gap: 16px; font-size: 13px; }
+.C-side section h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+.C-stat { display: flex; gap: 16px; }
+.C-stat div b { display: block; font-size: 24px; }
+.bar { height: 6px; background: var(--faint); border-radius: 3px; position: relative; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--ok); }
+.bar i.slow { background: var(--bad); }
+.costrow { display: grid; grid-template-columns: 2em 1fr 4em; gap: 6px; align-items: center; font-family: var(--mono); }
+
+/* ---------- Variant D: A's text + B's status line, muted ---------- */
+.D { height: 100vh; display: flex; flex-direction: column; }
+.D-main { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 760px; margin: 0 auto; width: 100%; padding: 0 24px 60px; }
+.D .p { font-family: var(--mono); font-size: 21px; line-height: 1.7; }
+.D .p.code { font-size: 19px; }
+.D-wk { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 24px; }
+.D-status { display: flex; border-top: 1px solid var(--line); font: 13px var(--mono); color: var(--dim); }
+.D-status span { padding: 3px 12px; white-space: nowrap; }
+.D-status .mode { color: var(--fg); }
+.D-status .grow { flex: 1; }
+.D-msg { height: 24px; padding: 2px 12px; font: 13px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Start / progress screens */
+.screen { max-width: 760px; margin: 0 auto; padding: 60px 24px 140px; }
+.screen h1 { font-size: 22px; margin: 0 0 4px; }
+.B .screen { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="switcher"></div>
+<script>
+// ---------------------------------------------------------------- data (all fake)
+const VARIANTS = [
+  { k: 'A', name: 'Zen: just the text' },
+  { k: 'B', name: 'Vim: status line + which-key' },
+  { k: 'C', name: 'Cockpit: live sidebar' },
+  { k: 'D', name: 'Zen text + muted status line' },
+];
+let variant = new URLSearchParams(location.search).get('variant') || 'D';
+
+const BOARDS = [
+  { name: 'Ferris Sweep', last: 'today', keymaps: [
+    { file: 'ferris_sweep_freerange.vil', layout: 'free-range' },
+    { file: 'ferris_sweep_qwerty.vil', layout: 'QWERTY' } ] },
+  { name: 'Mechboards Sofle r2g', last: 'yesterday', keymaps: [{ file: 'sofle.vil', layout: 'free-range' }] },
+  { name: 'Cheapino v2', last: '3 days ago', keymaps: [{ file: 'cheapino.vil', layout: 'QWERTY' }] },
+  { name: 'Keychron Q3 Max', last: '2 weeks ago', keymaps: [{ file: 'q3_max.vil', layout: 'QWERTY' }] },
+];
+
+const SOURCES = [
+  { id: 'pp', name: 'Pride and Prejudice', kind: 'Gutenberg', total: 2113, at: 12, passages: [
+    { text: 'It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.' },
+    { text: 'However little known the feelings or views of such a man may be on his first entering a neighbourhood, this truth is so well fixed in the minds of the surrounding families, that he is considered as the rightful property of some one or other of their daughters.' },
+    { text: '"My dear Mr. Bennet," said his lady to him one day, "have you heard that Netherfield Park is let at last?"' },
+    { text: 'Mr. Bennet replied that he had not.' } ] },
+  { id: 'sl', name: '~/src/sweep-layouts', kind: 'code', total: 148, at: 40, passages: [
+    { code: true, text: 'def load_vil(path):\n    with open(path) as f:\n        data = json.load(f)\n    return data["layout"]' },
+    { code: true, text: 'def score_pair(a, b, costs):\n    if a == b:\n        return costs["same_key"]\n    return costs.get((a, b), costs["default"])' } ] },
+  { id: 'les', name: 'async with examples', kind: 'Lesson · Python', total: 14, at: 3, passages: [
+    { heading: 'Awaiting several things at once', text: 'An async function only runs when something awaits it. To run several at once, pass them to asyncio.gather and await the result.', monoWords: ['asyncio.gather'] },
+    { heading: 'Awaiting several things at once', code: true, text: 'import asyncio\n\nasync def main():\n    await asyncio.sleep(0.1)\n    print("done")\n\nasyncio.run(main())' } ] },
+  { id: 'art', name: 'Why trains run late (sent from browser)', kind: 'article', total: 22, at: 0, passages: [
+    { text: 'A timetable is a promise made months in advance, and every late train is a small argument with it.' } ] },
+  { id: 'drills', name: 'Drills (endless)', kind: 'Drills', passages: [] },
+  { id: 'moby', name: 'Moby Dick', kind: 'Gutenberg · finished', finished: true, total: 1890, at: 1890, passages: [
+    { text: 'Call me Ishmael.' } ] },
+];
+
+const WORDS = ('the of and to in is that it was for on are as with his they at be this have from or one had by word but not what all were we when your can said there use an each which she do how their if will up other about out many then them these so some her would make like him into time has look two more write go see number no way could people my than first water been call who oil its now find long down day did get come made may part over new sound take only little work know place year live me back give most very after thing our just name good sentence man think say great where help through much before line right too mean old any same tell boy follow came want show also around form three small set put end does another well large must big even such because turn here why ask went men read need land different home us move try kind hand picture again change off play spell air away animal house point page letter mother answer found study still learn should america world under return manner sauna area tune stem ramen rest neat mute nurse aunt tense smart master steam unseat amuse sum ten net').split(' ');
+
+const UNLOCK_ORDER = "untsm,rea_" + "oilhdcpgyfwbvk'.jxqz"; // home row first, then by frequency
+let unlockedN = 10;
+const COSTS = { u: 380, n: 310, t: 290, s: 330, m: 452, ',': 520, r: 350, e: 280, a: 300, _: 610, o: 470 };
+const THRESHOLD = 400;
+
+// ---------------------------------------------------------------- state
+const S = {
+  screen: 'start',          // start | type | progress
+  startStep: 'board',       // board | keymap | newboard
+  sel: 0,
+  board: null, keymap: null, sessionStart: null, attempts: 0,
+  srcId: 'pp',
+  passage: null, passageMeta: null,
+  att: null,                // current Attempt
+  panel: null,              // menu | open | import | lesson | settings | help
+  form: {},
+  interstitial: null,       // variant A: summary card between Attempts
+  lastSummary: null,
+  notices: [],
+  mode: 'keep',             // keep | locked
+  spend: 0.42,
+  introQueue: 0,
+  resumeAfterDrill: null,
+};
+const freeRange = () => S.keymap && S.keymap.layout === 'free-range';
+const src = id => SOURCES.find(s => s.id === (id || S.srcId));
+
+// ---------------------------------------------------------------- passages & drills
+function drillText(targets) {
+  const allowed = freeRange() && unlockedN < 30 ? new Set(UNLOCK_ORDER.slice(0, unlockedN).replace('_', '')) : null;
+  let pool = WORDS.filter(w => !allowed || [...w].every(c => allowed.has(c)));
+  const hits = pool.filter(w => targets.some(t => w.includes(t.k)));
+  const out = [];
+  for (let i = 0; i < 24; i++) {
+    const from = (i % 3 && hits.length) ? hits : pool;
+    out.push(from[Math.floor(Math.random() * from.length)]);
+  }
+  return out.join(' ');
+}
+function makeDrill() {
+  let targets, gen;
+  if (S.introQueue > 0) {
+    const k = UNLOCK_ORDER[unlockedN - 1];
+    targets = [{ k, why: 'new key' }, { k: 'n' + k, why: 'top pair' }, { k: k + 'n', why: 'top pair' }];
+    gen = 'introduction'; S.introQueue--;
+  } else if (freeRange() && unlockedN < 30) {
+    targets = [{ k: '_', why: 'weak 610 ms' }, { k: 'm', why: 'weak 452 ms' }, { k: 'ea', why: 'under-measured · 6 seen' }];
+    gen = 'targets-v1';
+  } else {
+    targets = [{ k: 'th', why: 'weak 412 ms' }, { k: 'ck', why: 'weak 398 ms' }, { k: 'z', why: 'under-measured · 4 seen' }];
+    gen = 'targets-v1';
+  }
+  return { drill: true, gen, targets, text: drillText(targets) };
+}
+function loadNext() {
+  const s = src();
+  if (s.id === 'drills') { startAttempt(makeDrill()); return; }
+  if (S.introQueue > 0) { S.resumeAfterDrill = S.resumeAfterDrill || true; startAttempt(makeDrill()); return; }
+  const p = s.passages[(s.at) % s.passages.length];
+  startAttempt(p);
+}
+function startAttempt(p) {
+  S.passage = p;
+  S.att = { typed: [], auto: [], times: [], seen: new Set(), ftc: 0, errors: 0, start: null, last: null, paused: false };
+}
+function advanceBookmark() { const s = src(); if (s.id !== 'drills') s.at++; }
+
+// ---------------------------------------------------------------- typing
+function typeKey(e) {
+  if (S.interstitial) {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); S.interstitial = null; render(); }
+    return;
+  }
+  if (e.key === 'Escape') { S.panel = 'menu'; S.sel = 0; S.att.paused = true; render(); return; }
+  const a = S.att, p = S.passage.text, i = a.typed.length;
+  const wrongSoFar = a.typed.some((c, j) => c !== p[j]);
+  const now = performance.now();
+  if (e.key === 'Backspace') {
+    e.preventDefault();
+    while (a.typed.length && a.auto[a.auto.length - 1]) { a.typed.pop(); a.auto.pop(); a.times.pop(); }
+    if (a.typed.length) { a.typed.pop(); a.auto.pop(); a.times.pop(); }
+    render(); return;
+  }
+  let ch = null;
+  if (e.key === 'Enter') { e.preventDefault(); if (p[i] === '\n') ch = '\n'; else return; }
+  else if (e.key.length === 1) { e.preventDefault(); ch = e.key; }
+  else { if (e.key === 'Tab') e.preventDefault(); return; } // recorded, does nothing
+  if (S.mode === 'locked' && wrongSoFar) return;            // Off-track, recorded
+  if (i >= p.length) return;
+  if (a.start === null) a.start = now;
+  a.last = now;
+  if (ch !== p[i] && !wrongSoFar) a.errors++;
+  if (!a.seen.has(i)) { a.seen.add(i); if (ch === p[i] && !wrongSoFar) a.ftc++; }
+  a.typed.push(ch); a.auto.push(false); a.times.push(now);
+  if (ch === '\n' && ch === p[i]) {               // auto-fill indentation
+    while (p[a.typed.length] === ' ') { a.typed.push(' '); a.auto.push(true); a.times.push(now); a.seen.add(a.typed.length - 1); a.ftc++; }
+  }
+  if (a.typed.join('') === p) finishAttempt();
+  render();
+}
+function liveStats() {
+  const a = S.att;
+  if (!a || a.start === null) return { wpm: 0, acc: 100, n: 0 };
+  const mins = Math.max((a.last - a.start) / 60000, 1 / 600);
+  const correct = a.typed.filter((c, j) => c === S.passage.text[j]).length;
+  return { wpm: Math.round(correct / 5 / mins), acc: Math.round(100 * a.ftc / Math.max(a.seen.size, 1)), n: a.typed.length };
+}
+function finishAttempt() {
+  const a = S.att, p = S.passage.text, st = liveStats();
+  const pairs = [];
+  for (let j = 1; j < p.length; j++) {
+    if (/\s/.test(p[j]) || /\s/.test(p[j - 1]) || a.auto[j]) continue;
+    pairs.push({ k: p[j - 1] + p[j], ms: Math.round(a.times[j] - a.times[j - 1]) });
+  }
+  pairs.sort((x, y) => y.ms - x.ms);
+  const seen = new Set(), top = [];
+  for (const q of pairs) { if (!seen.has(q.k)) { seen.add(q.k); top.push(q); } if (top.length === 3) break; }
+  S.lastSummary = { wpm: st.wpm, acc: Math.round(100 * a.ftc / p.length), medWpm: 34, medAcc: 93, pairs: top, drill: S.passage.drill, errors: a.errors };
+  S.attempts++;
+  if (S.passage.drill) {
+    if (S.resumeAfterDrill && S.introQueue === 0) S.resumeAfterDrill = null;
+  } else advanceBookmark();
+  if (variant === 'A') S.interstitial = S.lastSummary;
+  else notify(summaryLine(S.lastSummary), true);
+  checkUnlock();
+  loadNext();
+}
+function checkUnlock() {
+  // rule: every unlocked char under THRESHOLD. Faked: costs drift down a little each Attempt.
+  if (!freeRange() || unlockedN >= 30) return;
+  for (const k of Object.keys(COSTS)) COSTS[k] = Math.max(250, COSTS[k] - 12);
+  const slow = UNLOCK_ORDER.slice(0, unlockedN).split('').filter(k => (COSTS[k] || 300) >= THRESHOLD);
+  if (!slow.length) unlock('rule');
+}
+function unlock(how) {
+  const k = UNLOCK_ORDER[unlockedN];
+  unlockedN++; COSTS[k] = 520; S.introQueue = 3;
+  notify(`Unlocked ${k} (${how}). Introduction Drills next.`);
+}
+function summaryLine(s) {
+  return `✓ ${s.wpm} wpm (median ${s.medWpm}) · ${s.acc}% first time (median ${s.medAcc}%) · slowest pairs: ${s.pairs.map(p => `${vis(p.k)} ${p.ms} ms`).join(', ')}`;
+}
+function notify(text, quiet) { S.notices.unshift({ text, t: Date.now(), quiet }); S.notices = S.notices.slice(0, 6); }
+const vis = s => s.replace(/ /g, '␣').replace(/\n/g, '↵');
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// ---------------------------------------------------------------- menu & panels (shared content)
+function menuGroups() {
+  const fr = freeRange();
+  return [
+    { g: 'Practice', items: [
+      ['Esc', 'resume'], ['d', 'Drill me (then back here)'], ['s', 'skip this Passage'], ['r', 'restart this Passage', 1] ] },
+    { g: 'Sources', items: [
+      ['o', 'open a Source / Drills'], ['l', 'new Lesson…'], ['i', 'import a Source…'] ] },
+    { g: 'Learning', items: [
+      ['u', fr ? `unlock next key (${UNLOCK_ORDER[unlockedN] || '-'})` : 'unlock next key (free-range only)', 0, !fr] ] },
+    { g: 'Session', items: [
+      ['p', 'progress page'], ['b', 'change Board (new Session)'], ['q', 'end Session'], [',', 'settings'], ['?', 'all keys'] ] },
+  ];
+}
+const menuKeys = () => menuGroups().flatMap(g => g.items.filter(it => !it[3]).map(it => it[0]));
+function menuHTML() {
+  const selKey = S.panel === 'menu' ? menuKeys()[S.sel] : null;
+  return `<div class="groups">${menuGroups().map(g => `<div><h4>${g.g}</h4>${g.items.map(([k, l, isNew, off]) =>
+    `<div class="it ${off ? 'off' : ''}" style="${k === selKey ? 'background:var(--faint);border-radius:4px' : ''}"><kbd>${esc(k)}</kbd> ${esc(l)} ${isNew ? '<span class="new">proposed</span>' : ''}</div>`).join('')}</div>`).join('')}</div>
+    ${S.panel === 'menu' ? '<div class="hint">a letter, or <kbd>j</kbd>/<kbd>k</kbd> and <kbd>Enter</kbd></div>' : ''}`;
+}
+function openList() {
+  const live = SOURCES.filter(s => !s.finished), done = SOURCES.filter(s => s.finished);
+  return [...live, ...done];
+}
+function panelHTML() {
+  const f = S.form;
+  switch (S.panel) {
+    case 'menu': return `<div class="panel-title">Paused · ${esc(src().name)}</div>${menuHTML()}`;
+    case 'open': {
+      const L = openList();
+      return `<div class="panel-title">Open a Source</div><ul class="list">${L.map((s, j) => `<li class="${j === S.sel ? 'sel' : ''}">
+        <span class="k">${j + 1}</span><span>${esc(s.name)}</span>
+        <span class="dim">${s.kind}${s.total ? ` · ${s.finished ? 'reopen from start' : `§${s.at + 1} of ${s.total}`}` : ''}</span></li>`).join('')}</ul>
+        <div class="hint"><kbd>j</kbd>/<kbd>k</kbd> or a number, <kbd>Enter</kbd> to open, <kbd>Esc</kbd> back</div>`;
+    }
+    case 'lesson': {
+      const cap = 5, est = f.lang === 'g' ? 0.12 : 0.03;
+      if (f.step === 'lang') return `<div class="panel-title">New Lesson</div>
+        <div>Language: <kbd>p</kbd> Python &nbsp; <kbd>g</kbd> Gleam &nbsp; <span class="dim">(Enter = Python, last used)</span></div>
+        <div class="hint">£${S.spend.toFixed(2)} of £${cap} this month</div>`;
+      if (f.refused) return `<div class="panel-title">New Lesson · ${f.lang === 'g' ? 'Gleam' : 'Python'}</div>
+        <div class="refuse">Cap reached: this could cost up to £${est.toFixed(2)} and you've spent £4.97 of £5. Resets 1 Nov.</div>
+        <div class="hint"><kbd>Esc</kbd> back</div>`;
+      return `<div class="panel-title">New Lesson · ${f.lang === 'g' ? 'Gleam' : 'Python'}</div>
+        <input data-f="topic" placeholder="Topic, e.g. async with examples" autocomplete="off">
+        <div class="hint">£${S.spend.toFixed(2)} of £${cap} this month · this one: up to £${est.toFixed(2)} · <kbd>Enter</kbd> to request, <kbd>Esc</kbd> back<br>
+        (prototype: a topic starting with "cap" shows the refusal)</div>`;
+    }
+    case 'import': {
+      if (!f.kind) return `<div class="panel-title">Import a Source</div>
+        <div class="it"><kbd>g</kbd> Project Gutenberg book</div>
+        <div class="it"><kbd>c</kbd> code: a repo or folder on the Mac</div>
+        <div class="it"><kbd>a</kbd> article: how the bookmarklet works</div>`;
+      if (f.kind === 'g' && f.results) return `<div class="panel-title">Gutenberg results for "${esc(f.q || '')}"</div>
+        <ul class="list">${f.results.map((r, j) => `<li class="${j === S.sel ? 'sel' : ''}"><span class="k">${j + 1}</span><span>${r[0]}</span><span class="dim">${r[1]} · #${r[2]}</span></li>`).join('')}</ul>
+        <div class="hint"><kbd>Enter</kbd> imports and opens it</div>`;
+      if (f.kind === 'g') return `<div class="panel-title">Gutenberg: search by title, author or book number</div>
+        <input data-f="q" placeholder="e.g. moby dick, austen, 2701" autocomplete="off"><div class="hint"><kbd>Enter</kbd> search</div>`;
+      if (f.kind === 'c') return `<div class="panel-title">Code: folder on the Mac (the server), not this device</div>
+        <input data-f="path" placeholder="~/src/…" autocomplete="off">
+        <div class="hint"><kbd>Tab</kbd> completes (faked) · <kbd>Enter</kbd> imports: files shuffled once, functions in written order</div>`;
+      if (f.kind === 'a') return `<div class="panel-title">Articles come from the bookmarklet</div>
+        <div>On the article page (FT, NYT, O'Reilly…), select text or not, then click <b>send to typokiller</b> in the bookmarks bar.
+        A typokiller tab opens with the text, saves it as a Source and opens it here.</div>
+        <div class="hint">One-off setup: drag <u>send to typokiller</u> to the bookmarks bar (the only mouse step).</div>`;
+      return '';
+    }
+    case 'settings': return `<div class="panel-title">Settings</div>
+      <div class="it"><kbd>w</kbd> wrong key: <b>${S.mode === 'keep' ? 'keep typing' : 'locked until fixed'}</b> <span class="dim">(toggle)</span></div>
+      <div class="dim">Drills: 2 weak + 1 under-measured Targets, ~40 words · unlock target 400 ms · Lesson ~1,300 words · cap £5<br>
+      (prototype: only <kbd>w</kbd> works; the rest live in a settings file?)</div>`;
+    case 'help': return `<div class="panel-title">All keys</div>${menuHTML()}
+      <div class="hint">While typing: only printable characters, Backspace, and Enter at a newline do anything. Tab, arrows, Ctrl-W etc. are recorded and ignored.<br>
+      Prototype only: <kbd>←</kbd>/<kbd>→</kbd> switch variants.</div>`;
+  }
+  return '';
+}
+function panelKey(e, inInput) {
+  const f = S.form, k = e.key;
+  if (k === 'Escape') {
+    e.preventDefault();
+    if (S.panel === 'menu') { S.panel = null; S.att.paused = false; }
+    else { S.panel = 'menu'; S.form = {}; S.sel = 0; }
+    render(); return;
+  }
+  if (inInput && k !== 'Enter' && k !== 'Tab') return;
+  if (S.panel === 'menu') {
+    e.preventDefault();
+    const keys = menuKeys();
+    if (k === 'j' || k === 'k') { S.sel = Math.max(0, Math.min(keys.length - 1, S.sel + (k === 'j' ? 1 : -1))); render(); return; }
+    if (k === 'Enter') {
+      const pick = keys[S.sel];
+      if (pick === 'Esc') { S.panel = null; S.att.paused = false; render(); return; }
+      return panelKey({ key: pick, preventDefault() {} }, false);
+    }
+    const go = p => { S.panel = p; S.sel = 0; S.form = {}; };
+    if (k === 'd') { S.resumeAfterDrill = true; S.panel = null; startAttempt(makeDrill()); }
+    else if (k === 's') { advanceBookmark(); S.panel = null; loadNext(); notify('Skipped.', true); }
+    else if (k === 'r') { S.panel = null; startAttempt(S.passage); }
+    else if (k === 'o') go('open');
+    else if (k === 'l') { go('lesson'); S.form = { step: 'lang', lang: 'p' }; }
+    else if (k === 'i') go('import');
+    else if (k === 'u' && freeRange() && unlockedN < 30) { unlock('manual'); S.panel = null; loadNext(); }
+    else if (k === 'p') { S.panel = null; S.screen = 'progress'; }
+    else if (k === 'b' || k === 'q') { S.panel = null; S.screen = 'start'; S.startStep = 'board'; S.sel = 0; }
+    else if (k === ',') go('settings');
+    else if (k === '?') go('help');
+    render(); return;
+  }
+  if (S.panel === 'open' || (S.panel === 'import' && f.results)) {
+    const L = S.panel === 'open' ? openList() : f.results;
+    if (k === 'j') S.sel = Math.min(S.sel + 1, L.length - 1);
+    else if (k === 'k') S.sel = Math.max(S.sel - 1, 0);
+    else if (/^[1-9]$/.test(k)) S.sel = Math.min(+k - 1, L.length - 1);
+    else if (k === 'Enter') {
+      if (S.panel === 'open') {
+        const s = L[S.sel];
+        if (s.finished) { s.finished = false; s.at = 0; s.kind = s.kind.replace(' · finished', ''); }
+        S.srcId = s.id;
+      } else {
+        const r = f.results[S.sel];
+        SOURCES.unshift({ id: 'g' + r[2], name: r[0], kind: 'Gutenberg', total: 1500, at: 0, passages: [{ text: 'It was the best of times, it was the worst of times.' }] });
+        S.srcId = 'g' + r[2]; notify(`Imported ${r[0]}: 1,500 Passages.`);
+      }
+      S.panel = null; S.form = {}; loadNext();
+    }
+    e.preventDefault(); render(); return;
+  }
+  if (S.panel === 'lesson') {
+    if (f.step === 'lang') {
+      e.preventDefault();
+      if (k === 'p' || k === 'g' || k === 'Enter') { f.lang = k === 'g' ? 'g' : 'p'; f.step = 'topic'; render(); }
+      return;
+    }
+    if (k === 'Enter' && !f.refused) {
+      e.preventDefault();
+      const topic = (f.topic || '').trim(); if (!topic) return;
+      if (/^cap/i.test(topic)) { f.refused = true; render(); return; }
+      requestLesson(topic, f.lang);
+      S.panel = null; S.form = {}; S.att.paused = false; render();
+    }
+    return;
+  }
+  if (S.panel === 'import') {
+    if (!f.kind) { e.preventDefault(); if ('gca'.includes(k)) { f.kind = k; render(); } return; }
+    if (f.kind === 'c' && k === 'Tab') { e.preventDefault(); f.path = '~/src/typokiller/'; render(); return; }
+    if (k === 'Enter') {
+      e.preventDefault();
+      if (f.kind === 'g') { f.results = [['Moby Dick; Or, The Whale', 'Herman Melville', 2701], ['A Tale of Two Cities', 'Charles Dickens', 98], ['Emma', 'Jane Austen', 158]]; S.sel = 0; }
+      else if (f.kind === 'c') {
+        const name = f.path || '~/src/typokiller';
+        SOURCES.unshift({ id: 'c' + Date.now(), name, kind: 'code', total: 61, at: 0, passages: [{ code: true, text: 'def wpm(chars, ms):\n    return chars / 5 / (ms / 60000)' }] });
+        S.srcId = SOURCES[0].id; notify(`Imported ${name}: 23 files, 61 functions (shuffled).`);
+        S.panel = null; S.form = {}; loadNext();
+      }
+      render();
+    }
+    return;
+  }
+  if (S.panel === 'settings') { e.preventDefault(); if (k === 'w') { S.mode = S.mode === 'keep' ? 'locked' : 'keep'; render(); } return; }
+  if (S.panel === 'help') { e.preventDefault(); }
+}
+function requestLesson(topic, lang) {
+  notify(`Lesson requested: ${topic} (${lang === 'g' ? 'Gleam' : 'Python'}). Keep typing.`, true);
+  setTimeout(() => {
+    S.spend += lang === 'g' ? 0.04 : 0.01;
+    SOURCES.unshift({ id: 'l' + Date.now(), name: topic, kind: `Lesson · ${lang === 'g' ? 'Gleam' : 'Python'}`, total: 16, at: 0, passages: lang === 'g'
+      ? [{ heading: topic, text: 'Every Gleam program starts at a public main function.' }, { heading: topic, code: true, text: 'import gleam/io\n\npub fn main() {\n  io.println("hello")\n}' }]
+      : SOURCES.find(s => s.id === 'les').passages });
+    notify(`Lesson ready: ${topic}. It's at the top of o.`);
+    render();
+  }, 7000);
+}
+
+// ---------------------------------------------------------------- start (Board picker) & progress
+function startKey(e) {
+  const k = e.key;
+  if (S.startStep === 'newboard') {
+    if (k === 'Escape') { S.startStep = 'board'; render(); }
+    else if (k === 'Enter') { e.preventDefault(); BOARDS.push({ name: S.form.bname || 'New Board', last: 'never', keymaps: [{ file: (S.form.vil || 'x.vil').split('/').pop(), layout: 'QWERTY' }] }); S.startStep = 'board'; S.sel = BOARDS.length - 1; render(); }
+    return;
+  }
+  const L = S.startStep === 'board' ? BOARDS : BOARDS[S.boardSel].keymaps;
+  if (k === 'j') S.sel = Math.min(S.sel + 1, L.length - 1);
+  else if (k === 'k') S.sel = Math.max(S.sel - 1, 0);
+  else if (/^[1-9]$/.test(k)) S.sel = Math.min(+k - 1, L.length - 1);
+  else if (k === 'n' && S.startStep === 'board') { S.startStep = 'newboard'; S.form = {}; render(); e.preventDefault(); return; }
+  else if (k === 'Escape' && S.startStep === 'keymap') { S.startStep = 'board'; S.sel = S.boardSel; }
+  else if (k === 'Enter') {
+    if (S.startStep === 'board') {
+      S.boardSel = S.sel;
+      if (BOARDS[S.sel].keymaps.length > 1) { S.startStep = 'keymap'; S.sel = 0; render(); return; }
+      S.sel = 0;
+    }
+    S.board = BOARDS[S.boardSel]; S.keymap = S.board.keymaps[S.sel];
+    S.screen = 'type'; S.sessionStart = Date.now(); S.attempts = 0; loadNext();
+  } else return;
+  e.preventDefault(); render();
+}
+function startHTML() {
+  if (S.startStep === 'newboard') return `<div class="screen"><h1>New Board</h1><p class="dim">Imports a .vil as this Board's Keymap.</p>
+    <p>Name <input data-f="bname" placeholder="Keychron Q1 v1"></p><p>.vil path on the Mac <input data-f="vil" placeholder="~/src/sweep-layouts/vil/q1v1.vil"></p>
+    <div class="hint"><kbd>Tab</kbd> between fields, <kbd>Enter</kbd> to add, <kbd>Esc</kbd> back</div></div>`;
+  if (S.startStep === 'keymap') {
+    const b = BOARDS[S.boardSel];
+    return `<div class="screen"><h1>${b.name}: which Keymap?</h1><p class="dim">This Board has more than one .vil. The last used is first.</p>
+    <ul class="list">${b.keymaps.map((m, j) => `<li class="${j === S.sel ? 'sel' : ''}"><span class="k">${j + 1}</span><span>${m.layout}</span><span class="dim">${m.file}</span></li>`).join('')}</ul>
+    <div class="hint"><kbd>Enter</kbd> starts the Session</div></div>`;
+  }
+  const s = src();
+  return `<div class="screen"><h1>typokiller</h1><p class="dim">Which Board are you at? A Session starts when you pick one.</p>
+    <ul class="list">${BOARDS.map((b, j) => `<li class="${j === S.sel ? 'sel' : ''}"><span class="k">${j + 1}</span><span>${b.name}</span>
+    <span class="dim">${b.keymaps.map(m => m.layout).join(' / ')} · last used ${b.last}</span></li>`).join('')}</ul>
+    <div class="hint"><kbd>j</kbd>/<kbd>k</kbd> or a number, <kbd>Enter</kbd> starts (Enter alone = last Board) · <kbd>n</kbd> new Board from a .vil<br>
+    Resumes <b>${esc(s.name)}</b> at §${(s.at || 0) + 1}.</div></div>`;
+}
+function progressHTML() {
+  const name = S.board ? `${S.board.name} (${S.keymap.layout})` : '';
+  return `<div class="screen"><h1>Progress · ${name}</h1>
+    <p class="dim">Placeholder for the page decided in "Which statistics and charts does v1 show?"; <kbd>Tab</kbd> next Board, <kbd>Esc</kbd> back to typing.</p>
+    <div class="C-card" style="height:160px;display:flex;align-items:center;justify-content:center" class="dim">[ WPM and first-time accuracy per day, ~3 months: vega-embed ]</div>
+    <div style="display:flex;gap:40px;margin-top:16px"><table class="t"><tr><th>char</th><th>cost</th><th>seen</th></tr>
+    ${[['_', 610], [',', 520], ['m', 452], ['u', 380]].map(r => `<tr><td class="mono">${r[0]}</td><td>${r[1]} ms</td><td>${50 + r[1] % 40}</td></tr>`).join('')}</table>
+    <table class="t"><tr><th>pair</th><th>cost</th><th>seen</th></tr>
+    ${[['_a', 690], ['m,', 640], ['ne', 455], ['ru', 430]].map(r => `<tr><td class="mono">${r[0]}</td><td>${r[1]} ms</td><td>${20 + r[1] % 30}</td></tr>`).join('')}</table></div>
+    ${unlockInfo() ? `<h3 style="margin-top:24px;font-size:15px">Free-range: ${unlockedN}/30 unlocked, next ${esc(UNLOCK_ORDER[unlockedN])}</h3><div style="max-width:360px">${keys30()}</div>
+      <div class="hint">Red = still over 400 ms; dashed = next to unlock.</div>` : ''}</div>`;
+}
+
+// ---------------------------------------------------------------- shared bits for variants
+function passageHTML(p, a, opts = {}) {
+  const t = p.text, typed = a ? a.typed : [], cur = typed.length;
+  const mono = new Array(t.length).fill(false);
+  (p.monoWords || []).forEach(w => { const s = t.indexOf(w); if (s >= 0) for (let j = s; j < s + w.length; j++) mono[j] = true; });
+  let h = '';
+  for (let j = 0; j < t.length; j++) {
+    let cls = j < cur ? (typed[j] === t[j] ? 'ok' : 'bad') : 'u';
+    if (j === cur && !opts.ctx) cls += ' cur';
+    if (mono[j]) cls += ' code-span';
+    let shown = t[j];
+    if (j < cur && typed[j] !== t[j]) shown = typed[j] === ' ' ? '·' : typed[j] === '\n' ? '↵' : typed[j];
+    if (t[j] === '\n') h += `<span class="${cls} nl">↵</span>\n`;
+    else h += `<span class="${cls}">${esc(shown)}</span>`;
+  }
+  if (cur >= t.length && !opts.ctx) h += '<span class="cur"> </span>';
+  return `<div class="p ${p.code ? 'code' : ''}">${h}</div>`;
+}
+function where() {
+  const s = src(), p = S.passage;
+  if (p.drill) return p.gen === 'introduction' ? `Introduction Drill · ${p.targets[0].k}` : 'Drill';
+  return `${s.name} · §${s.at + 1}${s.total ? ` of ${s.total}` : ''}`;
+}
+function targetsLine(p) { return p.drill ? `Targets: ${p.targets.map(t => `<b class="mono">${esc(vis(t.k))}</b> <span class="dim">(${t.why})</span>`).join(', ')}` : ''; }
+function unlockInfo() {
+  if (!freeRange()) return null;
+  const on = UNLOCK_ORDER.slice(0, unlockedN).split('');
+  const slow = on.filter(k => (COSTS[k] || 300) >= THRESHOLD);
+  return { on, slow, next: UNLOCK_ORDER[unlockedN], n: unlockedN };
+}
+function keys30() {
+  const u = unlockInfo();
+  return `<div class="keys30">${UNLOCK_ORDER.split('').map((k, j) => {
+    const cls = j < u.n ? (u.slow.includes(k) ? 'slow' : 'on') : j === u.n ? 'next off' : 'off';
+    return `<span class="${cls}">${esc(k)}</span>`; }).join('')}</div>`;
+}
+
+// ---------------------------------------------------------------- Variant A: Zen
+function VariantA() {
+  if (S.screen === 'start') return `<div class="A">${startHTML()}</div>`;
+  if (S.screen === 'progress') return `<div class="A">${progressHTML()}</div>`;
+  const p = S.passage, u = unlockInfo(), sm = S.interstitial;
+  const top = S.panel ? `<span>${esc(S.board.name)} · ${S.keymap.layout}</span><span>${esc(where())}</span>` : '<span></span><span><kbd>Esc</kbd></span>';
+  const recent = S.notices.filter(n => Date.now() - n.t < 6000 && !n.quiet);
+  return `<div class="A">
+    <div class="A-top">${top}</div>
+    <div class="A-main">
+      <div class="A-head">${p.heading ? esc(p.heading) : p.drill ? targetsLine(p) : ''}</div>
+      ${passageHTML(p, S.att)}
+      <div class="A-foot">${u ? `free-range · ${u.n}/30 keys · next <b class="mono">${esc(u.next)}</b> when ${u.slow.length ? `<span class="mono">${u.slow.map(esc).join(' ')}</span> get under 400 ms` : 'this Attempt ends'}` : ''}</div>
+    </div>
+    ${S.panel ? `<div class="A-modal-bg"><div class="A-modal">${panelHTML()}</div></div>` : ''}
+    ${sm ? `<div class="A-modal-bg"><div class="A-modal A-sum">
+        <div class="dim">${sm.drill ? 'Drill' : 'Passage'} done</div>
+        <div class="row"><div><div class="big">${sm.wpm}</div>wpm <span class="dim">· median ${sm.medWpm}</span></div>
+        <div><div class="big">${sm.acc}%</div>first time <span class="dim">· median ${sm.medAcc}%</span></div></div>
+        <div>Slowest pairs here: ${sm.pairs.map(q => `<b class="mono">${esc(vis(q.k))}</b> ${q.ms} ms`).join(' · ')}</div>
+        <div class="hint"><kbd>Space</kbd> or <kbd>Enter</kbd> for the next Passage</div></div></div>` : ''}
+    <div class="A-toasts">${recent.map(n => `<div class="A-toast">${esc(n.text)}</div>`).join('')}</div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- Variant B: Vim
+function VariantB() {
+  if (S.screen === 'start') return `<div class="B">${startHTML()}</div>`;
+  if (S.screen === 'progress') return `<div class="B">${progressHTML()}</div>`;
+  const p = S.passage, s = src(), u = unlockInfo(), st = liveStats();
+  const prev = !p.drill && s.passages.length > 1 ? s.passages[(s.at - 1 + s.passages.length) % s.passages.length] : null;
+  const next = !p.drill && s.passages.length > 1 ? s.passages[(s.at + 1) % s.passages.length] : null;
+  const mode = S.panel ? 'PAUSED' : p.drill ? 'DRILL' : 'TYPING';
+  const msg = S.notices[0] ? S.notices[0].text : '';
+  return `<div class="B">
+    <div class="B-doc">
+      ${prev ? `<div class="ctx p ${prev.code ? 'code' : ''}">${esc(prev.text)}</div>` : ''}
+      ${p.heading ? `<h3># ${esc(p.heading)}</h3>` : ''}
+      ${p.drill ? `<div>${targetsLine(p)}</div>` : ''}
+      ${passageHTML(p, S.att)}
+      ${next ? `<div class="ctx p ${next.code ? 'code' : ''}">${esc(next.text)}</div>` : ''}
+    </div>
+    ${S.panel ? `<div class="B-wk">${panelHTML()}</div>` : ''}
+    <div class="B-status">
+      <span class="mode">${mode}</span>
+      <span>${esc(S.board.name)} · ${S.keymap.layout}</span>
+      <span class="grow">${esc(where())}</span>
+      <span>${st.wpm} wpm ${st.acc}%</span>
+      ${u ? `<span>${u.n}/30 → ${esc(u.next)}${u.slow.length ? ` (${u.slow.length} slow)` : ''}</span>` : ''}
+      <span>${S.mode === 'locked' ? 'LOCK' : ''}</span>
+    </div>
+    <div class="B-msg">${esc(msg)}</div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- Variant C: Cockpit
+function VariantC() {
+  if (S.screen === 'start') return `<div class="C">${startHTML()}</div>`;
+  if (S.screen === 'progress') return `<div class="C">${progressHTML()}</div>`;
+  const p = S.passage, u = unlockInfo(), st = liveStats(), sm = S.lastSummary;
+  const mins = Math.round((Date.now() - S.sessionStart) / 60000);
+  const side = S.panel ? `<section>${panelHTML()}</section>` : `
+    <section><h4>This Attempt</h4><div class="C-stat"><div><b>${st.wpm}</b>wpm</div><div><b>${st.acc}%</b>first time</div><div><b>${S.att.errors}</b>Errors</div></div></section>
+    <section><h4>Last Attempt</h4>${sm ? `<div>${sm.wpm} wpm <span class="dim">(median ${sm.medWpm})</span> · ${sm.acc}% <span class="dim">(median ${sm.medAcc}%)</span></div>
+      <div>Slowest: ${sm.pairs.map(q => `<span class="mono">${esc(vis(q.k))}</span> ${q.ms}`).join(' · ')} ms</div>` : '<span class="dim">none yet</span>'}</section>
+    ${u ? `<section><h4>Free-range · ${u.n}/30 unlocked · next ${esc(u.next)}</h4>${keys30()}
+      <div style="margin-top:8px">${u.on.map(k => { const c = COSTS[k] || 300; return `<div class="costrow"><span>${esc(k)}</span><div class="bar"><i class="${c >= THRESHOLD ? 'slow' : ''}" style="width:${Math.min(100, c / 7)}%"></i></div><span>${c} ms</span></div>`; }).join('')}</div>
+      <div class="hint">Bar ends at 700 ms; next key unlocks when all are green (under 400 ms).</div></section>` : ''}
+    <section><h4>Notices</h4>${S.notices.length ? S.notices.slice(0, 4).map(n => `<div class="${n.quiet ? 'dim' : ''}">${esc(n.text)}</div>`).join('') : '<span class="dim">none</span>'}</section>
+    <div class="hint"><kbd>Esc</kbd> menu</div>`;
+  return `<div class="C">
+    <div class="C-hdr"><span><b>${esc(S.board.name)}</b> · ${S.keymap.layout} · ${S.keymap.file}</span><span>Session ${mins} min · ${S.attempts} Attempts</span>
+      <span>${S.mode === 'locked' ? 'locked until fixed' : 'keep typing'}</span>${S.panel ? '<span><b>paused</b></span>' : ''}</div>
+    <div class="C-grid">
+      <div class="C-main">
+        <div class="C-meta"><span>${esc(where())}</span>${p.heading ? `<span>§ ${esc(p.heading)}</span>` : ''}</div>
+        ${p.drill ? `<div class="C-meta">${targetsLine(p)}</div>` : ''}
+        <div class="C-card">${passageHTML(p, S.att)}</div>
+      </div>
+      <aside class="C-side">${side}</aside>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- Variant D: A's text + B's status line, muted
+function VariantD() {
+  if (S.screen === 'start') return `<div class="D">${startHTML()}</div>`;
+  if (S.screen === 'progress') return `<div class="D">${progressHTML()}</div>`;
+  const p = S.passage, u = unlockInfo();
+  const mode = S.panel ? 'paused' : p.drill ? 'drill' : 'typing';
+  const msg = S.notices[0] ? S.notices[0].text : '';
+  return `<div class="D">
+    <div class="D-main">
+      <div class="A-head">${p.heading ? esc(p.heading) : p.drill ? targetsLine(p) : ''}</div>
+      ${passageHTML(p, S.att)}
+    </div>
+    ${S.panel ? `<div class="D-wk">${panelHTML()}</div>` : ''}
+    <div class="D-status">
+      <span class="mode">${mode}</span>
+      <span>${esc(S.board.name)} · ${S.keymap.layout}</span>
+      <span class="grow">${esc(where())}</span>
+      ${u ? `<span>${u.n}/30 keys · next ${esc(u.next)}</span>` : ''}
+      ${S.mode === 'locked' ? '<span>locked until fixed</span>' : ''}
+    </div>
+    <div class="D-msg">${esc(msg)}</div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- wiring
+const RENDER = { A: VariantA, B: VariantB, C: VariantC, D: VariantD };
+function render() {
+  document.getElementById('app').innerHTML = RENDER[variant]();
+  const v = VARIANTS.find(x => x.k === variant);
+  document.getElementById('switcher').innerHTML = `<button id="sw-prev">←</button><span>${v.k} (${v.name})</span><button id="sw-next">→</button>`;
+  document.getElementById('sw-prev').onclick = () => cycle(-1);
+  document.getElementById('sw-next').onclick = () => cycle(1);
+  const inputs = document.querySelectorAll('#app input[data-f]');
+  inputs.forEach(inp => { inp.value = S.form[inp.dataset.f] || ''; inp.oninput = () => { S.form[inp.dataset.f] = inp.value; }; });
+  if (inputs.length) { const last = [...inputs].find(i => !i.value) || inputs[inputs.length - 1]; last.focus(); last.setSelectionRange(last.value.length, last.value.length); }
+}
+function cycle(d) {
+  const i = VARIANTS.findIndex(x => x.k === variant);
+  variant = VARIANTS[(i + d + VARIANTS.length) % VARIANTS.length].k;
+  try { const u = new URL(location.href); u.searchParams.set('variant', variant); history.replaceState(null, '', u); } catch (_) {}
+  render();
+}
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.altKey || (e.ctrlKey && !S.att)) return;
+  const inInput = document.activeElement && document.activeElement.tagName === 'INPUT';
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !inInput) { e.preventDefault(); cycle(e.key === 'ArrowLeft' ? -1 : 1); return; }
+  if (e.ctrlKey) { e.preventDefault(); return; }   // Ctrl-W etc.: recorded, ignored
+  if (S.screen === 'start') { if (inInput && e.key !== 'Enter' && e.key !== 'Escape') return; return startKey(e); }
+  if (S.screen === 'progress') { if (e.key === 'Escape') { S.screen = 'type'; render(); } else if (e.key === 'Tab') { e.preventDefault(); } return; }
+  if (S.panel) return panelKey(e, inInput);
+  typeKey(e);
+});
+setInterval(() => { if (S.screen === 'type' && variant !== 'B' && document.activeElement.tagName !== 'INPUT') render(); }, 3000); // expire toasts, tick session clock
+render();
+</script>
+</body>
+</html>
