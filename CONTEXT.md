@@ -33,8 +33,12 @@ A Source written by the LLM on request, such as "async with examples".
 _Avoid_: using "lesson" for typing practice in general
 
 **Passage**:
-One chunk of text typed in one go: a paragraph or function taken from a Source, or a Drill.
+One chunk of text meant to be typed in one go: a paragraph or function taken from a Source, or a Drill. The same Passage can be typed many times.
 _Avoid_: exercise, snippet, text
+
+**Attempt**:
+One typing of a Passage within a Session, finished or abandoned; every keystroke belongs to exactly one Attempt.
+_Avoid_: try, run, rep
 
 **Drill**:
 A Passage generated from measured weaknesses rather than taken from a Source.
