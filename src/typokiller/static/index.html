@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>typokiller</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #23221f; --dim: #a29e94; --faint: #d9d5cc; --bad: #c62828; --badbg: #fde4e4;
+  --line: #e5e1d8; --panel: #ffffff;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16171a; --fg: #e8e6e1; --dim: #75726b; --faint: #3a3a3d; --bad: #ff7070; --badbg: #3d1f23;
+    --line: #2d2e33; --panel: #1f2024;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+kbd { font: 12px var(--mono); border: 1px solid var(--faint); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+#app { height: 100vh; display: flex; flex-direction: column; }
+main { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 760px; margin: 0 auto; width: 100%; padding: 0 24px 60px; }
+.p { font-family: var(--mono); font-size: 21px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
+.p .ok { color: var(--dim); }
+.p .bad { color: var(--bad); background: var(--badbg); border-radius: 2px; }
+.p .cur { box-shadow: inset 0 -2px 0 var(--fg); }
+.menu { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 24px; }
+.menu h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 6px 24px; }
+.item { display: flex; gap: 8px; padding: 1px 4px; border-radius: 4px; }
+.item.sel { background: var(--faint); }
+.hint { font-size: 12px; color: var(--dim); margin-top: 8px; }
+.status { display: flex; border-top: 1px solid var(--line); font: 13px var(--mono); color: var(--dim); }
+.status span { padding: 3px 12px; white-space: nowrap; }
+.status .mode { color: var(--fg); }
+.status .grow { flex: 1; }
+.msg { height: 24px; padding: 2px 12px; font: 13px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="practice.js"></script>
+</body>
+</html>

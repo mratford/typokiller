@@ -1,0 +1,24 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { applyKey } from '../src/typokiller/static/typing.js';
+
+const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
+
+test('a wrong character goes in and the cursor moves on', () => {
+  assert.equal(applyKey('cat', 'c', key('x')), 'cx');
+});
+
+test('Backspace removes one character but not before the start of the Attempt', () => {
+  assert.equal(applyKey('cat', 'cx', key('Backspace')), 'c');
+  assert.equal(applyKey('cat', '', key('Backspace')), '');
+});
+
+test('other keys change nothing', () => {
+  for (const k of ['Shift', 'Tab', 'Enter', 'ArrowLeft', 'Escape']) assert.equal(applyKey('cat', 'c', key(k)), 'c');
+  assert.equal(applyKey('cat', 'c', key('w', { ctrlKey: true })), 'c');
+  assert.equal(applyKey('cat', 'c', key('a', { metaKey: true })), 'c');
+});
+
+test('nothing goes in after the end of the Passage', () => {
+  assert.equal(applyKey('cat', 'cax', key('t')), 'cax');
+});

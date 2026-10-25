@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Writing style
+
+In all messages to the user, documentation and code comments, use plain technical English. Do not use idioms, slang or tech-industry jargon. Assume the reader speaks English as a second language: use short sentences and common words, and describe the concrete thing instead of naming a pattern.
+
 ## Agent skills
 
 ### Issue tracker
