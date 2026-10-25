@@ -1,0 +1,375 @@
+<!doctype html>
+<!-- PROTOTYPE, throwaway. Question: how does typokiller draw a Board's Keymap (positions, layers, tap-hold,
+     combos) and colour it by Weakness cost? Four variants, ← / → to switch, Tab for the next Board.
+     Built by keymap_drawing_build.py; the Weakness numbers are fake. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keymap drawing prototype</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #1d1d1b; --dim: #8a877f; --faint: #c9c5bb; --line: #2b2a27;
+  --key: #ffffff; --trns: #fbfaf7; --none: #f1efe9; --held: #d9d5cb; --neutral: #e9e6df;
+  --pill: #1d1d1b; --pill-fg: #fff; --arc: #2456a6; --err: #c0392b; --next: #2456a6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1a1a19; --fg: #ecebe6; --dim: #8f8c84; --faint: #4a4844; --line: #cfccc4;
+    --key: #262624; --trns: #1a1a19; --none: #21211f; --held: #4a4844; --neutral: #2f2e2b;
+    --pill: #ecebe6; --pill-fg: #1a1a19; --arc: #7fb0ff; --err: #ff7b6b; --next: #7fb0ff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+       font: 14px/1.4 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; padding: 16px 16px 80px; }
+h1 { font-size: 16px; margin: 0 0 2px; }
+.sub { color: var(--dim); margin: 0 0 14px; max-width: 70em; }
+svg.board { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { text-anchor: middle; dominant-baseline: central; }
+.k { stroke: var(--line); stroke-width: 0.03; fill: var(--key); }
+.k.trns { fill: var(--trns); stroke: var(--faint); stroke-dasharray: 0.08 0.06; }
+.k.none { fill: var(--none); stroke: var(--faint); }
+.k.held { fill: var(--held); stroke-width: 0.08; }
+.k.neutral { fill: var(--neutral); stroke: var(--faint); }
+.k.locked { fill: var(--none) !important; stroke: var(--faint); stroke-dasharray: 0.1 0.07; }
+.k.nextkey { stroke: var(--next); stroke-width: 0.1; }
+.t { fill: var(--fg); font-weight: 600; }
+.h { fill: var(--dim); font-weight: 500; }
+.tiny { fill: var(--dim); }
+.lockt { fill: var(--faint); }
+.combo { fill: var(--pill); }
+.ct { fill: var(--pill-fg); font-weight: 700; }
+.arc { fill: none; stroke: var(--arc); stroke-linecap: round; }
+.arcl { fill: var(--arc); font-weight: 700; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 18px 28px; }
+figure { margin: 0; }
+figcaption { color: var(--dim); font-size: 12.5px; margin-top: 4px; }
+figcaption b { color: var(--fg); }
+.split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 800px) { .split { grid-template-columns: 1fr; } }
+.tabs { display: flex; gap: 14px; margin-bottom: 8px; color: var(--dim); flex-wrap: wrap; }
+.tabs .on { color: var(--fg); font-weight: 700; border-bottom: 2px solid var(--fg); }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+td { padding: 3px 4px; border-bottom: 1px solid var(--faint); }
+td.n { text-align: right; color: var(--dim); }
+tr.sel td { background: var(--neutral); font-weight: 700; }
+code, .mono { font-family: "SF Mono", Menlo, monospace; }
+.legend { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; color: var(--dim); font-size: 12.5px; margin: 10px 0; }
+.ramp { display: inline-block; width: 160px; height: 10px; border-radius: 2px; vertical-align: middle; position: relative; }
+.sw { display: inline-block; width: 16px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 4px; border: 1px solid var(--line); }
+/* practice-screen mock (layout D from the practice-screen prototype) */
+.practice { min-height: calc(100vh - 140px); display: flex; flex-direction: column; }
+.practice .stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; }
+.passage { font: 26px/1.5 "SF Mono", Menlo, monospace; white-space: pre; }
+.passage .done { color: var(--faint); }
+.passage .cur { border-bottom: 2px solid var(--fg); }
+.passage .bad { color: var(--err); }
+.practice .kb { width: min(620px, 100%); opacity: 0.85; }
+.status { color: var(--dim); font-size: 13px; border-top: 1px solid var(--faint); padding-top: 6px; }
+.msg { color: var(--dim); font-size: 13px; min-height: 1.4em; }
+#bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); background: #111; color: #fff;
+       border-radius: 999px; padding: 7px 16px; font-size: 13px; display: flex; gap: 14px; align-items: center;
+       box-shadow: 0 4px 18px rgba(0,0,0,.35); white-space: nowrap; z-index: 9; max-width: calc(100vw - 32px); overflow: hidden; }
+#bar button { background: none; border: 0; color: #fff; font-size: 16px; cursor: pointer; padding: 0 4px; }
+#bar .k2 { color: #aaa; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="bar">
+  <button id="prev" aria-label="previous variant">‹</button>
+  <span id="vlabel"></span>
+  <button id="next" aria-label="next variant">›</button>
+  <span class="k2" id="blabel"></span>
+</div>
+<script>
+const BOARDS = [{"title": "Ferris Sweep \u00b7 QWERTY", "keys": [{"row": 0, "col": 2, "x": 2.0, "y": 0.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 2, "x": 8.75, "y": 0.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 1, "x": 1.0, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 3, "x": 3.0, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 1, "x": 7.75, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 3, "x": 9.75, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 4, "x": 4.0, "y": 0.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 0, "x": 6.75, "y": 0.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 2, "x": 2.0, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 2, "x": 8.75, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 0, "x": 0.0, "y": 1.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 4, "x": 10.75, "y": 1.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 1, "x": 1.0, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 3, "x": 3.0, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 1, "x": 7.75, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 3, "x": 9.75, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 4, "x": 4.0, "y": 1.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 0, "x": 6.75, "y": 1.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 2, "x": 2.0, "y": 2.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 2, "x": 8.75, "y": 2.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 0, "x": 0.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 4, "x": 10.75, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 1, "x": 1.0, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 3, "x": 3.0, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 1, "x": 7.75, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 3, "x": 9.75, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 4, "x": 4.0, "y": 2.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 0, "x": 6.75, "y": 2.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 0, "x": 0.0, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 4, "x": 10.75, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 0, "x": 4.67, "y": 2.74, "w": 1.0, "h": 1.0, "r": 15, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 1, "x": 6.5, "y": 1.25, "w": 1.0, "h": 1.0, "r": 30, "rx": 0.0, "ry": 0.0}, {"row": 7, "col": 0, "x": 2.76, "y": 7.17, "w": 1.0, "h": 1.0, "r": -30, "rx": 0.0, "ry": 0.0}, {"row": 7, "col": 1, "x": 5.75, "y": 5.75, "w": 1.0, "h": 1.0, "r": -15, "rx": 0.0, "ry": 0.0}], "layers": [[["KC_Q", "KC_W", "KC_E", "KC_R", "KC_T"], ["KC_A", "KC_S", "KC_D", "KC_F", "KC_G"], ["LGUI_T(KC_Z)", "LALT_T(KC_X)", "LCTL_T(KC_C)", "LSFT_T(KC_V)", "KC_B"], ["LT(4,KC_ESC)", "MO(2)", -1, -1, -1], ["KC_Y", "KC_U", "KC_I", "KC_O", "KC_P"], ["KC_H", "KC_J", "KC_K", "KC_L", "KC_UNDS"], ["KC_N", "RSFT_T(KC_M)", "RCTL_T(KC_COMM)", "RALT_T(KC_DOT)", "RGUI_T(KC_QUOT)"], ["LT(1,KC_SPC)", "LT(3,KC_TAB)", -1, -1, -1]], [["KC_AMPR", "KC_AT", "KC_PLUS", "KC_EXLM", "KC_BSLS"], ["KC_DQUO", "KC_COLN", "KC_LBRC", "KC_RBRC", "KC_PIPE"], ["M0", "KC_LT", "KC_GT", "M1", "KC_TILD"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["KC_CIRC", "KC_HASH", "KC_SLSH", "KC_MINS", "KC_GRV"], ["KC_ASTR", "KC_EQL", "KC_LPRN", "KC_RPRN", "KC_SCLN"], ["KC_PERC", "KC_LCBR", "KC_RCBR", "KC_QUES", "KC_DLR"], ["KC_TRNS", "KC_TRNS", -1, -1, -1]], [["QK_LAYER_LOCK", "KC_VOLD", "KC_MUTE", "KC_VOLU", "KC_MPLY"], ["KC_LGUI", "KC_LALT", "KC_LCTL", "KC_LSFT", "KC_TAB"], ["SGUI(KC_Z)", "LGUI(KC_Z)", "LGUI(KC_C)", "LGUI(KC_V)", "LGUI(KC_X)"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["LALT(KC_BSPC)", "KC_PGDN", "KC_PGUP", "KC_DEL", "KC_HOME"], ["KC_LEFT", "KC_DOWN", "KC_UP", "KC_RGHT", "KC_END"], ["SGUI(KC_LBRC)", "LCTL(LSFT(KC_LBRC))", "LCTL(LSFT(KC_RBRC))", "SGUI(KC_RBRC)", "LGUI(KC_GRV)"], ["KC_BSPC", "KC_ENT", -1, -1, -1]], [["QK_BOOT", "MEH(KC_P)", "MEH(KC_N)", "OSM(MOD_MEH)", "OSM(MOD_HYPR)"], ["M4", "LCTL(KC_B)", "M2", "M3", "M5"], ["M18", "M16", "M19", "M20", "M17"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["MEH(KC_H)", "MEH(KC_J)", "MEH(KC_K)", "MEH(KC_L)", "MEH(KC_TAB)"], ["M6", "M7", "M8", "M9", "M10"], ["M11", "M12", "M13", "M14", "M15"], ["KC_TRNS", "KC_TRNS", -1, -1, -1]], [["QK_LAYER_LOCK", "KC_DLR", "LALT(KC_3)", "KC_COLN", "KC_EQL"], ["KC_LBRC", "KC_RBRC", "KC_LPRN", "KC_RPRN", "KC_COMM"], ["KC_LGUI", "KC_LALT", "KC_LCTL", "KC_LSFT", "MEH(KC_NO)"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["KC_PLUS", "KC_7", "KC_8", "KC_9", "KC_ASTR"], ["KC_MINS", "KC_4", "KC_5", "KC_6", "KC_SLSH"], ["KC_DOT", "KC_1", "KC_2", "KC_3", "KC_PERC"], ["KC_TRNS", "KC_0", -1, -1, -1]]], "names": ["Base", "Sym", "Nav", "Stack", "Num"], "combos": [["KC_J", "KC_K", "KC_NO", "KC_NO", "KC_ESC"], ["LSFT_T(KC_V)", "RSFT_T(KC_M)", "KC_NO", "KC_NO", "QK_CAPS_WORD_TOGGLE"], ["KC_J", "KC_L", "KC_NO", "KC_NO", "KC_ENT"], ["KC_K", "KC_L", "KC_NO", "KC_NO", "KC_BSPC"]], "macros": ["|>", "->", "B P", "B N", "B C", "B LBRC", "B LEFT", "B DOWN", "B UP", "B RGHT", "B Z", "W H", "W J", "W K", "W L", "W EQL", "W S", "W V", "W C", "LBRC B", "RBRC B", "", "", "", "", "", "", "", "", "", "", ""], "host": "us", "freerange": false}, {"title": "Ferris Sweep \u00b7 free-range", "keys": [{"row": 0, "col": 2, "x": 2.0, "y": 0.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 2, "x": 8.75, "y": 0.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 1, "x": 1.0, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 3, "x": 3.0, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 1, "x": 7.75, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 3, "x": 9.75, "y": 0.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 4, "x": 4.0, "y": 0.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 0, "x": 6.75, "y": 0.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 2, "x": 2.0, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 2, "x": 8.75, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 0, "x": 0.0, "y": 1.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 4, "x": 10.75, "y": 1.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 1, "x": 1.0, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 3, "x": 3.0, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 1, "x": 7.75, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 3, "x": 9.75, "y": 1.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 4, "x": 4.0, "y": 1.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 0, "x": 6.75, "y": 1.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 2, "x": 2.0, "y": 2.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 2, "x": 8.75, "y": 2.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 0, "x": 0.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 4, "x": 10.75, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 1, "x": 1.0, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 3, "x": 3.0, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 1, "x": 7.75, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 3, "x": 9.75, "y": 2.5, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 4, "x": 4.0, "y": 2.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 0, "x": 6.75, "y": 2.75, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 0, "x": 0.0, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 6, "col": 4, "x": 10.75, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 0, "x": 4.67, "y": 2.74, "w": 1.0, "h": 1.0, "r": 15, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 1, "x": 6.5, "y": 1.25, "w": 1.0, "h": 1.0, "r": 30, "rx": 0.0, "ry": 0.0}, {"row": 7, "col": 0, "x": 2.76, "y": 7.17, "w": 1.0, "h": 1.0, "r": -30, "rx": 0.0, "ry": 0.0}, {"row": 7, "col": 1, "x": 5.75, "y": 5.75, "w": 1.0, "h": 1.0, "r": -15, "rx": 0.0, "ry": 0.0}], "layers": [[["KC_X", "KC_P", "KC_D", "KC_G", "KC_V"], ["KC_U", "KC_N", "KC_T", "KC_S", "KC_M"], ["LGUI_T(KC_Z)", "LALT_T(KC_W)", "LCTL_T(KC_B)", "LSFT_T(KC_C)", "KC_F"], ["LT(4,KC_ESC)", "MO(2)", -1, -1, -1], ["KC_K", "KC_L", "KC_I", "KC_O", "KC_QUOT"], ["KC_COMM", "KC_R", "KC_E", "KC_A", "KC_UNDS"], ["KC_J", "RSFT_T(KC_H)", "RCTL_T(KC_Y)", "RALT_T(KC_DOT)", "RGUI_T(KC_Q)"], ["LT(1,KC_SPC)", "LT(3,KC_TAB)", -1, -1, -1]], [["KC_AMPR", "KC_AT", "KC_PLUS", "KC_EXLM", "KC_BSLS"], ["KC_DQUO", "KC_COLN", "KC_LBRC", "KC_RBRC", "KC_PIPE"], ["M0", "KC_LT", "KC_GT", "M1", "KC_TILD"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["KC_CIRC", "KC_HASH", "KC_SLSH", "KC_MINS", "KC_GRV"], ["KC_ASTR", "KC_EQL", "KC_LPRN", "KC_RPRN", "KC_SCLN"], ["KC_PERC", "KC_LCBR", "KC_RCBR", "KC_QUES", "KC_DLR"], ["KC_TRNS", "KC_TRNS", -1, -1, -1]], [["QK_LAYER_LOCK", "KC_VOLD", "KC_MUTE", "KC_VOLU", "KC_MPLY"], ["KC_LGUI", "KC_LALT", "KC_LCTL", "KC_LSFT", "KC_TAB"], ["SGUI(KC_Z)", "LGUI(KC_Z)", "LGUI(KC_C)", "LGUI(KC_V)", "LGUI(KC_X)"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["LALT(KC_BSPC)", "KC_PGDN", "KC_PGUP", "KC_DEL", "KC_HOME"], ["KC_LEFT", "KC_DOWN", "KC_UP", "KC_RGHT", "KC_END"], ["SGUI(KC_LBRC)", "LCTL(LSFT(KC_LBRC))", "LCTL(LSFT(KC_RBRC))", "SGUI(KC_RBRC)", "LGUI(KC_GRV)"], ["KC_BSPC", "KC_ENT", -1, -1, -1]], [["QK_BOOT", "MEH(KC_P)", "MEH(KC_N)", "OSM(MOD_MEH)", "OSM(MOD_HYPR)"], ["M4", "LCTL(KC_B)", "M2", "M3", "M5"], ["M18", "M16", "M19", "M20", "M17"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["MEH(KC_H)", "MEH(KC_J)", "MEH(KC_K)", "MEH(KC_L)", "MEH(KC_TAB)"], ["M6", "M7", "M8", "M9", "M10"], ["M11", "M12", "M13", "M14", "M15"], ["KC_TRNS", "KC_TRNS", -1, -1, -1]], [["QK_LAYER_LOCK", "KC_DLR", "LALT(KC_3)", "KC_COLN", "KC_EQL"], ["KC_LBRC", "KC_RBRC", "KC_LPRN", "KC_RPRN", "KC_COMM"], ["KC_LGUI", "KC_LALT", "KC_LCTL", "KC_LSFT", "MEH(KC_NO)"], ["KC_TRNS", "KC_TRNS", -1, -1, -1], ["KC_PLUS", "KC_7", "KC_8", "KC_9", "KC_ASTR"], ["KC_MINS", "KC_4", "KC_5", "KC_6", "KC_SLSH"], ["KC_DOT", "KC_1", "KC_2", "KC_3", "KC_PERC"], ["KC_TRNS", "KC_0", -1, -1, -1]]], "names": ["Base", "Sym", "Nav", "Stack", "Num"], "combos": [["LSFT_T(KC_C)", "RSFT_T(KC_H)", "KC_NO", "KC_NO", "QK_CAPS_WORD_TOGGLE"]], "macros": ["|>", "->", "B P", "B N", "B C", "B LBRC", "B LEFT", "B DOWN", "B UP", "B RGHT", "B Z", "W H", "W J", "W K", "W L", "W EQL", "W S", "W V", "W C", "LBRC B", "RBRC B", "", "", "", "", "", "", "", "", "", "", ""], "host": "us", "freerange": true}, {"title": "Keychron Q3 Max \u00b7 QWERTY", "keys": [{"row": 0, "col": 0, "x": 0.0, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 1, "x": 1.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 2, "x": 2.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 3, "x": 3.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 4, "x": 4.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 5, "x": 5.5, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 6, "x": 6.5, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 7, "x": 7.5, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 8, "x": 8.5, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 9, "x": 9.75, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 10, "x": 10.75, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 11, "x": 11.75, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 12, "x": 13.0, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 13, "x": 14.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 14, "x": 15.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 15, "x": 16.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 0, "col": 16, "x": 17.25, "y": 1.0, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 0, "x": 0.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 1, "x": 1.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 2, "x": 2.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 3, "x": 3.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 4, "x": 4.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 5, "x": 5.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 6, "x": 6.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 7, "x": 7.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 8, "x": 8.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 9, "x": 9.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 10, "x": 10.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 11, "x": 11.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 12, "x": 12.0, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 13, "x": 13.0, "y": 2.25, "w": 2, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 14, "x": 15.25, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 15, "x": 16.25, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 1, "col": 16, "x": 17.25, "y": 2.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 0, "x": 0.0, "y": 3.25, "w": 1.5, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 1, "x": 1.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 2, "x": 2.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 3, "x": 3.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 4, "x": 4.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 5, "x": 5.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 6, "x": 6.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 7, "x": 7.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 8, "x": 8.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 9, "x": 9.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 10, "x": 10.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 11, "x": 11.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 12, "x": 12.5, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 13, "x": 13.5, "y": 3.25, "w": 1.5, "h": 2, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 14, "x": 15.25, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 15, "x": 16.25, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 2, "col": 16, "x": 17.25, "y": 3.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 0, "x": 0.0, "y": 4.25, "w": 1.75, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 1, "x": 1.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 2, "x": 2.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 3, "x": 3.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 4, "x": 4.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 5, "x": 5.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 6, "x": 6.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 7, "x": 7.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 8, "x": 8.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 9, "x": 9.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 10, "x": 10.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 11, "x": 11.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 3, "col": 12, "x": 12.75, "y": 4.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 0, "x": 0.0, "y": 5.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 1, "x": 1.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 2, "x": 2.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 3, "x": 3.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 4, "x": 4.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 5, "x": 5.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 6, "x": 6.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 7, "x": 7.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 8, "x": 8.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 9, "x": 9.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 10, "x": 10.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 11, "x": 11.25, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 13, "x": 12.25, "y": 5.25, "w": 2.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 4, "col": 15, "x": 15.75, "y": 5.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 0, "x": 0.0, "y": 6.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 1, "x": 1.25, "y": 6.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 2, "x": 2.5, "y": 6.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 6, "x": 3.75, "y": 6.25, "w": 6.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 10, "x": 10.0, "y": 6.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 11, "x": 11.25, "y": 6.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 12, "x": 12.5, "y": 6.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 13, "x": 13.75, "y": 6.25, "w": 1.25, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 14, "x": 15.25, "y": 6.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 15, "x": 16.25, "y": 6.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}, {"row": 5, "col": 16, "x": 17.25, "y": 6.25, "w": 1.0, "h": 1.0, "r": 0.0, "rx": 0.0, "ry": 0.0}], "layers": [[["KC_ESC", "KC_F1", "KC_F2", "KC_F3", "KC_F4", "KC_F5", "KC_F6", "KC_F7", "KC_F8", "KC_F9", "KC_F10", "KC_F11", "KC_F12", "KC_MUTE", "KC_PSCR", "LGUI(KC_C)", "RGB_MOD"], ["HYPR_T(KC_GRV)", "KC_1", "KC_2", "KC_3", "KC_4", "KC_5", "KC_6", "KC_7", "KC_8", "KC_9", "KC_0", "KC_MINS", "KC_EQL", "KC_BSPC", "KC_INS", "KC_HOME", "KC_PGUP"], ["MEH_T(KC_TAB)", "KC_Q", "KC_W", "KC_E", "KC_R", "KC_T", "KC_Y", "KC_U", "KC_I", "KC_O", "KC_P", "KC_LBRC", "KC_RBRC", "KC_ENT", "KC_DEL", "KC_END", "KC_PGDN"], ["LT(3,KC_ESC)", "KC_A", "KC_S", "KC_D", "KC_F", "KC_G", "KC_H", "KC_J", "KC_K", "KC_L", "KC_UNDS", "LT(4,KC_QUOT)", "KC_NUHS", -1, -1, -1, -1], ["KC_LSFT", "KC_NUBS", "LALT_T(KC_Z)", "LCTL_T(KC_X)", "LGUI_T(KC_C)", "LSFT_T(KC_V)", "KC_B", "KC_N", "RSFT_T(KC_M)", "RGUI_T(KC_COMM)", "RCTL_T(KC_DOT)", "RALT_T(KC_QUOT)", -1, "KC_RSFT", -1, "KC_UP", -1], ["KC_LCTL", "KC_LWIN", "KC_LALT", -1, -1, -1, "LT(2,KC_SPC)", -1, -1, -1, "KC_RALT", "KC_RWIN", "MO(5)", "KC_RCTL", "KC_LEFT", "KC_DOWN", "KC_RGHT"]], [["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_Q", "KC_W", "KC_E", "KC_R", "KC_T", "KC_Y", "KC_U", "KC_I", "KC_O", "KC_P", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_A", "KC_S", "KC_D", "KC_F", "KC_G", "KC_H", "KC_J", "KC_K", "KC_L", "KC_SCLN", "KC_TRNS", "KC_TRNS", -1, -1, -1, -1], ["KC_TRNS", "KC_TRNS", "KC_Z", "KC_X", "KC_C", "KC_V", "KC_B", "KC_N", "KC_M", "KC_COMM", "KC_DOT", "KC_SLSH", -1, "KC_TRNS", -1, "KC_TRNS", -1], ["KC_TRNS", "KC_TRNS", "KC_TRNS", -1, -1, -1, "KC_TRNS", -1, -1, -1, "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"]], [["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_AMPR", "KC_DQUO", "KC_PLUS", "KC_EXLM", "KC_NUBS", "KC_CIRC", "KC_NUHS", "KC_SLSH", "KC_MINS", "KC_GRV", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_AT", "KC_COLN", "KC_LBRC", "KC_RBRC", "LSFT(KC_NUBS)", "KC_ASTR", "KC_EQL", "KC_LPRN", "KC_RPRN", "KC_SCLN", "KC_TRNS", "KC_TRNS", -1, -1, -1, -1], ["KC_TRNS", "KC_TRNS", "M0", "KC_LT", "KC_GT", "M1", "LSFT(KC_NUHS)", "KC_PERC", "KC_LCBR", "KC_RCBR", "KC_QUES", "KC_DLR", -1, "KC_TRNS", -1, "KC_TRNS", -1], ["KC_TRNS", "KC_TRNS", "KC_TRNS", -1, -1, -1, "KC_TRNS", -1, -1, -1, "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"]], [["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_NO", "KC_UP", "KC_NO", "KC_VOLD", "KC_VOLU", "KC_HOME", "KC_PGDN", "KC_PGUP", "KC_END", "KC_DEL", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_LEFT", "KC_DOWN", "KC_RGHT", "KC_MUTE", "KC_MPLY", "KC_LEFT", "KC_DOWN", "KC_UP", "KC_RGHT", "KC_NO", "KC_TRNS", "KC_TRNS", -1, -1, -1, -1], ["KC_TRNS", "KC_TRNS", "KC_LALT", "KC_LCTL", "KC_LGUI", "KC_LSFT", "KC_NO", "KC_NO", "KC_RSFT", "KC_RGUI", "KC_RCTL", "KC_RALT", -1, "KC_TRNS", -1, "KC_TRNS", -1], ["KC_TRNS", "KC_TRNS", "KC_TRNS", -1, -1, -1, "KC_TRNS", -1, -1, -1, "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"]], [["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "QK_BOOT", "MEH(KC_P)", "MEH(KC_N)", "OSM(MOD_MEH)", "OSM(MOD_HYPR)", "MEH(KC_H)", "MEH(KC_J)", "MEH(KC_K)", "MEH(KC_L)", "MEH(KC_TAB)", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "M4", "LCTL(KC_B)", "M2", "M3", "M5", "M6", "M7", "M8", "M9", "M10", "KC_TRNS", "KC_TRNS", -1, -1, -1, -1], ["KC_TRNS", "KC_TRNS", "M18", "M16", "M19", "M20", "M17", "M11", "M12", "M13", "M14", "M15", -1, "KC_TRNS", -1, "KC_TRNS", -1], ["KC_TRNS", "KC_TRNS", "KC_TRNS", -1, -1, -1, "KC_TRNS", -1, -1, -1, "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"]], [["KC_TRNS", "KC_BRID", "KC_BRIU", "KC_TRNS", "KC_TRNS", "RGB_VAD", "RGB_VAI", "KC_MPRV", "KC_MPLY", "KC_MNXT", "KC_MUTE", "KC_VOLD", "KC_VOLU", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["QK_BOOT", "KC_F1", "KC_F2", "KC_F3", "KC_F4", "KC_F5", "KC_F6", "KC_F7", "KC_F8", "KC_F9", "KC_F10", "KC_F11", "KC_F12", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["RGB_TOG", "RGB_MOD", "RGB_VAI", "RGB_HUI", "RGB_SAI", "RGB_SPI", "USER16", "USER17", "USER18", "USER19", "USER20", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"], ["KC_TRNS", "RGB_RMOD", "RGB_VAD", "RGB_HUD", "RGB_SAD", "RGB_SPD", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", -1, -1, -1, -1], ["KC_TRNS", "KC_TRNS", "USER11", "USER12", "USER13", "USER14", "USER15", "NK_TOGG", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", -1, "KC_TRNS", -1, "KC_TRNS", -1], ["KC_TRNS", "KC_TRNS", "KC_TRNS", -1, -1, -1, "TG(1)", -1, -1, -1, "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS", "KC_TRNS"]]], "names": ["Base", "Plain", "Sym", "Nav", "Stack", "Fn"], "combos": [["KC_J", "KC_K", "KC_NO", "KC_NO", "KC_ESC"], ["LSFT_T(KC_V)", "RSFT_T(KC_M)", "KC_NO", "KC_NO", "QK_CAPS_WORD_TOGGLE"], ["KC_J", "KC_L", "KC_NO", "KC_NO", "KC_ENT"], ["KC_K", "KC_L", "KC_NO", "KC_NO", "KC_BSPC"]], "macros": ["|>", "->", "B P", "B N", "B C", "B LBRC", "B LEFT", "B DOWN", "B UP", "B RGHT", "B Z", "W H", "W J", "W K", "W L", "W EQL", "W S", "W V", "W C", "LBRC B", "RBRC B", "", "", "", "", "", "", "", "", "", "", ""], "host": "uk", "freerange": false}];
+
+// ---- legends ---------------------------------------------------------------------------------------
+const CH = { KC_COMM: ",", KC_DOT: ".", KC_QUOT: "'", KC_UNDS: "_", KC_SCLN: ";", KC_SLSH: "/", KC_MINS: "-",
+  KC_EQL: "=", KC_BSLS: "\\", KC_GRV: "`", KC_LBRC: "[", KC_RBRC: "]", KC_EXLM: "!", KC_AT: "@", KC_HASH: "#",
+  KC_DLR: "$", KC_PERC: "%", KC_CIRC: "^", KC_AMPR: "&", KC_ASTR: "*", KC_LPRN: "(", KC_RPRN: ")", KC_PLUS: "+",
+  KC_PIPE: "|", KC_TILD: "~", KC_LCBR: "{", KC_RCBR: "}", KC_LT: "<", KC_GT: ">", KC_COLN: ":", KC_DQUO: "\"",
+  KC_QUES: "?", KC_SPC: " ", KC_ENT: "\n", "LALT(KC_3)": "£" };
+// what the host's UK layout makes of US-named keycodes (the Q3 Max is a Windows UK board)
+const UK = { KC_AT: "\"", KC_DQUO: "@", KC_NUHS: "#", "LSFT(KC_NUHS)": "~", KC_NUBS: "\\", "LSFT(KC_NUBS)": "|", KC_HASH: "£" };
+const NAMED = { KC_SPC: "Space", KC_ENT: "⏎", KC_BSPC: "⌫", KC_DEL: "Del", KC_ESC: "Esc", KC_TAB: "Tab",
+  KC_LEFT: "←", KC_RGHT: "→", KC_UP: "↑", KC_DOWN: "↓", KC_HOME: "Home", KC_END: "End", KC_PGUP: "PgUp",
+  KC_PGDN: "PgDn", KC_VOLD: "Vol−", KC_VOLU: "Vol+", KC_MUTE: "Mute", KC_MPLY: "Play", KC_MPRV: "Prev", KC_MNXT: "Next",
+  KC_BRID: "Bri−", KC_BRIU: "Bri+", QK_BOOT: "Boot", QK_LAYER_LOCK: "Lock", QK_CAPS_WORD_TOGGLE: "CapsW",
+  KC_PSCR: "PrtSc", KC_INS: "Ins", KC_CAPS: "Caps", KC_APP: "Menu", NK_TOGG: "NKRO", "LGUI(KC_Z)": "Undo",
+  "SGUI(KC_Z)": "Redo", "LGUI(KC_C)": "Copy", "LGUI(KC_V)": "Paste", "LGUI(KC_X)": "Cut", "LALT(KC_BSPC)": "⌥⌫" };
+const MODS_MAC = { GUI: "⌘", ALT: "⌥", CTL: "⌃", SFT: "⇧" };
+const MODS_WIN = { GUI: "Win", ALT: "Alt", CTL: "Ctrl", SFT: "⇧" };
+
+function charOf(k, b) {
+  if (b.host === "uk" && k in UK) return UK[k];
+  if (k in CH) return CH[k];
+  let m = /^KC_([A-Z])$/.exec(k); if (m) return m[1].toLowerCase();
+  m = /^KC_(\d)$/.exec(k); if (m) return m[1];
+  return null;
+}
+function plain(k, b) {                                  // {t, ch} for a keycode with no tap-hold
+  const ch = charOf(k, b);
+  if (k in NAMED) return { t: NAMED[k], ch };
+  if (ch !== null) return { t: ch, ch };
+  let m = /^KC_(F\d+)$/.exec(k); if (m) return { t: m[1] };
+  m = /^M(\d+)$/.exec(k); if (m) return { t: b.macros[+m[1]] || "M" + m[1], macro: true };
+  m = /^OSM\(MOD_(\w+)\)$/.exec(k); if (m) return { t: "1×" + m[1].toLowerCase() };
+  m = /^(MEH|HYPR)\((.+)\)$/.exec(k); if (m) return { t: (m[1] === "MEH" ? "Meh " : "Hyp ") + plain(m[2], b).t };
+  m = /^(LGUI|LALT|LCTL|LSFT|SGUI|RALT)\((.+)\)$/.exec(k);
+  if (m) { const mods = b.host === "uk" ? MODS_WIN : MODS_MAC; const p = { LGUI: mods.GUI, LALT: mods.ALT, LCTL: mods.CTL, LSFT: "⇧", SGUI: "⇧" + mods.GUI, RALT: "AltGr" }[m[1]];
+           return { t: p + plain(m[2], b).t }; }
+  m = /^KC_[LR](GUI|ALT|CTL|SFT)$/.exec(k); if (m) return { t: (b.host === "uk" ? MODS_WIN : MODS_MAC)[m[1]] };
+  if (/^(RGB|RM|UG)_/.test(k)) return { t: "RGB" };
+  m = /^USER(\d+)$/.exec(k); if (m) return { t: "U" + m[1] };
+  return { t: k.replace(/^(KC_|QK_)/, "").slice(0, 5) };
+}
+function legend(k, b) {                                 // {kind, tap, hold, ch}
+  if (k === -1) return null;
+  if (k === "KC_TRNS") return { kind: "trns", tap: "" };
+  if (k === "KC_NO") return { kind: "none", tap: "" };
+  const mods = b.host === "uk" ? MODS_WIN : MODS_MAC;
+  let m = /^[LR](GUI|ALT|CTL|SFT)_T\((.+)\)$/.exec(k);
+  if (m) { const p = plain(m[2], b); return { kind: "mt", tap: p.t, ch: p.ch, hold: mods[m[1]] }; }
+  m = /^(HYPR|MEH)_T\((.+)\)$/.exec(k);
+  if (m) { const p = plain(m[2], b); return { kind: "mt", tap: p.t, ch: p.ch, hold: m[1] === "MEH" ? "Meh" : "Hyper" }; }
+  m = /^LT\((\d+),\s*(.+)\)$/.exec(k);
+  if (m) { const p = plain(m[2], b); return { kind: "lt", tap: p.t, ch: p.ch, hold: layerName(b, +m[1]), layer: +m[1] }; }
+  m = /^(MO|TG|TT|OSL)\((\d+)\)$/.exec(k);
+  if (m) return { kind: "layer", tap: layerName(b, +m[2]) + (m[1] === "MO" ? "" : " " + m[1].toLowerCase()), layer: +m[2] };
+  const p = plain(k, b);
+  return { kind: p.macro ? "macro" : "key", tap: p.t, ch: p.ch };
+}
+const layerName = (b, i) => b.names[i] || "L" + i;
+
+// ---- geometry --------------------------------------------------------------------------------------
+function rot(px, py, k) {
+  if (!k.r) return [px, py];
+  const a = k.r * Math.PI / 180, dx = px - k.rx, dy = py - k.ry;
+  return [k.rx + dx * Math.cos(a) - dy * Math.sin(a), k.ry + dx * Math.sin(a) + dy * Math.cos(a)];
+}
+const centre = k => rot(k.x + k.w / 2, k.y + k.h / 2, k);
+function bounds(b) {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const k of b.keys) for (const [px, py] of [[k.x, k.y], [k.x + k.w, k.y], [k.x, k.y + k.h], [k.x + k.w, k.y + k.h]]) {
+    const [x, y] = rot(px, py, k); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+  }
+  return [x0 - 0.1, y0 - 0.1, x1 - x0 + 0.2, y1 - y0 + 0.2];
+}
+const kc = (b, layer, k) => b.layers[layer][k.row][k.col];
+function holderOf(b, layer) {                           // the base-layer key that opens a layer
+  return b.keys.find(k => { const l = legend(kc(b, 0, k), b); return l && l.layer === layer; });
+}
+function whereIs(b, ch) {                               // first key (lowest layer) that types ch
+  for (let i = 0; i < b.layers.length; i++)
+    for (const k of b.keys) { const l = legend(kc(b, i, k), b); if (l && l.ch === ch) return { key: k, layer: i }; }
+  return null;
+}
+
+// ---- fake Weakness data ----------------------------------------------------------------------------
+function hash(s) { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return ((h >>> 0) % 10000) / 10000; }
+const isLetter = c => /[a-z]/.test(c);
+function cost(b, ch) {                                  // median time + error rate × fix time, in ms (fake)
+  const seed = b.title.split(" · ")[0];
+  const r = hash(seed + ch);
+  return Math.round(165 + 230 * r * r + (isLetter(ch) || ch === " " ? 0 : 110 * hash(ch + "s")));
+}
+function seen(b, ch) { return isLetter(ch) || ch === " " ? 300 + Math.round(900 * hash(ch)) : Math.round(70 * hash(ch + "n")); }
+const PAIRS = ["th", "he", "in", "er", "an", "re", "on", "at", "en", "nd", "ti", "es", "or", "te", "of", "ed", "is", "it",
+  "al", "ar", "st", "to", "nt", "ng", "se", "ha", "ou", "le", "ve", "co", "me", "de", "ri", "ch", "ll", "be", "ma",
+  "ly", "wh", "ck", "qu", "ex", "ty", "gh", "fo", "pr", "um", "sp", "ee", "oo", "ss", "()", "):", "->", "|>", "_s",
+  "s_", "{}", "=>", "==", "e.", "t(", "f\"", ", "];
+function pairs(b) {
+  return PAIRS.filter(p => [...p].every(c => c === " " || whereIs(b, c)))
+    .map(p => ({ p, c: Math.round(cost(b, p[0]) * 0.55 + cost(b, p[1]) * 0.6 + 120 * hash(p + b.title)), n: 20 + Math.round(400 * hash(p)) }))
+    .sort((a, z) => z.c - a.c);
+}
+// free-range unlocking (fake): the home row is unlocked, o is next
+const UNLOCKED = new Set([..."untsm,rea_"]), NEXT_UNLOCK = "o";
+const gated = ch => ch !== null && ch !== " " && ch !== "\n" && /[a-z,.'_]/.test(ch);
+function lockState(b, ch) { if (!b.freerange || !gated(ch)) return null; return UNLOCKED.has(ch) ? null : ch === NEXT_UNLOCK ? "next" : "locked"; }
+
+// sequential ramp, 150 ms (light) to 600 ms (dark); 400 ms is the unlock threshold
+const STOPS = ["#fbf1d3", "#f6cf8a", "#ee9f5e", "#d8663f", "#a83a35", "#6e2130"];
+function heat(ms) {
+  const t = Math.max(0, Math.min(1, (ms - 150) / 450)) * (STOPS.length - 1), i = Math.min(STOPS.length - 2, Math.floor(t)), f = t - i;
+  const a = STOPS[i].match(/\w\w/g).map(h => parseInt(h, 16)), z = STOPS[i + 1].match(/\w\w/g).map(h => parseInt(h, 16));
+  return "#" + a.map((v, j) => Math.round(v + (z[j] - v) * f).toString(16).padStart(2, "0")).join("");
+}
+const darkFill = ms => ms > 430;
+const rampCss = `linear-gradient(90deg, ${STOPS.join(",")})`;
+
+// ---- drawing ---------------------------------------------------------------------------------------
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
+const shown = t => t === " " ? "␣" : t;
+function fontFor(t, w) { const n = [...t].length; return Math.min(0.42, (n <= 1 ? 0.42 : n <= 2 ? 0.34 : n <= 4 ? 0.25 : n <= 6 ? 0.19 : 0.15) * Math.max(1, w * 0.8)); }
+
+// opts: layer, heat (bool), held (key), combos (bool), arcs [{a, b, w, label}], next (key), extra (key -> [chars])
+function boardSvg(b, opts) {
+  const [vx, vy, vw, vh] = bounds(b), parts = [];
+  for (const k of b.keys) {
+    const l = legend(kc(b, opts.layer, k), b); if (!l) continue;
+    let cls = "k " + (l.kind === "trns" ? "trns" : l.kind === "none" ? "none" : "");
+    let fill = "", tcls = "t", sub = l.hold || "", hcls = "h";
+    const lock = opts.heat && l.ch != null ? lockState(b, l.ch) : null;
+    if (opts.held === k) { cls += " held"; }
+    else if (opts.heat) {
+      const ch = opts.worst ? opts.worst(k) : l.ch;
+      if (ch == null || ch === "\n") { if (l.kind !== "trns" && l.kind !== "none") cls += " neutral"; }
+      else if (lock === "locked") { cls += " locked"; tcls = "lockt"; sub = "locked"; hcls = "lockt"; }
+      else if (seen(b, ch) < 20) { fill = "url(#hatch)"; sub = `n=${seen(b, ch)}`; }
+      else { const c = cost(b, ch); fill = heat(c); if (darkFill(c)) { tcls = "t white"; hcls = "h white"; }
+             sub = opts.showMs ? `${c}` : sub; }
+      if (lock === "next") cls += " nextkey";
+    }
+    if (opts.next === k) cls += " nextkey";
+    const [cx, cy] = [k.x + k.w / 2, k.y + k.h / 2];
+    const tap = opts.held === k ? "held" : shown(l.tap);
+    const fs = fontFor(tap, k.w);
+    parts.push(`<g transform="rotate(${k.r} ${k.rx} ${k.ry})">`,
+      `<rect class="${cls}" x="${k.x + 0.05}" y="${k.y + 0.05}" width="${k.w - 0.1}" height="${k.h - 0.1}" rx="0.12"${fill ? ` style="fill:${fill}"` : ""}/>`,
+      tap ? `<text class="${tcls}" x="${cx}" y="${cy - (sub ? 0.1 : 0)}" font-size="${fs}"${tcls.includes("white") ? ' style="fill:#fff"' : ""}>${esc(tap)}</text>` : "",
+      sub && opts.held !== k ? `<text class="${hcls}" x="${cx}" y="${k.y + k.h - 0.2}" font-size="0.18"${hcls.includes("white") ? ' style="fill:#f3dcd4"' : ""}>${esc(sub)}</text>` : "");
+    if (opts.extra) {                                    // other-layer characters in the corners
+      const ex = opts.extra(k);
+      ex.slice(0, 3).forEach((e, i) => {
+        const px = k.x + (i === 1 ? k.w - 0.2 : 0.2), py = k.y + (i === 2 ? k.h - 0.2 : 0.22);
+        parts.push(`<text x="${px}" y="${py}" font-size="0.16" style="fill:${e.c ? heat(e.c) : "var(--dim)"};font-weight:700">${esc(shown(e.ch))}</text>`);
+      });
+    }
+    parts.push("</g>");
+  }
+  if (opts.combos) for (const c of b.combos) {
+    const ks = c.slice(0, 4).filter(x => x !== "KC_NO").map(x => b.keys.find(k => kc(b, 0, k) === x));
+    if (ks.some(k => !k)) continue;
+    const pts = ks.map(centre), mx = pts.reduce((s, p) => s + p[0], 0) / pts.length, my = pts.reduce((s, p) => s + p[1], 0) / pts.length + 0.36;
+    const t = legend(c[4], b).tap, w = 0.26 + 0.12 * [...t].length;
+    parts.push(`<rect class="combo" x="${mx - w / 2}" y="${my - 0.13}" width="${w}" height="0.26" rx="0.13"/>`,
+               `<text class="ct" x="${mx}" y="${my}" font-size="0.16">${esc(t)}</text>`);
+  }
+  for (const a of opts.arcs || []) {
+    const [x1, y1] = centre(a.a), [x2, y2] = centre(a.b);
+    if (a.a === a.b) { parts.push(`<circle class="arc" cx="${x1}" cy="${y1 - 0.62}" r="0.2" style="stroke-width:${a.w}"/>`); continue; }
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2 - 0.35 - 0.12 * Math.hypot(x2 - x1, y2 - y1);
+    parts.push(`<path class="arc" d="M${x1} ${y1 - 0.25} Q${mx} ${my} ${x2} ${y2 - 0.25}" style="stroke-width:${a.w};opacity:${a.o ?? 0.85}"/>`,
+               `<circle cx="${x2}" cy="${y2 - 0.25}" r="${a.w * 1.3}" style="fill:var(--arc)"/>`);
+    if (a.label) parts.push(`<text class="arcl" x="${mx}" y="${my + 0.15}" font-size="0.2">${esc(a.label)}</text>`);
+  }
+  return `<svg class="board" viewBox="${vx} ${vy} ${vw} ${vh}" xmlns="http://www.w3.org/2000/svg">
+    <defs><pattern id="hatch" width="0.18" height="0.18" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="0.18" height="0.18" style="fill:var(--key)"/><line x1="0" y1="0" x2="0" y2="0.18" style="stroke:var(--faint);stroke-width:0.07"/></pattern></defs>
+    ${parts.join("")}</svg>`;
+}
+const legendBar = b => `<div class="legend">
+  <span>Weakness cost <span class="mono">150 ms</span> <span class="ramp" style="background:${rampCss}"></span> <span class="mono">600 ms</span></span>
+  <span><span class="sw" style="background:repeating-linear-gradient(45deg,var(--key) 0 3px,var(--faint) 3px 5px);border-color:var(--faint)"></span>hatched: fewer than 20 seen</span>
+  <span><span class="sw" style="background:var(--neutral);border-color:var(--faint)"></span>not a character (mods, nav, layer keys)</span>
+  ${b.freerange ? `<span><span class="sw" style="border-style:dashed;border-color:var(--faint);background:var(--none)"></span>locked</span><span><span class="sw" style="border:2px solid var(--next)"></span>next to unlock (${NEXT_UNLOCK})</span>` : ""}
+  <span class="mono" style="color:var(--err)">fake numbers</span></div>`;
+
+// ---- variants --------------------------------------------------------------------------------------
+const state = { v: 0, b: 0, layer: 0, heatA: false, pair: 0, typed: 0, wrong: "", kbOn: true };
+const B = () => BOARDS[state.b];
+
+function variantA() {                                    // every layer, small multiples, like the cheat sheet
+  const b = B();
+  const figs = b.layers.map((_, i) => {
+    const h = i ? holderOf(b, i) : null;
+    const hl = h ? legend(kc(b, 0, h), b) : null;
+    const cap = i === 0 ? "Black pills are combos: press both keys together. Small grey text is what a key does when held."
+      : h ? `Hold <b>${esc(shown(hl.tap))}</b>${hl.kind === "lt" ? " (taps " + esc(shown(hl.tap)) + ")" : ""}. Dashed keys are the same as ${esc(layerName(b, 0))}.` : "Reached another way (toggle).";
+    return `<figure>${boardSvg(b, { layer: i, held: h, combos: i === 0, heat: state.heatA, showMs: false })}
+      <figcaption><b>${i + 1} · ${esc(layerName(b, i))}.</b> ${cap}</figcaption></figure>`;
+  }).join("");
+  return `<h1>${esc(b.title)}</h1>
+    <p class="sub">A · Layer sheet. Every layer at once, the held key shaded. <b>h</b> colours every layer by Weakness cost (now ${state.heatA ? "on" : "off"}).</p>
+    ${state.heatA ? legendBar(b) : ""}<div class="grid2">${figs}</div>`;
+}
+
+function variantB() {                                    // one layer, big, coloured, with ranked lists and a pair arc
+  const b = B(), L = Math.min(state.layer, b.layers.length - 1), ps = pairs(b).slice(0, 10);
+  const chars = [...new Set(b.keys.flatMap(k => b.layers.map((_, i) => legend(kc(b, i, k), b)?.ch)).filter(c => c != null && c !== "\n"))]
+    .filter(c => seen(b, c) >= 20 && !lockState(b, c)).map(c => ({ c, ms: cost(b, c) })).sort((a, z) => z.ms - a.ms).slice(0, 10);
+  const sel = ps[state.pair % ps.length], wa = whereIs(b, sel.p[0]), wb = whereIs(b, sel.p[1]);
+  const arcs = wa && wb ? [{ a: wa.key, b: wb.key, w: 0.07, label: sel.p.replace(" ", "␣") }] : [];
+  const tabs = b.layers.map((_, i) => `<span class="${i === L ? "on" : ""}">${i + 1} ${esc(layerName(b, i))}</span>`).join("");
+  const onOther = [wa, wb].filter(w => w && w.layer !== L).map(w => `${shown(legend(kc(b, w.layer, w.key), b).tap)} is on ${layerName(b, w.layer)}`);
+  return `<h1>${esc(b.title)} · progress</h1>
+    <p class="sub">B · One layer, coloured. Number keys pick the layer; <b>j</b>/<b>k</b> walk the costliest pairs and draw the selected one as an arc (from first to second character). Each key shows its cost in ms.</p>
+    <div class="tabs">${tabs}</div>${legendBar(b)}
+    <div class="split"><div>${boardSvg(b, { layer: L, heat: true, showMs: true, held: L ? holderOf(b, L) : null, arcs, combos: L === 0 })}
+      <p class="sub">${onOther.length ? "The arc ends on the key in its own layer: " + esc(onOther.join("; ")) + "." : ""}</p></div>
+      <div><b>Weakest characters</b><table>${chars.map(x => `<tr><td class="mono">${esc(shown(x.c))}</td><td class="n">${x.ms} ms</td></tr>`).join("")}</table>
+      <br><b>Weakest pairs</b><table>${ps.map((x, i) => `<tr class="${x === sel ? "sel" : ""}"><td class="mono">${esc(x.p.replace(" ", "␣"))}</td><td class="n">${x.c} ms</td><td class="n">${x.n} seen</td></tr>`).join("")}</table></div></div>`;
+}
+
+function variantC() {                                    // all layers folded onto one drawing, all top pairs at once
+  const b = B(), ps = pairs(b).slice(0, 10), max = ps[0].c, min = ps[ps.length - 1].c;
+  const charsOn = k => b.layers.map((_, i) => legend(kc(b, i, k), b)).filter(l => l && l.ch != null && l.ch !== "\n").map(l => l.ch);
+  const worst = k => { const cs = charsOn(k).filter(c => seen(b, c) >= 20 && !lockState(b, c)); return cs.length ? cs.reduce((a, z) => cost(b, z) > cost(b, a) ? z : a) : (charsOn(k)[0] ?? null); };
+  const extra = k => charsOn(k).slice(1).map(ch => ({ ch, c: seen(b, ch) >= 20 ? cost(b, ch) : 0 }));
+  const arcs = ps.map(x => { const wa = whereIs(b, x.p[0]), wb = whereIs(b, x.p[1]); return wa && wb ? { a: wa.key, b: wb.key, w: 0.03 + 0.07 * (x.c - min) / Math.max(1, max - min), o: 0.6 } : null; }).filter(Boolean);
+  return `<h1>${esc(b.title)} · progress</h1>
+    <p class="sub">C · Everything on one drawing. Each physical key is coloured by the <b>worst</b> character it types on any layer; the other layers' characters sit in its corners in their own colour. The 10 costliest pairs are all drawn as arcs, thicker = costlier.</p>
+    ${legendBar(b)}<div style="max-width:980px">${boardSvg(b, { layer: 0, heat: true, worst, extra, arcs, combos: false })}</div>
+    <p class="sub">Pairs: ${ps.map(x => `<span class="mono">${esc(x.p.replace(" ", "␣"))}</span> ${x.c}`).join(" · ")}</p>`;
+}
+
+const PASSAGE = "def parse(line):\n    return line.split(\"|>\")";
+function variantD() {                                    // the practice screen, with a calm Keymap under the Passage
+  const b = B(), done = PASSAGE.slice(0, state.typed), cur = PASSAGE[state.typed] ?? "", rest = PASSAGE.slice(state.typed + 1);
+  let kb = "";
+  if (state.kbOn && cur) {
+    const ch = cur === "\n" ? "\n" : cur.toLowerCase(), w = ch === "\n" ? whereIs(b, "\n") : whereIs(b, ch);
+    const layer = w ? w.layer : 0;
+    kb = `<div class="kb">${boardSvg(b, { layer, next: w?.key, held: layer ? holderOf(b, layer) : null, combos: false })}</div>`;
+  }
+  return `<div class="practice"><div class="stage">
+      <div class="passage"><span class="done">${esc(done)}</span>${state.wrong ? `<span class="bad">${esc(state.wrong === " " ? "·" : state.wrong)}</span>` : ""}<span class="cur">${esc(cur === "\n" ? "⏎\n" : cur)}</span>${esc(rest)}</div>
+      ${kb}</div>
+    <div class="status">typing · ${esc(b.title.replace(" · ", " · "))} · Lesson: Python parsing § 3 ${b.freerange ? "· 10/30 keys · next o" : ""}</div>
+    <div class="msg">D · Practice screen. Type the Passage; the drawing shows the layer the next character is on, with the key to hold shaded and the key to press outlined. <b>Esc</b> hides/shows it (in the app: from the menu).</div></div>`;
+}
+
+const VARIANTS = [["A", "Layer sheet", variantA], ["B", "One layer + pair arc", variantB], ["C", "All layers folded", variantC], ["D", "Practice screen", variantD]];
+
+function render() {
+  document.getElementById("app").innerHTML = VARIANTS[state.v][2]();
+  document.getElementById("vlabel").textContent = `${VARIANTS[state.v][0]} (${VARIANTS[state.v][1]})`;
+  document.getElementById("blabel").textContent = `Tab: ${B().title}` + (state.v === 1 ? "  ·  1–9 layer  ·  j/k pair" : state.v === 0 ? "  ·  h heat" : "");
+  const u = new URL(location); u.searchParams.set("variant", VARIANTS[state.v][0]); u.searchParams.set("board", state.b); history.replaceState(null, "", u);
+}
+function go(d) { state.v = (state.v + d + VARIANTS.length) % VARIANTS.length; render(); }
+document.getElementById("prev").onclick = () => go(-1);
+document.getElementById("next").onclick = () => go(1);
+document.addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "ArrowLeft") { go(-1); return; }
+  if (e.key === "ArrowRight") { go(1); return; }
+  if (e.key === "Tab") { e.preventDefault(); state.b = (state.b + 1) % BOARDS.length; state.layer = 0; state.pair = 0; render(); return; }
+  if (state.v === 3) {                                   // typing in the practice mock
+    if (e.key === "Escape") state.kbOn = !state.kbOn;
+    else if (e.key === "Backspace") { if (state.wrong) state.wrong = ""; else state.typed = Math.max(0, state.typed - 1); }
+    else if (!state.wrong) {
+      const want = PASSAGE[state.typed], got = e.key === "Enter" ? "\n" : e.key;
+      if (got.length !== 1 || want === undefined) return;
+      e.preventDefault();
+      if (got === want) { state.typed++; while (PASSAGE[state.typed - 1] === "\n" && PASSAGE[state.typed] === " ") state.typed++; }
+      else state.wrong = got;
+      if (state.typed >= PASSAGE.length) state.typed = 0;
+    }
+    render(); return;
+  }
+  if (state.v === 0 && e.key === "h") { state.heatA = !state.heatA; render(); }
+  if (state.v === 1 && /^[1-9]$/.test(e.key)) { state.layer = +e.key - 1; render(); }
+  if (state.v === 1 && (e.key === "j" || e.key === "k")) { state.pair = (state.pair + (e.key === "j" ? 1 : 9)) % 10; render(); }
+});
+const q = new URLSearchParams(location.search);
+state.v = Math.max(0, VARIANTS.findIndex(v => v[0] === q.get("variant")));
+state.b = Math.min(BOARDS.length - 1, +(q.get("board") || 0));
+render();
+</script>
+</body>
+</html>
