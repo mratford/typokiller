@@ -16,7 +16,7 @@ Background work (Lesson generation, git clones, the Gutenberg catalogue refresh)
 - `src/typokiller/app.py`: the schema, the API and the static file mount.
 - `src/typokiller/static/`: the page. `typing.js` holds the typing rules and has no DOM code, so Node can test it.
 - `tests/`: `pytest` for the API, `node --test` for `typing.js`.
-- The database is `typokiller.db` in the working directory.
+- The database is `typokiller.db` in the working directory. The settings file is `typokiller.toml` next to it; it is created with defaults and comments when it is missing.
 
 ## Consequences
 
@@ -25,4 +25,5 @@ Background work (Lesson generation, git clones, the Gutenberg catalogue refresh)
 - The browser keeps key events until the server confirms it has stored them, and sends them again until then. The server ignores events it already has, so batches may overlap. The last batch before the page closes is sent with `keepalive`, which Chrome limits to 64 KB, so only that batch uses it.
 - The server stores an Attempt when it receives the Attempt's first key event. The Attempt stays abandoned unless the page reports it as finished. So an Attempt with no key events, such as a restart before typing anything, is not stored.
 - There is no Passage table yet. The ticket that imports Sources adds it, and adds a Passage column to Attempt. Every Attempt stored before then typed the `PASSAGE` text in `app.py`, so that ticket links them to it.
-- Attempt does not yet store the wrong-key mode, whether the Keymap was shown, or the settings (spec §5). Only one mode exists so far; the tickets that add the other mode, the Keymap and settings add these columns.
+- The page reads the settings file when an Attempt starts and sends those settings with the Attempt's key events. Attempt stores them as JSON in its `settings` column, so the wrong-key mode is `settings ->> '$.typing.wrong_key_mode'`; there is no separate column for it. Attempts stored before #19 have no settings; they were all typed in "keep typing" mode.
+- Attempt does not yet store whether the Keymap was shown (spec §5). The Keymap ticket adds it.

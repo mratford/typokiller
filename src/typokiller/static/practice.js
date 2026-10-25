@@ -8,28 +8,42 @@ const MENU = [
   ]],
   ['Session', [
     ['q', 'end Session', () => { ended = true; menu = null; }],
+    [',', 'settings', openSettings],
     ['?', 'all keys', () => { menu = 'help'; }],
   ]],
 ];
 const ITEMS = MENU.flatMap(([, items]) => items);
 
+// The values each choice setting can take. Enter on the settings page moves to the next one.
+const CHOICES = { 'typing.wrong_key_mode': ['keep typing', 'locked until fixed'] };
+
 const { session, passage } = await (await fetch('/api/sessions', { method: 'POST' })).json();
+const getSettings = async () => (await fetch('/api/settings')).json();
 
 let seq = 0;
 let ord = 0; // the current Attempt's order in the Session
+const used = [await getSettings()]; // used[ord] holds the settings Attempt ord is typed with
 let typed = '';
-let menu = null; // null while typing, else 'menu' or 'help'
+let menu = null; // null while typing, else 'menu', 'help' or 'settings'
 let sel = 0;
+let settings = null; // the settings file's values while the settings page is open
+let settingSel = 0;
 let message = '';
 let ended = false;
 const heldIn = new Map(); // code -> the Attempt that recorded its keydown
 let events = []; // not yet stored by the server
 let finished = []; // ords of finished Attempts, not yet stored by the server
 
-function nextAttempt() {
+// Reads the settings file again, so each Attempt uses the settings as they are now.
+async function nextAttempt() {
+  const s = await getSettings();
   ord++;
   typed = '';
+  used[ord] = s;
+  render();
 }
+
+const wrongKeyMode = () => used[ord].typing.wrong_key_mode;
 
 function record(e, attempt) {
   events.push({
@@ -43,7 +57,10 @@ function record(e, attempt) {
 // after the page closes; Chrome limits such requests to 64 KB.
 async function flush(keepalive = false) {
   if (!events.length && !finished.length) return;
-  const batch = { events: [...events], finished: [...finished] };
+  const batch = {
+    events: [...events], finished: [...finished],
+    settings: Object.fromEntries(events.map(e => [e.attempt, used[e.attempt]])),
+  };
   try {
     const r = await fetch(`/api/sessions/${session}/batch`, {
       method: 'POST', keepalive, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(batch),
@@ -56,8 +73,35 @@ async function flush(keepalive = false) {
   } catch {} // the next flush sends the same batch again
 }
 
+async function openSettings() {
+  settings = await getSettings();
+  settingSel = 0;
+  menu = 'settings';
+  render();
+}
+
+// One row per setting: [name, value], where the name is 'table.key'.
+const settingRows = () =>
+  Object.entries(settings).flatMap(([table, values]) => Object.entries(values).map(([k, v]) => [`${table}.${k}`, v]));
+
+function settingsKey(e) {
+  const rows = settingRows();
+  if (e.key === 'Escape') menu = 'menu';
+  else if (e.key === 'j') settingSel = Math.min(settingSel + 1, rows.length - 1);
+  else if (e.key === 'k') settingSel = Math.max(settingSel - 1, 0);
+  else if (e.key === 'Enter') {
+    const [name, value] = rows[settingSel];
+    const [table, key] = name.split('.');
+    const choices = CHOICES[name];
+    settings[table][key] = choices[(choices.indexOf(value) + 1) % choices.length];
+    fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) });
+    message = 'Settings saved. They apply from the next Attempt.';
+  }
+}
+
 function menuKey(e) {
-  if (menu === 'help') { if (e.key === 'Escape') menu = 'menu'; }
+  if (menu === 'settings') settingsKey(e);
+  else if (menu === 'help') { if (e.key === 'Escape') menu = 'menu'; }
   else if (e.key === 'j') sel = Math.min(sel + 1, ITEMS.length - 1);
   else if (e.key === 'k') sel = Math.max(sel - 1, 0);
   else if (e.key === 'Enter') ITEMS[sel][2]();
@@ -74,7 +118,7 @@ addEventListener('keydown', e => {
   else {
     record(e, ord);
     heldIn.set(e.code, ord);
-    typed = applyKey(passage, typed, e);
+    typed = applyKey(passage, typed, e, wrongKeyMode());
     if (typed === passage) {
       finished.push(ord);
       message = '✓ finished';
@@ -119,12 +163,19 @@ function menuHTML() {
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
+function settingsHTML() {
+  const items = settingRows().map(([name, value], i) =>
+    `<div class="item ${i === settingSel ? 'sel' : ''}">${name} = ${esc(String(value))}</div>`).join('');
+  return `<div class="menu"><h4>Settings</h4>${items}<div class="hint"><kbd>j</kbd>/<kbd>k</kbd> select, <kbd>Enter</kbd> changes the value, <kbd>Esc</kbd> goes back. They are saved in typokiller.toml.</div></div>`;
+}
+
 function render() {
   const mode = ended ? 'ended' : menu ? 'paused' : 'typing';
   document.getElementById('app').innerHTML = `
     <main>${ended ? '<p>Session ended. Reload the page to start a new Session.</p>' : passageHTML()}</main>
-    ${menu ? menuHTML() : ''}
-    <div class="status"><span class="mode">${mode}</span><span>no Board yet</span><span class="grow">built-in Passage</span></div>
+    ${menu === 'settings' ? settingsHTML() : menu ? menuHTML() : ''}
+    <div class="status"><span class="mode">${mode}</span><span>no Board yet</span><span class="grow">built-in Passage</span>
+      ${wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc(message)}</div>`;
 }
 

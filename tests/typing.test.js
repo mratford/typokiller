@@ -8,6 +8,11 @@ test('a wrong character goes in and the cursor moves on', () => {
   assert.equal(applyKey('cat', 'c', key('x')), 'cx');
 });
 
+test('locked until fixed: a wrong character does not go in, the right one does', () => {
+  assert.equal(applyKey('cat', 'c', key('x'), 'locked until fixed'), 'c');
+  assert.equal(applyKey('cat', 'c', key('a'), 'locked until fixed'), 'ca');
+});
+
 test('Backspace removes one character but not before the start of the Attempt', () => {
   assert.equal(applyKey('cat', 'cx', key('Backspace')), 'c');
   assert.equal(applyKey('cat', '', key('Backspace')), '');

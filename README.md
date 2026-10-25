@@ -9,4 +9,4 @@ node --test tests/*.test.js   # typing rules tests
 uv run pyright src tests   # type check
 ```
 
-The database is `typokiller.db` in the current directory.
+The database is `typokiller.db` in the current directory. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor, or press `,` in the Escape menu.
