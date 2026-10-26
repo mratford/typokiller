@@ -398,23 +398,12 @@ class WeaknessModel(NamedTuple):
     scale: tuple[float, float, float]  # the fixed colour scale of Keymap drawings: low, high and tick costs in ms
 
 
-def recent_cost_v1(
-    db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
-) -> pl.DataFrame:
-    """The cost of each character and pair typed on the Board with the Letter layout in
-    the Sessions of the last settings["weeks"] weeks, abandoned Attempts too. Characters and
-    pairs seen fewer than settings["min_seen"] times, or never timed, are left out.
-
-    - unit: the Passage's character, or the pair of it and the character before it. The pair
-      is counted only when the keystroke before was correct.
-    - time: the median `time` of the unit's correct keystrokes.
-    - error_rate: the share of Errors among its first keystrokes at a position.
-    - fix_ms: the median fix time of its Errors.
-    - cost (ms) = time + error_rate × fix_ms.
-    - seen: its number of first keystrokes at a position.
-    Misfires and off-track keys do not count.
-    """
-    since = datetime.now(UTC) - timedelta(weeks=settings["weeks"])
+def units(db: sqlite3.Connection, board: str | None, letter_layout: str | None, since: datetime) -> pl.DataFrame:
+    """The keystrokes typed on the Board with the Letter layout in the Sessions started at
+    `since` or later, with one row for each unit of each keystroke: its character, and the
+    pair of the character before and this one when the keystroke before was correct.
+    The columns of `keystrokes`, and unit. Only correct keystrokes and Errors of the
+    "typed" event count: misfires and off-track keys do not."""
 
     def before(column: str) -> pl.Expr:
         """The column's value in the keystroke before, in the same Attempt."""
@@ -428,6 +417,25 @@ def recent_cost_v1(
         .with_columns(unit=pl.concat_list("char", "pair"))
         .explode("unit")
         .drop_nulls("unit")
+    )
+
+
+def recent_cost_v1(
+    db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
+) -> pl.DataFrame:
+    """The cost of each character and pair typed on the Board with the Letter layout in
+    the Sessions of the last settings["weeks"] weeks, abandoned Attempts too. Characters and
+    pairs seen fewer than settings["min_seen"] times, or never timed, are left out.
+
+    - unit: as `units` gives it.
+    - time: the median `time` of the unit's correct keystrokes.
+    - error_rate: the share of Errors among its first keystrokes at a position.
+    - fix_ms: the median fix time of its Errors.
+    - cost (ms) = time + error_rate × fix_ms.
+    - seen: its number of first keystrokes at a position.
+    """
+    return (
+        units(db, board, letter_layout, datetime.now(UTC) - timedelta(weeks=settings["weeks"]))
         .group_by("unit")
         .agg(
             time=pl.col("time").filter(pl.col("status") == "correct").median(),

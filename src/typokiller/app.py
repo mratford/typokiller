@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from typokiller.analysis import attempts, weakness
+from typokiller.drills import DRILL_GENERATORS
 from typokiller.keymap import keymap_letters
 from typokiller.sources import (
     article_paragraphs,
@@ -58,6 +59,15 @@ CREATE TABLE IF NOT EXISTS passage (
     ord INTEGER NOT NULL,
     text TEXT NOT NULL,
     normaliser TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS drill (
+    passage INTEGER PRIMARY KEY,  -- a Drill is a Passage with no Source
+    made TEXT NOT NULL,
+    session INTEGER NOT NULL,  -- the Session it was made for, so its Board and Letter layout
+    model TEXT NOT NULL,  -- the Weakness model
+    generator TEXT NOT NULL,  -- the Drill generator
+    targets TEXT NOT NULL,  -- JSON: a list of {unit, reason, cost, seen}, as the generator chose them
+    unlocked TEXT  -- JSON: the Unlocked keys it was built from; NULL when it could use every key
 );
 CREATE INDEX IF NOT EXISTS passage_source ON passage (source, ord);
 CREATE TABLE IF NOT EXISTS attempt (
@@ -110,6 +120,21 @@ model = "recent-cost-v1"
 # pairs seen fewer than min_seen times. The Attempt summary medians use the same weeks.
 weeks = 4
 min_seen = 20
+
+[drills]
+# The Drill generator. There is one so far: "density-v1", which takes the Targets from
+# the Weakness ranking and the under-measured characters and pairs, and then picks words
+# from the Sources that hold many Targets.
+generator = "density-v1"
+# A Drill has `weak` Targets that the Weakness model ranks highest, and `under_measured`
+# Targets: characters and pairs common in the Sources but seen fewer than min_seen times
+# on this Board and Letter layout, in the Weakness model's weeks. This min_seen is apart
+# from the one in [weakness], so a unit can stay a Target until it is better measured.
+weak = 2
+under_measured = 1
+min_seen = 20
+# The number of words in a Drill.
+words = 40
 """
 
 
@@ -387,6 +412,31 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             "median_accuracy": same_keymap["accuracy"].median(),
             "slowest_pairs": ranking.filter(pl.col("unit").is_in(pairs))["unit"].head(3).to_list(),
         }
+
+    # Makes a Drill for the Session's Board and Letter layout, with the generator that the
+    # settings name, and stores it as a Passage with no Source.
+    @app.post("/api/sessions/{session}/drills")
+    async def make_drill(session: int):
+        settings = read_settings(settings_path).unwrap()
+        board, vil, vial = db.execute(
+            "SELECT b.name, k.vil, b.vial FROM session s LEFT JOIN keymap_version k ON k.hash = s.keymap_version"
+            " LEFT JOIN board b ON b.id = k.board WHERE s.id = ?",
+            (session,),
+        ).fetchone()
+        generator = settings["drills"]["generator"]
+        # #30: the Unlocked keys of a free-range Letter layout go here, and into the drill row.
+        letters = keymap_letters(vil, vial) if vil else None
+        drill = DRILL_GENERATORS[generator](db, board, letters, settings, None)
+        with db:
+            (passage,) = db.execute(
+                "INSERT INTO passage (source, ord, text, normaliser) VALUES (NULL, 0, ?, 'ascii-v1') RETURNING id",
+                (drill.text,),
+            ).fetchone()
+            db.execute(
+                "INSERT INTO drill VALUES (?, ?, ?, ?, ?, ?, NULL)",
+                (passage, now(), session, settings["weakness"]["model"], generator, json.dumps(drill.targets)),
+            )
+        return {"id": passage, "text": drill.text, "targets": drill.targets}
 
     @app.get("/api/gutenberg")
     async def search_books(q: str):

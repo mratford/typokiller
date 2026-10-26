@@ -17,6 +17,7 @@ Background work (Lesson generation, git clones, the Gutenberg catalogue refresh)
 - `src/typokiller/keymap.py`: reads the QMK settings and the Letter layout from a `.vil` and a `vial.json`, and finds which keys of a `.vil` type each character.
 - `src/typokiller/sources.py`: the `ascii-v1` normaliser, splitting a Gutenberg book or a code file into Passages, and searching the Gutenberg catalogue.
 - `src/typokiller/analysis.py`: the tables computed on read with Polars, used by the app and the notebooks.
+- `src/typokiller/drills.py`: the Drill generators and the word pool that Drills take their words from.
 - `src/typokiller/static/`: the page. `typing.js` holds the typing rules and has no DOM code, so Node can test it.
 - `tests/`: `pytest` for the API, `node --test` for `typing.js`.
 - The database is `typokiller.db` in the working directory. The settings file is `typokiller.toml` next to it; it is created with defaults and comments when it is missing.
@@ -52,3 +53,17 @@ Background work (Lesson generation, git clones, the Gutenberg catalogue refresh)
   - `WEAKNESS_MODELS` in `analysis.py` holds each Weakness model by name, with its colour scale for drawings (low, high and tick costs in ms). `weakness(db, board, letter_layout, settings)` runs the model named in the `[weakness]` settings table and returns its ranking, the highest cost first, with a `model` column. The `[weakness]` table holds `model` (default `recent-cost-v1`), `weeks` (4) and `min_seen` (20). The Attempt summary medians use the same `weeks`.
   - `recent-cost-v1`: for each character and pair (the character before and this one, when the keystroke before was correct), cost (ms) = median `time` of its correct keystrokes + error rate × median fix time of its Errors. The error rate and `seen` count only the first keystrokes at a position. Misfires and off-track keys do not count; abandoned Attempts do. Units seen fewer than `min_seen` times, or never timed, are left out. Its scale is 150–600 ms with a tick at 400.
   - The Attempt summary's slowest pairs are the pairs of the Attempt's Passage that the ranking holds, the 3 highest. With fewer than `min_seen` observations there are none, and the page leaves the part out.
+- #27 added Drills, in the new module `drills.py`.
+  - A Drill is a row of `passage` with no Source. It also has a row in the new `drill` table. That row holds the Passage, the time it was made, and the Session it was made for, which gives the Board and Letter layout. It also holds the names of the Weakness model and the Drill generator, and the Targets as JSON.
+  - Each Target has a unit, a reason ("weak" or "under-measured"), a cost and a seen count. The cost is NULL when the Weakness model does not rank the unit.
+  - `drill.unlocked` is NULL for now. NULL means that the Drill could use every key. #30 stores the Unlocked keys there.
+  - `POST /api/sessions/{session}/drills` makes a Drill and returns its id, text and Targets. It uses the generator named in the new `[drills]` settings table. That table holds `generator`, `weak`, `under_measured`, `min_seen` and `words`.
+  - `DRILL_GENERATORS` holds each generator by name. A generator takes the database, the Board, the Letter layout, all the settings and the Unlocked keys (None for every key). It returns the Targets and the text.
+  - `density-v1` takes the 2 units that the Weakness model ranks highest. Then it takes the most common units of the word pool that were seen fewer than `min_seen` times on this Board and Letter layout, in the Weakness model's `weeks`.
+  - The seen counts come from `analysis.units`, the step that `recent-cost-v1` also uses. They do not come from the ranking, because the ranking leaves out units that were never timed.
+  - A Target must be a unit that the pool's words hold, so `\n` is never a Target. Word i holds Target i modulo 3. It is picked at random, with a weight of its number of Targets per character.
+  - The word pool is every whitespace-separated word of the Sources' Passages, with how often it comes. `WORDS` (500 common English words) joins it while the Sources give fewer than 1,000 different words. The pool is read again for each Drill. There is no cache.
+  - Making a Drill replays the last 4 weeks of key events twice: once for the seen counts, and once in the Weakness model. This takes about 1.5 s for 60k keystrokes and 8 s for 300k. The server answers no other request meanwhile. A cache of `keystrokes` would halve the time.
+  - On the page, `d` makes one Drill. After it, the interrupted Passage comes back from its start. `d` during a Drill makes another Drill that comes back to the same Passage.
+  - The last item of the `o` list is endless Drills. After each Drill, the page sends its key events and asks for the next Drill, so the Targets are ranked again with that Drill's keys. The screen says "Making a Drill…" meanwhile, and no key does anything until the Drill comes. Choosing a Source ends the Drills.
+  - The status line shows "drill" as the mode, and the Targets.

@@ -4,11 +4,12 @@ import { applyKey } from './typing.js';
 const MENU = [
   ['Practice', [
     ['Escape', 'resume', () => { screen = 'typing'; }],
-    ['s', 'skip this Passage', () => { advance(); nextAttempt(); screen = 'typing'; }],
+    ['d', 'Drill', () => showDrill(drill?.endless ?? false)],
+    ['s', 'skip this Passage', () => { moveOn(); screen = 'typing'; }],
     ['r', 'restart this Passage', () => { nextAttempt(); screen = 'typing'; }],
   ]],
   ['Sources', [
-    ['o', 'open a Source', async () => { await showSources(); screen = 'sources'; }],
+    ['o', 'open a Source or endless Drills', async () => { await showSources(); screen = 'sources'; }],
     ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
   ['Session', [
@@ -31,6 +32,8 @@ let session;
 let passage, nextPassage; // each { id, text }; nextPassage is shown faint below
 let source = null; // the open Source: { id, title, at, total }, where `at` is its bookmark;
                    // null while the built-in Passage is typed
+let drill = null; // while Drills are typed: { endless, targets, back }, where `back` is
+                  // [passage, nextPassage] to come back to after one Drill
 let sources = []; // from the server, unfinished first, the last opened first
 let query = ''; // typed into the open text field of the import panel
 let results = []; // the Gutenberg search results
@@ -105,7 +108,34 @@ function advance() {
   openSource(id, at + 1).then(() => { if (!source) message = `Finished ${title}.`; render(); });
 }
 
+// One Drill, or endless Drills with the Targets ranked again before each one. The
+// server makes a Drill from the key events it has stored, so they are sent first.
+// The Passage is null until the Drill comes, and keys typed meanwhile do nothing, not even Esc.
+async function showDrill(endless) {
+  drill = { endless, targets: [], back: drill?.back ?? [passage, nextPassage] };
+  passage = null;
+  screen = 'typing';
+  render();
+  await flush();
+  const made = await sendJSON(`/api/sessions/${session}/drills`, {});
+  passage = { id: made.id, text: made.text };
+  nextPassage = endless ? null : drill.back[0];
+  drill.targets = made.targets;
+  nextAttempt();
+  render();
+}
+
+// After a finished or skipped Passage: the next Passage, and an Attempt at it. After
+// one Drill, the Passage it interrupted comes back from its start.
+function moveOn() {
+  if (drill?.endless) return showDrill(true);
+  if (drill) { [passage, nextPassage] = drill.back; drill = null; }
+  else advance();
+  nextAttempt();
+}
+
 async function chooseSource(s) {
+  drill = null;
   await openSource(s.id, s.at < s.total ? s.at : 0); // a finished Source opens from the start
   nextAttempt();
   screen = 'typing';
@@ -183,6 +213,7 @@ async function startSession(keymap) {
   summary = '';
   summaryFor = null;
   heldIn.clear();
+  drill = null;
   screen = 'typing';
   render();
 }
@@ -289,7 +320,7 @@ function settingsKey(e) {
 async function menuKey(e) {
   if (e.key === 'Escape' && screen !== 'menu') { screen = 'menu'; sel = 0; editing = null; }
   else if (screen === 'settings') settingsKey(e);
-  else if (screen === 'sources') listKey(e, sources, chooseSource);
+  else if (screen === 'sources') listKey(e, openItems(), s => s === ENDLESS ? showDrill(true) : chooseSource(s));
   else if (screen === 'import') {
     const choice = IMPORTS.find(([k]) => k === e.key);
     if (choice) { screen = choice[2]; query = ''; }
@@ -304,13 +335,14 @@ async function menuKey(e) {
 
 // Keys used on the start screens and in the menu are not key events of any Attempt,
 // so they are not recorded.
-// An Attempt that is left without finishing (s, r, o, b, q, closing or reloading) stays
+// An Attempt that is left without finishing (d, s, r, o, b, q, closing or reloading) stays
 // abandoned. Only finishing and s move the Source's bookmark on.
 addEventListener('keydown', e => {
   if (screen === 'ended') return;
   if (!e.metaKey) e.preventDefault(); // let Cmd shortcuts such as Cmd-R work
   if (START.includes(screen)) startKey(e);
   else if (screen !== 'typing') menuKey(e);
+  else if (!passage) return; // a Drill is being made: no key does anything until it comes
   else if (e.key === 'Escape') { screen = 'menu'; sel = 0; }
   else {
     record(e, ord);
@@ -323,8 +355,7 @@ addEventListener('keydown', e => {
       setTimeout(finishedOrd => { if (summaryFor === finishedOrd) showSummary(); }, 1000, ord);
       summary = '✓ finished';
       message = '';
-      advance();
-      nextAttempt();
+      moveOn();
     }
   }
   render();
@@ -381,6 +412,7 @@ const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&
 const label = k => (k === 'Escape' ? 'Esc' : k);
 
 function passageHTML() {
+  if (!passage) return '<p>Making a Drill…</p>';
   const text = passage.text;
   let h = '';
   for (let j = 0; j < text.length; j++) {
@@ -411,11 +443,16 @@ function menuHTML() {
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
+// The `o` list: the Sources, then endless Drills.
+const ENDLESS = {};
+const openItems = () => [...sources, ENDLESS];
+
 const sourceLabel = s => `${s.title} · ${s.at < s.total ? `§${s.at + 1} of ${s.total}` : 'finished, opens from the start'}`;
 
 function sourcesHTML() {
-  return `<div class="menu">${listHTML('Open a Source', sources.map(sourceLabel))}`
-    + `<div class="hint">${sources.length ? chooseHint : 'No Sources yet. <kbd>i</kbd> in the menu imports one.'} <kbd>Esc</kbd> goes back.</div></div>`;
+  const labels = openItems().map(s => s === ENDLESS ? 'Endless Drills, with the Targets ranked again after each one' : sourceLabel(s));
+  return `<div class="menu">${listHTML('Open a Source', labels)}`
+    + `<div class="hint">${chooseHint}${sources.length ? '' : ' No Sources yet: <kbd>i</kbd> in the menu imports one.'} <kbd>Esc</kbd> goes back.</div></div>`;
 }
 
 function importHTML() {
@@ -487,14 +524,18 @@ function startHTML() {
     + '<p class="hint">A name that exists adds the <code>.vil</code> to that Board. <kbd>Esc</kbd> goes back.</p>';
 }
 
+// The status line's Drill part: the Targets, a space shown as ·.
+const drillLabel = () => (drill.endless ? 'Endless Drills' : 'Drill')
+  + (drill.targets.length ? ` · Targets: ${drill.targets.map(t => showChars(t.unit)).join(' ')}` : '');
+
 function render() {
   const starting = START.includes(screen);
-  const mode = starting ? 'start' : { typing: 'typing', ended: 'ended' }[screen] ?? 'paused';
+  const mode = starting ? 'start' : { typing: drill ? 'drill' : 'typing', ended: 'ended' }[screen] ?? 'paused';
   document.getElementById('app').innerHTML = `
     <main>${screen === 'ended' ? '<p>Session ended. Reload the page to start a new Session.</p>' : starting ? startHTML() : passageHTML()}</main>
     ${PANELS[screen]?.() ?? ''}
     <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(boardLabel)}</span>
-      <span class="grow">${starting ? '' : source ? esc(sourceLabel(source)) : 'built-in Passage'}</span>
+      <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'built-in Passage')}</span>
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;
   scrollToCursor();

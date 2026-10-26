@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, weakness
 from typokiller.app import create_app
+from typokiller.drills import WORDS
 from typokiller.keymap import qmk_settings, read_keymap
 from typokiller.sources import ascii_v1, code_passages
 
@@ -34,6 +35,7 @@ SETTINGS = {
     "typing": {"wrong_key_mode": "keep typing"},
     "passages": {"max_dropped": 0.05, "min_length": 20},
     "weakness": WEAKNESS,
+    "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
 }
 ATTEMPT = {"passage": 1, "settings": SETTINGS}  # the built-in Passage
 
@@ -117,6 +119,7 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_are
 
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
+    rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
     settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + rest)
 
     response = client.put("/api/settings", json={"typing": {"wrong_key_mode": "locked until fixed"}})
@@ -602,3 +605,68 @@ def test_dwell_and_flight_come_from_finger_events_with_summed_time_around_tap_ho
         ("\n", "combo", None, None, None),
         ("g", "plain", 80.0, None, None),
     ]
+
+
+def drill(client, session):
+    return client.post(f"/api/sessions/{session}/drills").json()
+
+
+def test_with_no_data_a_drill_has_3_under_measured_targets_the_most_common_in_the_sources_first(
+    client, db_path, monkeypatch
+):
+    monkeypatch.setattr("typokiller.drills.WORDS", [])  # so the pool is only the article's words
+    client.post("/api/articles", json={"title": "Tents", "text": "ten ten ten ten ten net net tent"})
+    session = start_session(client)
+
+    made = drill(client, session)
+
+    # t is in 9 of the pool's characters; space, e and n in 8 each.
+    assert made["targets"] == [
+        {"unit": unit, "reason": "under-measured", "cost": None, "seen": 0} for unit in ["t", " ", "e"]
+    ]
+    words = made["text"].split(" ")
+    assert len(words) == 40
+    assert set(words) <= {"ten", "net", "tent"}
+    # A Drill is a Passage with no Source, and it records how it was made.
+    assert rows(db_path, "SELECT p.source, p.text, d.session, d.model, d.generator, d.unlocked"
+                " FROM drill d JOIN passage p ON p.id = d.passage") == [
+        (None, made["text"], session, "recent-cost-v1", "density-v1", None)
+    ]  # fmt: skip
+    assert json.loads(rows(db_path, "SELECT targets FROM drill")[0][0]) == made["targets"]
+
+
+def test_while_the_pool_is_small_the_built_in_word_list_is_in_it(client):
+    words = drill(client, start_session(client))["text"].split(" ")
+
+    assert set(words) <= set(WORDS)
+
+
+def test_a_drill_targets_the_weakest_units_and_the_most_common_under_measured_one_on_this_keymap(
+    client, db_path, monkeypatch
+):
+    monkeypatch.setattr("typokiller.drills.WORDS", [])
+    qwerty, free_range = sweep_versions(client, db_path)
+    client.post("/api/articles", json={"title": "Abcc", "text": "abcc abcc abcc abcc abcc"})
+    session = typed_session(client, qwerty, TYPE_CODE, ["a", "x", "Backspace", "b"], finished=[0])
+    typed_session(client, free_range, TYPE_CODE, finished=[0])  # c seen once more, on another Letter layout
+    client.put("/api/settings", json={"weakness": {"min_seen": 2}, "drills": {"min_seen": 2}})
+
+    made = drill(client, session)
+
+    # ab and b cost 2000 ms and were seen twice on QWERTY; c, the most common in the pool, only once.
+    weak = {"reason": "weak", "cost": 2000.0, "seen": 2}
+    assert made["targets"] == [
+        {"unit": "ab", **weak},
+        {"unit": "b", **weak},
+        {"unit": "c", "reason": "under-measured", "cost": None, "seen": 1},
+    ]
+    assert made["text"] == " ".join(["abcc"] * 40)
+
+    client.put("/api/settings", json={"drills": {"weak": 1, "under_measured": 2, "words": 5}})
+
+    made = drill(client, session)
+
+    assert [(t["unit"], t["reason"]) for t in made["targets"]] == [
+        ("ab", "weak"), ("c", "under-measured"), (" ", "under-measured")
+    ]
+    assert made["text"] == " ".join(["abcc"] * 5)
