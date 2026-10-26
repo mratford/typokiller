@@ -97,7 +97,7 @@ LESSONS = {
 }
 SETTINGS = {
     "typing": {"wrong_key_mode": "keep typing", "show_keymap": False},
-    "passages": {"max_dropped": 0.05, "min_length": 20},
+    "passages": {"max_dropped": 0.05, "min_length": 20, "code_extensions": [".py", ".gleam"]},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
     "unlocking": UNLOCKING,
@@ -191,7 +191,7 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
 
 
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
-    rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
+    rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
     rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
@@ -488,17 +488,26 @@ def git(*args, cwd):
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
-@pytest.fixture
-def repo(tmp_path):
-    """A git repo with two tracked code files, a tracked binary file and an untracked file."""
-    repo = tmp_path / "myrepo"
-    repo.mkdir()
-    (repo / "a.py").write_text("def first_function():\n    return 1\n\n\ndef second_function():\n    return 2\n")
-    (repo / "b.js").write_text("function third() {\n  return 3;\n}\n")
-    (repo / "image.png").write_bytes(b"\x89PNG\x00\x00 not text, not text at all")
+def commit_all(repo):
+    """Makes `repo` a git repo with each of its files in one commit."""
     git("init", cwd=repo)
     git("add", ".", cwd=repo)
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x", cwd=repo)
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """A git repo with two tracked code files, tracked text files that are not code, a tracked
+    binary file and an untracked file."""
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    (repo / "a.py").write_text("def first_function():\n    return 1\n\n\ndef second_function():\n    return 2\n")
+    (repo / "b.gleam").write_text("pub fn third() -> Int {\n  3\n}\n")
+    (repo / "uv.lock").write_text('[[package]]\nname = "typokiller"\nversion = "0.1.0"\n')
+    (repo / ".gitignore").write_text("__pycache__/\n.venv/\n*.db\n")
+    (repo / "README.md").write_text("# myrepo\n\nA small repo with two functions in it.\n")
+    (repo / "image.png").write_bytes(b"\x89PNG\x00\x00 not text, not text at all")
+    commit_all(repo)
     (repo / "untracked.py").write_text("def untracked_function():\n    return 4\n")
     return repo
 
@@ -519,19 +528,32 @@ def wait_for_notice(client, n=1):
     raise AssertionError("no notice")
 
 
-def test_a_git_repo_is_cloned_in_the_background_and_each_function_of_its_tracked_text_files_is_a_passage(
+def test_a_git_repo_is_cloned_in_the_background_and_each_function_of_its_tracked_code_files_is_a_passage(
     running, db_path, repo
 ):
     response = running.post("/api/code", json={"url": str(repo)})
 
     assert response.status_code == 202
     assert wait_for_notice(running) == ["Imported myrepo: 3 Passages, 0 functions skipped."]
-    [(source, title)] = rows(db_path, "SELECT id, title FROM source")
+    [(source, title, text)] = rows(db_path, "SELECT id, title, text FROM source")
     assert title == "myrepo"
+    assert sorted(re.findall(r"^--- (.*)$", text, re.M)) == ["a.py", "b.gleam"]
     passages = [text for (text,) in rows(db_path, f"SELECT text FROM passage WHERE source = {source} ORDER BY ord")]
     a = ["def first_function():\n    return 1", "def second_function():\n    return 2"]
-    b = ["function third() {\n  return 3;\n}"]
+    b = ["pub fn third() -> Int {\n  3\n}"]
     assert passages in (a + b, b + a)  # the files in either order, each file's functions in written order
+
+
+def test_a_git_repo_with_no_code_file_adds_no_source(running, db_path, tmp_path):
+    repo = tmp_path / "docs"
+    repo.mkdir()
+    (repo / "README.md").write_text("# docs\n\nOnly words here, and no code at all.\n")
+    commit_all(repo)
+
+    running.post("/api/code", json={"url": str(repo)})
+
+    assert wait_for_notice(running) == ["No files in docs have an extension in code_extensions (.py, .gleam)."]
+    assert rows(db_path, "SELECT * FROM source") == []
 
 
 def test_a_clone_that_fails_is_reported(running, tmp_path):

@@ -169,6 +169,9 @@ show_keymap = false
 # characters.
 max_dropped = 0.05
 min_length = 20
+# A code Source takes Passages only from the files with one of these extensions, so lock
+# files, dotfiles and docs are left out. A change applies to the next import.
+code_extensions = [".py", ".gleam"]
 
 [weakness]
 # The Weakness model that ranks characters and pairs by cost. There is one so far:
@@ -486,8 +489,13 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         except subprocess.CalledProcessError as e:
             notices.append(f"Could not clone {url}: {e.stderr.strip()}")
             return
-        random.shuffle(files)  # once: the Passages' ords then keep this order
         rule = read_settings(settings_path)["passages"]
+        extensions = rule["code_extensions"]
+        files = [(path, text) for path, text in files if Path(path).suffix in extensions]
+        if not files:
+            notices.append(f"No files in {title} have an extension in code_extensions ({', '.join(extensions)}).")
+            return
+        random.shuffle(files)  # once: the Passages' ords then keep this order
         passages, skipped = [], 0
         for _, text in files:
             found, n = code_passages(text, rule["max_dropped"], rule["min_length"])
