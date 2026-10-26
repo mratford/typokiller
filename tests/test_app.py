@@ -928,12 +928,16 @@ def centre(svg, key):
     return x + float(box.get("width")) / 2, y + float(box.get("height")) / 2
 
 
-def test_each_pair_is_an_arc_from_its_first_characters_key_to_its_seconds_on_any_layer():
-    base = drawing("ferris_sweep_qwerty.vil", "sweep", 0, NAMES, pairs=["e(", "ee"])
+def test_each_pair_is_an_arc_from_its_first_characters_key_to_its_seconds_on_the_layer_with_both_keys():
+    pairs = ["ek", "ee", "()", "e("]
+    base = drawing("ferris_sweep_qwerty.vil", "sweep", 0, NAMES, pairs=pairs)
+    sym = drawing("ferris_sweep_qwerty.vil", "sweep", 1, NAMES, pairs=pairs)
 
     arcs = base.findall(".//*[@class='arc']")
-    assert [a.get("data-pair") for a in arcs] == ["e(", "ee"]
-    # ( is on Sym, so the arc ends where its key is, the k key on the base layer.
+    # ( and ) are on Sym, so their arcs are not on the base layer.
+    # The keys of e( are on two layers, so it has no arc.
+    assert [a.get("data-pair") for a in arcs] == ["ek", "ee"]
+    assert [a.get("data-pair") for a in sym.findall(".//*[@class='arc']")] == ["()"]
     x, y, _, _, x_end, y_end = [float(v) for v in re.findall(r"-?[\d.]+", arcs[0][0].get("d") or "")]
     (x1, y1), (x2, y2) = centre(base, "0,2"), centre(base, "5,2")
     assert (x, y, x_end, y_end) == pytest.approx((x1, y1 - 0.25, x2, y2 - 0.25))

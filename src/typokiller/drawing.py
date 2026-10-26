@@ -323,7 +323,8 @@ def draw_keymap(
       combos are grey (class "grey"); they are not finger presses of one character.
     - Each of `pairs` is an arc (see `arc`), a <g> of class "arc" with the pair in
       data-pair. Its ends are the keys that key attribution picks for a correct keystroke
-      (each character's first candidate), so an end on another layer is where its key is.
+      (each character's first candidate). It is drawn only when both of these keys are on
+      the layer drawn.
     - `locked` are the locked keys of a Letter layout being learned, in unlock order, each
       written as the character it types without Shift (see `analysis.unlocking`). Their keys
       are dashed and faint (class "locked"), and the first one, the next to unlock, is also
@@ -396,9 +397,10 @@ def draw_keymap(
             f'<rect x="{num(x - w / 2)}" y="{num(y - 0.13)}" width="{num(w)}" height="0.26" rx="0.13"/>'
             f'<text x="{num(x)}" y="{num(y)}" font-size="0.16">{escape(text)}</text></g>'
         )
-    keys = read_keymap(vil_text).keys
+    # The centre of each character's first candidate key, if that key is on this layer.
+    here = {char: centre(keys[0].key) for char, keys in read_keymap(vil_text).keys.items() if keys[0].layer == layer}
     for pair in pairs:
-        ends = [centre(keys[char][0].key) if char in keys else None for char in pair]
+        ends = [here.get(char) for char in pair]
         if ends[0] and ends[1]:
             parts.append(arc(pair, ends[0], ends[1]))
     corners = [p.turn(x, y) for p in places.values() for x in (p.x, p.x + p.w) for y in (p.y, p.y + p.h)]
