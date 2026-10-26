@@ -41,7 +41,7 @@ h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing
 .status { display: flex; border-top: 1px solid var(--line); font: 13px var(--mono); color: var(--dim); }
 .status span { padding: 3px 12px; white-space: nowrap; }
 .status .mode { color: var(--fg); }
-.status .grow { flex: 1; }
+.status .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* a long title is cut short, so the items after it stay visible */
 .msg { height: 24px; padding: 2px 12px; font: 13px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 [hidden] { display: none !important; }
 /* The progress page (progress.js) */
@@ -50,6 +50,7 @@ h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing
 #progress .tabs .on { color: var(--fg); font-weight: 600; }
 #progress .split { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 24px; align-items: start; }
 #progress .heat svg { display: block; width: 100%; height: auto; }
+#progress #trend svg { max-width: 100%; height: auto; } /* the charts get smaller in a narrow window */
 #progress .arc:not(.on) { display: none; } /* only the selected pair's arc */
 #progress table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 #progress td { padding: 1px 8px 1px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
