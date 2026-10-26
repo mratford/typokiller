@@ -643,9 +643,18 @@ def trend_chart(trend: pl.DataFrame) -> alt.HConcatChart:
         .encode(x=alt.X("day:T", title=None))
         .properties(width=360, height=140)
     )
+    # Show whole WPM and whole percents. With one day of data, the axis range is very small.
+    # tickMinStep keeps the ticks whole, so two ticks do not get the same rounded label.
     return alt.hconcat(
-        base.encode(y=alt.Y("wpm:Q", title="WPM", scale=alt.Scale(zero=False))),
         base.encode(
-            y=alt.Y("accuracy:Q", title="first-time accuracy", scale=alt.Scale(zero=False), axis=alt.Axis(format="%"))
+            y=alt.Y("wpm:Q", title="WPM", scale=alt.Scale(zero=False), axis=alt.Axis(format="d", tickMinStep=1))
+        ),
+        base.encode(
+            y=alt.Y(
+                "accuracy:Q",
+                title="first-time accuracy",
+                scale=alt.Scale(zero=False),
+                axis=alt.Axis(format=".0%", tickMinStep=0.01),
+            )
         ),
     ).configure(background="transparent")

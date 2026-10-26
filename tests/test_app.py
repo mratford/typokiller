@@ -954,6 +954,8 @@ def test_the_progress_page_has_the_trend_chart_the_heat_drawing_and_the_weakest_
 
     (trend,) = page["trend"]["datasets"].values()
     assert [day["wpm"] for day in trend] == [60 / 4.1]
+    # Short axis labels: whole WPM and whole percents, also with one day of data.
+    assert [chart["encoding"]["y"]["axis"]["format"] for chart in page["trend"]["hconcat"]] == ["d", ".0%"]
     assert page["names"] == ["L0", "Space", "L2", "Tab", "Esc"]  # no layer names in the settings
     # b and ab cost 2000 ms and were seen twice; no other unit was seen twice and timed.
     assert page["chars"] == [{"unit": "b", "cost": 2000.0, "seen": 2}]
