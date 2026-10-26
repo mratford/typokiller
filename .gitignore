@@ -224,3 +224,7 @@ __marimo__/
 
 # typokiller database
 *.db
+
+# typokiller settings and the downloaded Gutenberg catalogue
+typokiller.toml
+pg_catalog.csv
