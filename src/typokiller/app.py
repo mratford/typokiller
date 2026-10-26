@@ -43,6 +43,7 @@ from typokiller.lessons import (
     WRITES,
     Provider,
     Reply,
+    build_gleam_project,
     cap_refusal,
     code_in,
     run_code,
@@ -218,6 +219,8 @@ prompt = "lesson-prompt-v1"
 # The model that writes Python Lessons, by its OpenRouter ID, and how hard it thinks before it
 # writes: "low", "medium" or "high". It writes at most max_tokens tokens, thinking included.
 python_model = "anthropic/claude-haiku-5.5"
+# The model that writes Gleam Lessons. The first other one to try is "openai/gpt-6.1-sol".
+gleam_model = "anthropic/claude-sonnet-5.5"
 reasoning = "low"
 max_tokens = 8000
 # The length that the prompt asks for, in words with the code, and the learner's level.
@@ -405,7 +408,7 @@ class Article(BaseModel):
 
 class LessonRequest(BaseModel):
     topic: str  # free text, as typed
-    language: Literal["python"] = "python"  # a key of lessons.LANGUAGES
+    language: Literal["python", "gleam"] = "python"  # a key of lessons.LANGUAGES
 
 
 class DrillRequest(BaseModel):
@@ -848,14 +851,19 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             raise HTTPException(502, f"No price for {model}: {e!r}")
         if refused := cap_refusal(db, waiting + worst, lessons):
             raise HTTPException(409, refused)
+        # Gleam blocks are built in the pre-made project, so it must be built before anything is paid for.
+        if request.language == "gleam" and (error := await asyncio.to_thread(build_gleam_project)):
+            raise HTTPException(502, f"Could not build the Gleam project: {error}")
         waiting += worst
         lesson_requests.put_nowait((request, worst))
 
-    # The month-to-date spend in pounds, which the Lesson form shows, and the cap.
+    # The month-to-date spend in pounds, which the Lesson form shows, and the cap. Also the
+    # language of the last Lesson, which the form chooses at first.
     @app.get("/api/lessons/spend")
     async def lesson_spend():
         lessons = read_settings(settings_path).unwrap()["lessons"]
-        return {"spent": spent(db, lessons["dollars_per_pound"]), "cap": lessons["cap"]}
+        (language,) = db.execute("SELECT language FROM lesson ORDER BY id DESC LIMIT 1").fetchone() or ("python",)
+        return {"spent": spent(db, lessons["dollars_per_pound"]), "cap": lessons["cap"], "language": language}
 
     # The /send page posts the text that the article bookmarklet took from a web page.
     @app.post("/api/articles")

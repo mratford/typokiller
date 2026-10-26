@@ -20,7 +20,7 @@ from typokiller.app import create_app
 from typokiller.drawing import Heat, draw_keymap
 from typokiller.drills import WORDS, pool
 from typokiller.keymap import qmk_settings, read_keymap
-from typokiller.lessons import Reply, run_code
+from typokiller.lessons import GLEAM_PROJECT, Reply, run_code
 from typokiller.sources import ascii_v1, code_passages, lesson_passages
 
 
@@ -81,6 +81,7 @@ UNLOCKING = {
 LESSONS = {
     "prompt": "lesson-prompt-v1",
     "python_model": "anthropic/claude-haiku-5.5",
+    "gleam_model": "anthropic/claude-sonnet-5.5",
     "reasoning": "low",
     "max_tokens": 8000,
     "words": 1300,
@@ -1169,7 +1170,7 @@ def test_a_lesson_is_written_in_the_background_in_the_order_asked_and_recorded_a
         (1, '{"prompt_tokens": 200, "completion_tokens": 3000}', 0.0015),
         (2, '{"prompt_tokens": 200, "completion_tokens": 3000}', 0.0015),
     ]
-    assert running.get("/api/lessons/spend").json() == {"spent": 0.003 / 1.337, "cap": 5.0}
+    assert running.get("/api/lessons/spend").json() == {"spent": 0.003 / 1.337, "cap": 5.0, "language": "python"}
     # Lesson text joins the Drill word pool.
     assert pool(sqlite3.connect(db_path), None)["literal"] == 2
 
@@ -1236,9 +1237,62 @@ def test_a_block_passes_on_exit_code_0_within_the_timeout():
     assert run_code("python", "import time\ntime.sleep(10)\n", 0.5) == "It did not finish within 0.5 seconds.\n"
 
 
-def code_lesson(*blocks):
+# A Gleam module that uses gleam_stdlib, gleam_erlang and gleam_otp.
+GLEAM = """\
+import gleam/erlang/process
+import gleam/io
+import gleam/otp/actor
+
+pub fn main() -> Nil {
+  let assert Ok(_) = actor.new(0) |> actor.start
+  process.sleep(1)
+  io.println("started")
+}
+"""
+
+# Tests never use the network, so they do not build the pre-made project (README: Lessons).
+gleam_built = pytest.mark.skipif(not (GLEAM_PROJECT / "build").exists(), reason="the Gleam project is not built")
+
+
+@gleam_built
+def test_a_gleam_block_builds_and_runs_in_the_pre_made_project_and_fails_without_main():
+    assert run_code("gleam", GLEAM, 10) is None  # the dependencies are there, without the network
+    without_main = run_code("gleam", GLEAM.replace("pub fn main", "pub fn start"), 10) or ""
+    assert without_main.startswith("It ended with exit code 1.") and "does not have a main function" in without_main
+
+
+@gleam_built
+def test_a_gleam_lesson_is_written_by_the_gleam_model_and_its_code_is_checked_with_gleam(running, db_path, provider):
+    provider.text = code_lesson(GLEAM, language="gleam")
+
+    running.post("/api/lessons", json={"topic": "actors", "language": "gleam"})
+
+    ready = "2 Passages, 0 skipped; 0 of 1 code examples dropped. It is first in the list of Sources (o)."
+    assert wait_for_notice(running) == [f"Lesson ready: actors: {ready}"]
+    [call] = provider.calls
+    assert call["model"] == "anthropic/claude-sonnet-5.5"
+    prompt = " ".join(m["content"] for m in call["messages"])
+    assert "Write a Gleam Lesson on actors." in prompt
+    assert "pub fn main() -> Nil" in prompt and "gleam_stdlib 1.0, gleam_erlang 1.3 and gleam_otp 1.3" in prompt
+    assert rows(db_path, "SELECT language, model FROM lesson") == [("gleam", "anthropic/claude-sonnet-5.5")]
+    # The Lesson form chooses the language of the last Lesson at first.
+    assert running.get("/api/lessons/spend").json()["language"] == "gleam"
+
+
+def test_a_gleam_lesson_is_refused_and_not_sent_when_the_gleam_project_does_not_build(
+    running, provider, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("typokiller.lessons.GLEAM_PROJECT", tmp_path)  # no gleam.toml there
+
+    response = running.post("/api/lessons", json={"topic": "actors", "language": "gleam"})
+
+    assert response.status_code == 502 and response.json()["detail"].startswith("Could not build the Gleam project: ")
+    assert provider.calls == []
+
+
+def code_lesson(*blocks, language="python"):
     """A Lesson with a section for each code block."""
-    return "".join(f"## Part {i}\n\nA paragraph long enough to type.\n\n```python\n{b}\n```\n\n" for i, b in enumerate(blocks))
+    return "".join(f"## Part {i}\n\nA paragraph long enough to type.\n\n```{language}\n{b}\n```\n\n" for i, b in enumerate(blocks))
 
 
 def fenced(code):

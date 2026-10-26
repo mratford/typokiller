@@ -47,10 +47,11 @@ let unlocking = null; // the unlock state of a Letter layout being learned, from
                       // { unlocked, total, next, introducing }; null for other Letter layouts
 let sources = []; // from the server, unfinished first, the last opened first
 let query = ''; // typed into the open text field of the import panel or the Lesson form
-let spend = null; // what Lessons cost this month, for the Lesson form: { spent, cap } in pounds
+let spend = null; // for the Lesson form: { spent, cap } in pounds this month, and the last Lesson's language
+let language = null; // the Lesson form's language, such as 'python': the last used, from the server at first
 let results = []; // the Gutenberg search results
 let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings', 'sources', 'import',
-                       // a key of FIELDS, 'results', 'article', 'progress' or 'ended'
+                       // 'language', a key of FIELDS, 'results', 'article', 'progress' or 'ended'
 let boards = []; // from the server, each with its Keymaps, last used first
 let board = null; // the Board chosen on the start screen
 let keymap = null; // the Session's Keymap, as the Board list gives it: { letter_layout, version, used }
@@ -213,11 +214,21 @@ function importCode() {
   screen = 'typing';
 }
 
-// l opens the Lesson form, which shows what Lessons cost this month.
+// The Lesson languages: [the key that chooses it, its name, the server's name for it].
+const LANGUAGES = [['p', 'Python', 'python'], ['g', 'Gleam', 'gleam']];
+const lessonLanguage = () => LANGUAGES.find(l => l[2] === language);
+
+// l opens the Lesson form. It asks for the language first (Enter chooses the last used), then
+// the topic, and shows what Lessons cost this month.
 async function openLessonForm() {
   spend = await getJSON('/api/lessons/spend');
-  query = '';
-  screen = 'lesson';
+  language ??= spend.language;
+  screen = 'language';
+}
+
+function languageKey(e) {
+  const chosen = LANGUAGES.find(([k, , l]) => (e.key === 'Enter' ? l === language : k === e.key));
+  if (chosen) { language = chosen[2]; query = ''; screen = 'lesson'; }
 }
 
 // The server writes the Lesson in the background, after the ones asked for before it, and a
@@ -225,9 +236,9 @@ async function openLessonForm() {
 async function requestLesson() {
   const topic = query.trim();
   if (!topic) return;
-  const r = await send('/api/lessons', { topic });
+  const r = await send('/api/lessons', { topic, language });
   if (!r.ok) { message = (await r.json()).detail; render(); return; }
-  message = `Writing a Lesson on ${topic} in the background.`;
+  message = `Writing a ${lessonLanguage()[1]} Lesson on ${topic} in the background.`;
   screen = 'typing';
   render();
 }
@@ -246,7 +257,9 @@ const FIELDS = {
     title: 'Gutenberg: search title and author, or paste a book number or URL' },
   code: { enter: importCode, enterHint: 'clones it in the background', title: 'Code: type or paste a git URL' },
   lesson: { enter: requestLesson, enterHint: 'asks for it; it is written in the background',
-    get title() { return `New Python Lesson: type a topic · £${spend.spent.toFixed(2)} of £${spend.cap} this month`; } },
+    get title() {
+      return `New ${lessonLanguage()[1]} Lesson: type a topic · £${spend.spent.toFixed(2)} of £${spend.cap} this month`;
+    } },
 };
 
 async function showBoards(id) {
@@ -411,6 +424,7 @@ async function menuKey(e) {
     const choice = IMPORTS.find(([k]) => k === e.key);
     if (choice) { screen = choice[2]; query = ''; }
   }
+  else if (screen === 'language') languageKey(e);
   else if (FIELDS[screen]) { if (e.key === 'Enter') FIELDS[screen].enter(); else query = edit(query, e); }
   else if (screen === 'results') listKey(e, results, importBook);
   else if (screen === 'progress') progressKey(e);
@@ -541,10 +555,16 @@ function sourcesHTML() {
     + `<div class="hint">${chooseHint}${sources.length ? '' : ' No Sources yet: <kbd>i</kbd> in the menu imports one.'} <kbd>Esc</kbd> goes back.</div></div>`;
 }
 
+// A panel of choices, each [key, label], with the one of the key `selected` marked.
+const choicesHTML = (title, choices, hint, selected) => `<div class="menu"><h4>${title}</h4>`
+  + choices.map(([k, l]) => `<div class="item ${k === selected ? 'sel' : ''}"><kbd>${k}</kbd> ${l}</div>`).join('')
+  + `<div class="hint">${hint}<kbd>Esc</kbd> goes back.</div></div>`;
+
 function importHTML() {
-  if (screen === 'import') {
-    const items = IMPORTS.map(([k, l]) => `<div class="item"><kbd>${k}</kbd> ${l}</div>`).join('');
-    return `<div class="menu"><h4>Import a Source</h4>${items}<div class="hint"><kbd>Esc</kbd> goes back.</div></div>`;
+  if (screen === 'import') return choicesHTML('Import a Source', IMPORTS, '');
+  if (screen === 'language') {
+    const hint = '<kbd>Enter</kbd> chooses the last used. ';
+    return choicesHTML('New Lesson: choose the language', LANGUAGES, hint, lessonLanguage()[0]);
   }
   const field = FIELDS[screen];
   if (field) {
@@ -577,7 +597,7 @@ function articleHTML() {
 
 const PANELS = {
   menu: menuHTML, help: menuHTML, settings: settingsHTML, sources: sourcesHTML,
-  import: importHTML, gutenberg: importHTML, code: importHTML, lesson: importHTML, results: importHTML, article: articleHTML,
+  import: importHTML, gutenberg: importHTML, code: importHTML, language: importHTML, lesson: importHTML, results: importHTML, article: articleHTML,
 };
 
 function settingsHTML() {

@@ -8,6 +8,7 @@ and each Lesson records it with the settings. Each code block of a Lesson is run
 
 import os
 import re
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -44,6 +45,12 @@ class Provider(Protocol):
 # What the prompt tells the model about each language: its name, and the rule for examples.
 LANGUAGES = {
     "python": ("Python", "Python 3.14. Each example is a complete script that uses only the standard library."),
+    # The rule that worked in the model trial (#11). Its libraries are the ones in the pre-made Gleam project.
+    "gleam": (
+        "Gleam",
+        "Gleam 1.18 on the Erlang target. Each example is a complete module with its own imports and a "
+        "`pub fn main() -> Nil`. Use only gleam_stdlib 1.0, gleam_erlang 1.3 and gleam_otp 1.3.",
+    ),
 }
 
 SYSTEM_V1 = """\
@@ -150,21 +157,47 @@ def python_command(code: str, folder: Path) -> list[str]:
     return [sys.executable, "-I", "-S", "main.py"]
 
 
+# The pre-made project that each Gleam block is built in. Its manifest.toml pins the libraries
+# that the prompt names. Its build folder (not in git) holds them downloaded and compiled, so a
+# block builds without the network.
+GLEAM_PROJECT = Path(__file__).parent / "gleam"
+
+
+def build_gleam_project() -> str | None:
+    """Runs `gleam build` in the pre-made project, outside the sandbox: it downloads the pinned
+    libraries when they are missing (or takes them from Gleam's cache) and compiles them. When
+    nothing is missing it does nothing. None when it worked, else gleam's error output."""
+    try:
+        done = subprocess.run(["gleam", "build", "--no-print-progress"], cwd=GLEAM_PROJECT, capture_output=True, text=True)
+    except OSError as e:  # gleam is not installed
+        return str(e)
+    return done.stderr[-ERROR_CHARS:] if done.returncode else None
+
+
+def gleam_command(code: str, folder: Path) -> list[str]:
+    """Writes the block as the module `lesson` into a copy of the pre-made project, and gives
+    the command that builds and runs it. `gleam run` fails when the module has no `pub fn main`."""
+    shutil.copytree(GLEAM_PROJECT, folder, dirs_exist_ok=True)
+    (folder / "src" / "lesson.gleam").write_text(code)
+    return ["gleam", "run", "--no-print-progress"]
+
+
 # How a code block of each language is run: the function writes the block's files into an empty
 # folder and gives the command that builds and runs it there.
-RUNNERS: dict[str, Callable[[str, Path], list[str]]] = {"python": python_command}
+RUNNERS: dict[str, Callable[[str, Path], list[str]]] = {"python": python_command, "gleam": gleam_command}
 
 
 def run_code(language: str, code: str, timeout: float) -> str | None:
     """Builds and runs a code block in a new temp folder, under sandbox-exec with SANDBOX.
     None when it ends with exit code 0 within `timeout` seconds; else what went wrong, with
     the last ERROR_CHARS of its error output. TMPDIR is the folder, so the block can make
-    temp files. Its output is thrown away, and its child processes are stopped at the end."""
+    temp files, and NO_COLOR keeps colour codes out of the error output. Its output is thrown
+    away, and its child processes are stopped at the end."""
     with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryFile() as errors:
         folder = Path(tmp).resolve()  # the sandbox needs the real path, /private/var/..., not /var/...
         command = ["sandbox-exec", "-p", SANDBOX, "-D", f"FOLDER={folder}", *RUNNERS[language](code, folder)]
         process = subprocess.Popen(
-            command, cwd=folder, env=os.environ | {"TMPDIR": str(folder)},
+            command, cwd=folder, env=os.environ | {"TMPDIR": str(folder), "NO_COLOR": "1"},
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=errors, start_new_session=True,
         )  # fmt: skip
         try:
