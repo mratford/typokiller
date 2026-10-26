@@ -1,5 +1,5 @@
 """The numbers computed from the stored key events. The app uses this module, and the
-marimo notebooks (a later ticket) are to use it too, so both compute the same numbers.
+marimo notebooks (notebooks/) use it too, so both compute the same numbers.
 
 Polars 2 does not keep the order of rows, so every table is sorted on explicit columns.
 """
@@ -495,11 +495,17 @@ def weakness(
     settings["model"]. `settings` is the [weakness] table of the settings file. Columns:
     unit, cost (ms), seen, the model's own columns, and model (its name). Sorted on cost,
     the highest first, then on unit."""
-    name = settings["model"]
     since = datetime.now(UTC) - timedelta(weeks=settings["weeks"])
+    return rank_units(units(db, board, letter_layout, since), settings)
+
+
+def rank_units(rows: pl.DataFrame, settings: dict[str, Any]) -> pl.DataFrame:
+    """The ranking of rows of `units` by the Weakness model named settings["model"], with
+    the columns and order of `weakness`. A notebook can rank a part of the rows with it."""
+    name = settings["model"]
     return (
         WEAKNESS_MODELS[name]
-        .rank(units(db, board, letter_layout, since), settings)
+        .rank(rows, settings)
         .with_columns(model=pl.lit(name))
         .sort(["cost", "unit"], descending=[True, False])
     )

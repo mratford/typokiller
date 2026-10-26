@@ -35,7 +35,7 @@ from typokiller.analysis import (
     unlocking,
     weakness,
 )
-from typokiller.drawing import draw_keymap, drawn_layers, layer_name
+from typokiller.drawing import draw_layers
 from typokiller.drills import DRILL_GENERATORS
 from typokiller.keymap import keymap_letters, read_keymap
 from typokiller.lessons import (
@@ -273,6 +273,11 @@ def read_settings(path: Path) -> tomlkit.TOMLDocument:
     if tomlkit.dumps(doc) != text:
         path.write_text(tomlkit.dumps(doc))
     return doc
+
+
+def layer_names(settings: dict, board: str | None, letters: str | None) -> list[str]:
+    """The layer names of a Keymap in the [keymaps] settings."""
+    return settings["keymaps"].get(board, {}).get(letters, {}).get("layers", [])
 
 
 CATALOGUE_URL = "https://www.gutenberg.org/cache/epub/feeds/pg_catalog.csv"
@@ -717,10 +722,6 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             "introducing": state.introducing,
         }
 
-    def layer_names(settings: dict, board: str | None, letters: str | None) -> list[str]:
-        """The layer names of a Keymap in the [keymaps] settings."""
-        return settings["keymaps"].get(board, {}).get(letters, {}).get("layers", [])
-
     # Makes a Drill for the Session's Board and Letter layout, and stores it as a Passage with
     # no Source. While Introduction Drills are due, it is one; else the settings name the
     # generator. On a Letter layout being learned, it uses only the Unlocked keys until all
@@ -780,7 +781,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         state = unlocking(db, letters, settings["unlocking"])
         locked = state.locked if state else ""
         return {
-            "layers": [draw_keymap(vil, vial, layer, names, locked=locked) for layer in range(drawn_layers(vil))],
+            "layers": [svg for _, svg in draw_layers(vil, vial, names, locked=locked)],
             "keys": {char: {"layer": keys[0].layer, "key": keys[0].key} for char, keys in read_keymap(vil).keys.items()},
             "unlocking": unlock_progress(state),
         }
@@ -796,19 +797,17 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         assert vil  # the page asks only for versions that GET /api/boards lists
         settings = read_settings(settings_path).unwrap()
         found = progress(db, board, letters, settings["weakness"])
-        names = layer_names(settings, board, letters)
-        layers = range(drawn_layers(vil))
         state = unlocking(db, letters, settings["unlocking"])
         locked = state.locked if state else ""
+        pairs = found.pairs["unit"].to_list()
+        layers = draw_layers(vil, vial, layer_names(settings, board, letters), found.heat, pairs, locked)
         weakest = ["unit", "cost", "seen"]
         return {
             "weeks": TREND_WEEKS,
             "days": found.trend.height,
             "trend": trend_chart(found.trend).to_dict(),
-            "names": [layer_name(json.loads(vil), layer, names) for layer in layers],
-            "layers": [
-                draw_keymap(vil, vial, layer, names, found.heat, found.pairs["unit"].to_list(), locked) for layer in layers
-            ],
+            "names": [name for name, _ in layers],
+            "layers": [svg for _, svg in layers],
             "unlocking": unlock_progress(state),
             "chars": found.chars.select(weakest).to_dicts(),
             "pairs": found.pairs.select(weakest).to_dicts(),

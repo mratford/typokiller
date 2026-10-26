@@ -268,11 +268,16 @@ def scale_legend(scale: tuple[float, float, float], x: float, y: float) -> str:
     )
 
 
+def show_chars(text: str) -> str:
+    """The text with a space shown as · and a newline as ↵, as the page shows them."""
+    return text.replace(" ", "·").replace("\n", "↵")
+
+
 def arc(pair: str, start: tuple[float, float], end: tuple[float, float]) -> str:
     """A pair drawn as an arc from the centre of its first character's key to its second's,
     with a dot at the end. A pair on one key is a small loop above it."""
     (x1, y1), (x2, y2) = start, end
-    label = escape(pair.replace(" ", "·").replace("\n", "↵"))
+    label = escape(show_chars(pair))
     if start == end:
         drawn = f'<circle class="loop" cx="{num(x1)}" cy="{num(y1 - 0.62)}" r="0.2"/>'
         lx, ly = x1, y1 - 0.98
@@ -408,3 +413,20 @@ def draw_keymap(
         f'<svg class="keymap" xmlns="http://www.w3.org/2000/svg" viewBox="{num(x0)} {num(y0)} {num(x1 - x0)} {num(y1 - y0)}">'
         f"<style>{STYLE}</style>{DEFS if heat else ''}{''.join(parts)}</svg>"
     )
+
+
+def draw_layers(
+    vil_text: str,
+    vial_text: str | None,
+    names: Sequence[str] = (),
+    heat: Heat | None = None,
+    pairs: Sequence[str] = (),
+    locked: str = "",
+) -> list[tuple[str, str]]:
+    """The name (see `layer_name`) and the `draw_keymap` drawing of each layer, up to the
+    last layer that is not empty (see `drawn_layers`)."""
+    vil = json.loads(vil_text)
+    return [
+        (layer_name(vil, layer, names), draw_keymap(vil_text, vial_text, layer, names, heat, pairs, locked))
+        for layer in range(drawn_layers(vil_text))
+    ]

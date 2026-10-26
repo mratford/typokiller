@@ -24,6 +24,16 @@ layers = ["Base", "Sym", "Nav", "Stack", "Num"]
 
 Press `p` in the Escape menu for the progress page of the Session's Board and Letter layout. `h` and `l` show the previous and next Board × Letter layout, a number shows that layer of the Keymap, and `j`/`k` select one of the weakest pairs, which is drawn as an arc. Esc goes back. The page loads `vega-embed` from cdn.jsdelivr.net to draw the trend chart, so the chart needs the internet; the rest of the page does not.
 
+The notebook `notebooks/progress.py`, shows the progress page again, made with the same functions as the app, so the numbers are the same. It adds the Weakness costs of each layer: the Weakness model ranks each layer's keystrokes on their own. Open it in marimo from this folder:
+
+```sh
+uv run marimo edit notebooks/progress.py                     # typokiller.db in this folder
+uv run marimo edit notebooks/progress.py -- --db other.db    # another database
+uv run python notebooks/progress.py --db other.db            # run every cell once, with no browser
+```
+
+Like the server, it reads the settings in `typokiller.toml` next to the database, and adds any missing settings to that file. It opens the database read only, so the server can run at the same time. A new notebook can import the same functions from `typokiller.analysis` and `typokiller.drawing`.
+
 On free-range (the `[unlocking]` settings name the Letter layout being learned), Drills use only the Unlocked keys. The status line shows the progress, such as `10/30 keys · next o`. After each finished Attempt, the next key unlocks when each Unlocked key is fast enough; `u` in the Escape menu unlocks it at once. After an unlock, the next Drills are Introduction Drills of the new key. Keymap drawings show locked keys dashed and faint, with a ring on the next one.
 
 Press `l` in the Escape menu for a new Lesson: type a topic, such as `decorators`, then Enter. The form shows what Lessons cost this month. First press `p` for Python or `g` for Gleam; Enter chooses the language used last. A model writes the Lesson through OpenRouter in the background (Python: Claude Haiku 5.5, about $0.002 a Lesson; Gleam: Claude Sonnet 5.5, about $0.05 a Lesson), and a notice says when it is ready. It is then first in the list of Sources (`o`). The API key is `OPENROUTER_API_KEY`, from the environment or from a `.env` file in the folder that the server runs in (it is gitignored), for example `OPENROUTER_API_KEY=sk-or-...`. The `[lessons]` settings hold the model, the length and level, and the monthly cap (£5); a request that could make the month's cost more than the cap is refused. Each code example is run on this Mac under `sandbox-exec`, in a new temp folder, with no network and no writes outside that folder. An example that fails is sent back to the model for a repair, at most twice, and is then dropped. A Lesson with too many dropped examples is written once again, and then rejected.

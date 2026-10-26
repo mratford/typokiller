@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import json
 import re
 import socket
@@ -957,6 +958,34 @@ def test_the_progress_page_has_the_trend_chart_the_heat_drawing_and_the_weakest_
     assert len(layers) == 5
     assert drawn(layers[0], "2,4") == ("key", ["B", "n=0", "b", "2000"])
     assert [a.get("data-pair") for a in layers[0].findall(".//*[@class='arc']")] == ["ab"]
+
+
+def test_the_notebook_shows_the_progress_pages_numbers_and_splits_the_weakness_costs_by_layer(client, db_path):
+    qwerty, _ = sweep_versions(client, db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("INSERT INTO passage (id, source, ord, text, normaliser) VALUES (3, NULL, 0, 'ab(', 'ascii-v1')")
+    typed_session(client, qwerty, *[["a", "b", "("]] * 2, finished=[0, 1], attempt={"passage": 3, "settings": SETTINGS})
+    client.put("/api/settings", json={"weakness": {"min_seen": 2}})
+    spec = importlib.util.spec_from_file_location("progress_notebook", Path(__file__).parents[1] / "notebooks" / "progress.py")
+    assert spec and spec.loader
+    notebook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(notebook)
+
+    outputs, defs = notebook.app.run(defs={"path": db_path})  # runs every cell, top to bottom
+
+    page = client.get(f"/api/keymaps/{qwerty}/progress").json()
+    weakest = ["unit", "cost", "seen"]
+    assert defs["found"].chars.select(weakest).to_dicts() == page["chars"]
+    assert defs["found"].pairs.select(weakest).to_dicts() == page["pairs"]
+    # ( is on the layer that Space opens; a pair is on the layer of its second character.
+    assert defs["split"].select("layer", "name", *weakest).rows() == [
+        (0, "L0", "ab", 1000.0, 2),
+        (0, "L0", "b", 1000.0, 2),
+        (1, "Space", "(", 1000.0, 2),
+        (1, "Space", "b(", 1000.0, 2),
+    ]
+    text = " ".join(str(getattr(output, "text", "")) for output in outputs)
+    assert "first-error-v1" in text and "recent-cost-v1" in text
 
 
 REA = {"passage": 3, "settings": SETTINGS}  # "rea": plain keys on both free-range Boards
