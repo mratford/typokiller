@@ -662,7 +662,8 @@ function render() {
       ${!starting && unlocking ? `<span>${esc(unlockLabel())}</span>` : ''}
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;
-  document.getElementById(`k${nextKey()?.key}`)?.classList.add('next');
+  // Look only in this page's Keymap drawing: the progress page's drawing uses the same key ids.
+  document.querySelector(`#app .drawing [id="k${nextKey()?.key}"]`)?.classList.add('next');
   scrollToCursor();
 }
 
