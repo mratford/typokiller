@@ -1,6 +1,8 @@
 import hashlib
 import json
 import sqlite3
+import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -8,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from typokiller.app import create_app
 from typokiller.keymap import qmk_settings
-from typokiller.sources import ascii_v1
+from typokiller.sources import ascii_v1, code_passages
 
 
 @pytest.fixture
@@ -255,3 +257,75 @@ def test_the_catalogue_is_searched_by_title_and_author_or_by_book_number_or_url(
 
 def test_searching_before_the_catalogue_is_downloaded_says_so(client):
     assert search(client, "austen").status_code == 503
+
+
+def test_each_function_in_a_code_file_is_a_passage_with_code_normalising():
+    code = (
+        "import os\n\n\n"
+        "def área(x):\t \n"
+        "\tif  x:\t\treturn   1  \n\n"
+        "\treturn 2\n\n"
+        "class A:\n    pass\n"
+    )
+
+    assert code_passages(code, 0.05, 10) == (
+        ["def area(x):\n    if x: return 1\n\n    return 2", "class A:\n    pass"],
+        1,  # "import os" is too short
+    )
+
+
+def git(*args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+@pytest.fixture
+def repo(tmp_path):
+    """A git repo with two tracked code files, a tracked binary file and an untracked file."""
+    repo = tmp_path / "myrepo"
+    repo.mkdir()
+    (repo / "a.py").write_text("def first_function():\n    return 1\n\n\ndef second_function():\n    return 2\n")
+    (repo / "b.js").write_text("function third() {\n  return 3;\n}\n")
+    (repo / "image.png").write_bytes(b"\x89PNG\x00\x00 not text, not text at all")
+    git("init", cwd=repo)
+    git("add", ".", cwd=repo)
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x", cwd=repo)
+    (repo / "untracked.py").write_text("def untracked_function():\n    return 4\n")
+    return repo
+
+
+@pytest.fixture
+def running(db_path, settings_path):
+    """A client whose server keeps running between requests, so background work can finish."""
+    db_path.with_name("pg_catalog.csv").write_text(CATALOGUE)  # so nothing is downloaded
+    with TestClient(create_app(db_path, settings_path)) as client:
+        yield client
+
+
+def wait_for_notice(client):
+    for _ in range(100):
+        if notices := client.get("/api/notices").json():
+            return notices
+        time.sleep(0.05)
+    raise AssertionError("no notice")
+
+
+def test_a_git_repo_is_cloned_in_the_background_and_each_function_of_its_tracked_text_files_is_a_passage(
+    running, db_path, repo
+):
+    response = running.post("/api/code", json={"url": str(repo)})
+
+    assert response.status_code == 202
+    assert wait_for_notice(running) == ["Imported myrepo: 3 Passages, 0 functions skipped."]
+    [(source, title)] = rows(db_path, "SELECT id, title FROM source")
+    assert title == "myrepo"
+    passages = [text for (text,) in rows(db_path, f"SELECT text FROM passage WHERE source = {source} ORDER BY ord")]
+    a = ["def first_function():\n    return 1", "def second_function():\n    return 2"]
+    b = ["function third() {\n  return 3;\n}"]
+    assert passages in (a + b, b + a)  # the files in either order, each file's functions in written order
+
+
+def test_a_clone_that_fails_is_reported(running, tmp_path):
+    running.post("/api/code", json={"url": str(tmp_path / "missing")})
+
+    [notice] = wait_for_notice(running)
+    assert notice.startswith(f"Could not clone {tmp_path / 'missing'}:")

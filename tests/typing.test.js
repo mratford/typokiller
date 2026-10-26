@@ -27,3 +27,16 @@ test('other keys change nothing', () => {
 test('nothing goes in after the end of the Passage', () => {
   assert.equal(applyKey('cat', 'cax', key('t')), 'cax');
 });
+
+test('Enter at a newline goes in and fills in the next line\'s indentation; Enter elsewhere does nothing', () => {
+  const code = 'if x:\n    y\nz';
+  assert.equal(applyKey(code, 'if x:', key('Enter')), 'if x:\n    ');
+  assert.equal(applyKey(code, 'if x:\n    y', key('Enter')), 'if x:\n    y\n');
+  assert.equal(applyKey(code, 'if x', key('Enter')), 'if x');
+});
+
+test('Backspace after the filled-in indentation removes it with the newline', () => {
+  const code = 'if x:\n    y';
+  assert.equal(applyKey(code, 'if x:\n    ', key('Backspace')), 'if x:');
+  assert.equal(applyKey(code, 'if x:\n    y', key('Backspace')), 'if x:\n    ');
+});

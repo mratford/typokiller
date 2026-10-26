@@ -32,10 +32,10 @@ let passage, nextPassage; // each { id, text }; nextPassage is shown faint below
 let source = null; // the open Source: { id, title, at, total }, where `at` is its bookmark;
                    // null while the built-in Passage is typed
 let sources = []; // from the server, unfinished first, the last opened first
-let query = ''; // typed into the Gutenberg search
+let query = ''; // typed into the open text field of the import panel
 let results = []; // the Gutenberg search results
 let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings', 'sources', 'import',
-                       // 'gutenberg', 'results' or 'ended'
+                       // a key of FIELDS, 'results' or 'ended'
 let boards = []; // from the server, each with its Keymaps, last used first
 let board = null; // the Board chosen on the start screen
 let boardLabel = ''; // the status line's "Board · Letter layout"
@@ -49,6 +49,7 @@ let sel = 0; // the selected line of the list or menu on screen
 let settings = null; // the settings file's values while the settings page is open
 let editing = null; // the text typed for the selected number setting while it is edited
 let message = '';
+let noticesSeen = null; // how many notices the server had at the last check; null before the first
 const heldIn = new Map(); // code -> the Attempt that recorded its keydown
 let events = []; // not yet stored by the server
 let finished = []; // ords of finished Attempts, not yet stored by the server
@@ -127,6 +128,22 @@ async function importBook(book) {
   message = `Imported ${book.title}: ${imported.passages} Passages, ${imported.skipped} paragraphs skipped.`;
   await chooseSource({ id: imported.source, at: 0, total: imported.passages });
 }
+
+// The server clones the repo in the background, and a notice says when it is done.
+function importCode() {
+  send('/api/code', { url: query });
+  message = `Cloning ${query} in the background.`;
+  screen = 'typing';
+}
+
+// The text fields of the import panel, by screen: the key that opens each one in the
+// panel, its label there, its title, and what Enter does. Text can be pasted into them.
+const FIELDS = {
+  gutenberg: { key: 'g', label: 'Project Gutenberg book', enter: search, enterHint: 'searches',
+    title: 'Gutenberg: search title and author, or paste a book number or URL' },
+  code: { key: 'c', label: 'Code from a git repo', enter: importCode, enterHint: 'clones it in the background',
+    title: 'Code: type or paste a git URL' },
+};
 
 async function showBoards(id) {
   screen = 'boards';
@@ -263,8 +280,11 @@ async function menuKey(e) {
   if (e.key === 'Escape' && screen !== 'menu') { screen = 'menu'; sel = 0; editing = null; }
   else if (screen === 'settings') settingsKey(e);
   else if (screen === 'sources') listKey(e, sources, chooseSource);
-  else if (screen === 'import') { if (e.key === 'g') { screen = 'gutenberg'; query = ''; } }
-  else if (screen === 'gutenberg') { if (e.key === 'Enter') search(); else query = edit(query, e); }
+  else if (screen === 'import') {
+    const field = Object.keys(FIELDS).find(f => FIELDS[f].key === e.key);
+    if (field) { screen = field; query = ''; }
+  }
+  else if (FIELDS[screen]) { if (e.key === 'Enter') FIELDS[screen].enter(); else query = edit(query, e); }
   else if (screen === 'results') listKey(e, results, importBook);
   else if (screen === 'menu' && !moveSel(e, ITEMS.length)) {
     await (e.key === 'Enter' ? ITEMS[sel] : ITEMS.find(([k]) => k === e.key))?.[2]();
@@ -303,15 +323,27 @@ addEventListener('keyup', e => {
   heldIn.delete(e.code);
 });
 
-// Pasting a book number or URL into the Gutenberg search.
+// Pasting into a text field of the import panel.
 addEventListener('paste', e => {
-  if (screen !== 'gutenberg') return;
+  if (!FIELDS[screen]) return;
   query += e.clipboardData.getData('text');
   render();
 });
 
+// Shows the notices that the server added since the last check on the message line.
+// Notices from before the page loaded are not shown.
+async function checkNotices() {
+  const notices = await getJSON('/api/notices');
+  if (noticesSeen !== null && notices.length > noticesSeen) {
+    message = notices.slice(noticesSeen).join(' · ');
+    render();
+  }
+  noticesSeen = notices.length;
+}
+
 addEventListener('pagehide', () => flush(true));
-setInterval(flush, 1000);
+checkNotices();
+setInterval(() => { flush(); checkNotices(); }, 1000);
 
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const label = k => (k === 'Escape' ? 'Esc' : k);
@@ -320,11 +352,13 @@ function passageHTML() {
   const text = passage.text;
   let h = '';
   for (let j = 0; j < text.length; j++) {
-    let cls = '', shown = text[j];
+    // A newline is shown as a space before the line break, so the cursor or a wrong key there can be seen.
+    const newline = text[j] === '\n';
+    let cls = '', shown = newline ? ' ' : text[j];
     if (j === typed.length) cls = 'cur';
     else if (j < typed.length && typed[j] === text[j]) cls = 'ok';
     else if (j < typed.length) { cls = 'bad'; shown = typed[j] === ' ' ? '·' : typed[j]; }
-    h += `<span class="${cls}">${esc(shown)}</span>`;
+    h += `<span class="${cls}">${esc(shown)}</span>${newline ? '\n' : ''}`;
   }
   return `<div class="p">${h}</div>${nextPassage ? `<div class="p next">${esc(nextPassage.text)}</div>` : ''}`;
 }
@@ -341,7 +375,7 @@ function menuHTML() {
     `<div class="item ${k === selKey ? 'sel' : ''}"><kbd>${label(k)}</kbd> ${l}</div>`).join('')}</div>`).join('');
   const hint = screen === 'menu'
     ? 'Press a letter, or <kbd>j</kbd>/<kbd>k</kbd> and <kbd>Enter</kbd>.'
-    : 'While typing: only printable characters and <kbd>Backspace</kbd> change what you have typed; <kbd>Esc</kbd> opens this menu. Other keys are recorded and do nothing. <kbd>Esc</kbd> goes back.';
+    : 'While typing: only printable characters, <kbd>Backspace</kbd>, and <kbd>Enter</kbd> at the end of a line change what you have typed. After <kbd>Enter</kbd> the next line\'s indentation is filled in. <kbd>Esc</kbd> opens this menu. Other keys are recorded and do nothing. <kbd>Esc</kbd> goes back.';
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
@@ -354,13 +388,13 @@ function sourcesHTML() {
 
 function importHTML() {
   if (screen === 'import') {
-    return '<div class="menu"><h4>Import a Source</h4><div class="item"><kbd>g</kbd> Project Gutenberg book</div>'
-      + '<div class="hint"><kbd>Esc</kbd> goes back.</div></div>';
+    const items = Object.values(FIELDS).map(f => `<div class="item"><kbd>${f.key}</kbd> ${f.label}</div>`).join('');
+    return `<div class="menu"><h4>Import a Source</h4>${items}<div class="hint"><kbd>Esc</kbd> goes back.</div></div>`;
   }
-  if (screen === 'gutenberg') {
-    return `<div class="menu"><h4>Gutenberg: search title and author, or paste a book number or URL</h4>`
-      + `<div class="p">${esc(query)}<span class="cur"> </span></div>`
-      + '<div class="hint"><kbd>Enter</kbd> searches. <kbd>Esc</kbd> goes back.</div></div>';
+  const field = FIELDS[screen];
+  if (field) {
+    return `<div class="menu"><h4>${field.title}</h4><div class="p">${esc(query)}<span class="cur"> </span></div>`
+      + `<div class="hint"><kbd>Enter</kbd> ${field.enterHint}. <kbd>Esc</kbd> goes back.</div></div>`;
   }
   const labels = results.map(r => `${r.title} · ${r.authors} · #${r.number}`);
   return `<div class="menu">${listHTML(`Gutenberg books for "${esc(query)}"`, labels)}`
@@ -369,7 +403,7 @@ function importHTML() {
 
 const PANELS = {
   menu: menuHTML, help: menuHTML, settings: settingsHTML, sources: sourcesHTML,
-  import: importHTML, gutenberg: importHTML, results: importHTML,
+  import: importHTML, gutenberg: importHTML, code: importHTML, results: importHTML,
 };
 
 function settingsHTML() {

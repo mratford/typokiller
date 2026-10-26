@@ -1,8 +1,12 @@
 import asyncio
 import hashlib
 import json
+import os
+import random
 import sqlite3
 import ssl
+import subprocess
+import tempfile
 import time
 import urllib.request
 from contextlib import asynccontextmanager, suppress
@@ -18,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from typokiller.keymap import letter_layout
-from typokiller.sources import gutenberg_paragraphs, prose_passages, search_catalogue
+from typokiller.sources import code_passages, gutenberg_paragraphs, prose_passages, search_catalogue
 
 # The Passage typed when no Source is open. It is Passage 1, which has no Source.
 PASSAGE = (
@@ -83,8 +87,9 @@ DEFAULT_SETTINGS = """\
 wrong_key_mode = "keep typing"
 
 [passages]
-# A paragraph is not made into a Passage when normalising it to ASCII dropped more
-# than this share of its characters, or left it shorter than min_length characters.
+# A paragraph or function is not made into a Passage when normalising it to ASCII
+# dropped more than this share of its characters, or left it shorter than min_length
+# characters.
 max_dropped = 0.05
 min_length = 20
 """
@@ -131,6 +136,28 @@ async def refresh_catalogue(catalogue: Path):
         await asyncio.sleep(3600)
 
 
+def clone(url: str) -> list[tuple[str, str]]:
+    """The path and text of each text file that git tracks in the repo at `url`.
+
+    git uses the Mac's own credentials, so private repos work. GIT_TERMINAL_PROMPT=0 stops
+    git from asking for a password that nobody would see. Symbolic links are not followed.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        env = os.environ | {"GIT_TERMINAL_PROMPT": "0"}
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "-q", url, tmp], check=True, capture_output=True, text=True, env=env
+        )
+        listed = subprocess.run(["git", "-C", tmp, "ls-files", "-z"], check=True, capture_output=True, text=True).stdout
+        files = []
+        for path in listed.split("\0")[:-1]:
+            file = Path(tmp, path)
+            if file.is_file() and not file.is_symlink():
+                with suppress(UnicodeDecodeError):
+                    if "\0" not in (text := file.read_text("utf-8")):
+                        files.append((path, text))
+        return files
+
+
 class KeyEvent(BaseModel):
     seq: int
     attempt: int
@@ -169,6 +196,10 @@ class Book(BaseModel):
     title: str  # from the catalogue
 
 
+class Repo(BaseModel):
+    url: str  # anything `git clone` takes
+
+
 class NewBoard(BaseModel):
     name: str
     vil: str  # the text of the .vil file
@@ -199,6 +230,38 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             ).fetchall()
         passages = [{"id": id, "text": text} for id, text in rows] + [BUILT_IN]
         return {"source": source if rows else None, "passages": passages[:2]}
+
+    def add_source(title: str, text: str, passages: list[str]) -> int:
+        with db:
+            (source,) = db.execute(
+                "INSERT INTO source (title, text, total, opened) VALUES (?, ?, ?, ?) RETURNING id",
+                (title, text, len(passages), now()),
+            ).fetchone()
+            db.executemany(
+                "INSERT INTO passage (source, ord, text, normaliser) VALUES (?, ?, ?, 'ascii-v1')",
+                [(source, i, p) for i, p in enumerate(passages)],
+            )
+        return source
+
+    notices: list[str] = []  # every open practice page shows each new one on its message line
+    tasks: set[asyncio.Task] = set()  # background work, kept here until it is done so Python does not delete it
+
+    async def import_repo(url: str):
+        title = Path(url).name.removesuffix(".git")
+        try:
+            files = await asyncio.to_thread(clone, url)
+        except subprocess.CalledProcessError as e:
+            notices.append(f"Could not clone {url}: {e.stderr.strip()}")
+            return
+        random.shuffle(files)  # once: the Passages' ords then keep this order
+        rule = read_settings(settings_path)["passages"]
+        passages, skipped = [], 0
+        for _, text in files:
+            found, n = code_passages(text, rule["max_dropped"], rule["min_length"])
+            passages += found
+            skipped += n
+        add_source(title, "".join(f"--- {path}\n{text}" for path, text in files), passages)
+        notices.append(f"Imported {title}: {len(passages)} Passages, {skipped} functions skipped.")
 
     catalogue = db_path.with_name("pg_catalog.csv")
 
@@ -289,16 +352,18 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         text = (await asyncio.to_thread(fetch, f"https://www.gutenberg.org/cache/epub/{n}/pg{n}.txt")).decode()
         rule = read_settings(settings_path)["passages"]
         passages, skipped = prose_passages(gutenberg_paragraphs(text), rule["max_dropped"], rule["min_length"])
-        with db:
-            source = db.execute(
-                "INSERT INTO source (title, text, total, opened) VALUES (?, ?, ?, ?)",
-                (book.title, text, len(passages), now()),
-            ).lastrowid
-            db.executemany(
-                "INSERT INTO passage (source, ord, text, normaliser) VALUES (?, ?, ?, 'ascii-v1')",
-                [(source, i, p) for i, p in enumerate(passages)],
-            )
-        return {"source": source, "passages": len(passages), "skipped": skipped}
+        return {"source": add_source(book.title, text, passages), "passages": len(passages), "skipped": skipped}
+
+    # Clones in the background. A notice says when it is done.
+    @app.post("/api/code", status_code=202)
+    async def import_code(repo: Repo):
+        task = asyncio.create_task(import_repo(repo.url))
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
+    @app.get("/api/notices")
+    async def get_notices():
+        return notices
 
     # Unfinished Sources come first, the last opened first.
     @app.get("/api/sources")

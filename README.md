@@ -11,4 +11,6 @@ uv run pyright src tests   # type check
 
 The database is `typokiller.db` in the current directory. The Gutenberg catalogue, `pg_catalog.csv`, is downloaded next to it in the background when the server starts, and again when it is a week old. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor, or press `,` in the Escape menu.
 
+Code Sources (`i` then `c` in the Escape menu) are cloned with the `git` command, so it uses the Mac's own git credentials and private repos work. git must not need to ask for a password.
+
 The server tests read real `.vil` and `vial.json` files from the `sweep-layouts` repo, which must be in the same folder as this repo.

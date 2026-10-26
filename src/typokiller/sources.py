@@ -8,14 +8,14 @@ ASCII_V1 = str.maketrans({"‘": "'", "’": "'", "‚": "'", "‛": "'", "“":
 
 
 def ascii_v1(text: str) -> tuple[str, int]:
-    """The `ascii-v1` normaliser: the text with only printable ASCII, and how many characters it dropped.
+    """The `ascii-v1` normaliser: the text with only printable ASCII and newlines, and how many characters it dropped.
 
     Curly quotes become straight, dashes become `-` and accents are stripped. NFKD
     turns `…` into `...`. Anything else outside printable ASCII is dropped, because
     those are the characters that the Australian keyboard input setting in macOS types.
     """
     text = "".join(c for c in unicodedata.normalize("NFKD", text.translate(ASCII_V1)) if not unicodedata.combining(c))
-    kept = "".join(c for c in text if " " <= c <= "~")
+    kept = "".join(c for c in text if " " <= c <= "~" or c == "\n")
     return kept, len(text) - len(kept)
 
 
@@ -25,18 +25,39 @@ def gutenberg_paragraphs(text: str) -> list[str]:
     return [p for p in re.split(r"\n\s*\n", body) if p.strip()]
 
 
+def keep_passages(normalised: list[tuple[str, int]], max_dropped: float, min_length: int) -> tuple[list[str], int]:
+    """The texts that are kept as Passages, and how many were skipped. Each text comes with how many
+    characters normalising dropped from it. A text is skipped when normalising dropped more than
+    `max_dropped` of its characters or left fewer than `min_length`.
+    """
+    passages = [
+        text for text, dropped in normalised if dropped <= max_dropped * (len(text) + dropped) and len(text) >= min_length
+    ]
+    return passages, len(normalised) - len(passages)
+
+
 def prose_passages(paragraphs: list[str], max_dropped: float, min_length: int) -> tuple[list[str], int]:
     """The Passages made from prose paragraphs with `ascii-v1`, and how many paragraphs were skipped.
+    Line breaks inside a paragraph become spaces."""
+    return keep_passages([ascii_v1(" ".join(p.split())) for p in paragraphs], max_dropped, min_length)
 
-    Line breaks inside a paragraph become spaces. A paragraph is skipped when normalising dropped more
-    than `max_dropped` of its characters or left fewer than `min_length`.
+
+def code_passages(text: str, max_dropped: float, min_length: int) -> tuple[list[str], int]:
+    """The Passages made from one code file with `ascii-v1`: one for each function, and how many were skipped.
+
+    The file is split at blank lines. A part that starts indented belongs to the function
+    before it, which keeps one blank line there. Tabs become 4 columns. Each line keeps its
+    indentation, and the rest of the line has each run of whitespace made one space and no
+    trailing whitespace. A function is skipped by the same rule as a prose paragraph.
     """
-    passages = []
-    for paragraph in paragraphs:
-        text, dropped = ascii_v1(" ".join(paragraph.split()))
-        if dropped <= max_dropped * (len(text) + dropped) and len(text) >= min_length:
-            passages.append(text)
-    return passages, len(paragraphs) - len(passages)
+    lines = [re.sub(r"(?<=\S)\s+", " ", line).rstrip() for line in text.expandtabs(4).splitlines()]
+    functions: list[str] = []
+    for part in re.split(r"\n\n+", "\n".join(lines)):
+        if functions and part.startswith(" "):
+            functions[-1] += "\n\n" + part
+        elif part:
+            functions.append(part)
+    return keep_passages([ascii_v1(f) for f in functions], max_dropped, min_length)
 
 
 def search_catalogue(catalogue: Path, query: str) -> list[dict]:
