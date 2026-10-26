@@ -3,6 +3,7 @@ import json
 import sqlite3
 import subprocess
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, weakness
 from typokiller.app import create_app
+from typokiller.drawing import draw_keymap
 from typokiller.drills import WORDS
 from typokiller.keymap import qmk_settings, read_keymap
 from typokiller.sources import ascii_v1, code_passages
@@ -32,10 +34,11 @@ def client(db_path, settings_path):
 
 WEAKNESS = {"model": "recent-cost-v1", "weeks": 4, "min_seen": 20}
 SETTINGS = {
-    "typing": {"wrong_key_mode": "keep typing"},
+    "typing": {"wrong_key_mode": "keep typing", "show_keymap": False},
     "passages": {"max_dropped": 0.05, "min_length": 20},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
+    "keymaps": {},
 }
 ATTEMPT = {"passage": 1, "settings": SETTINGS}  # the built-in Passage
 
@@ -87,7 +90,10 @@ def test_batch_stores_key_events_and_the_attempt_passage_and_settings_and_ignore
         (session, 0, 0, 1000.5, "keydown", "KeyA", "a", 0, 0, 0, 0, 0),
         (session, 1, 0, 1001.5, "keyup", "KeyA", "a", 0, 0, 0, 0, 0),
     ]
-    assert rows(db_path, "SELECT passage, settings ->> '$.typing.wrong_key_mode' FROM attempt") == [(1, "keep typing")]
+    # The settings it was typed with include whether the Keymap was drawn under the Passage.
+    assert rows(
+        db_path, "SELECT passage, settings ->> '$.typing.wrong_key_mode', settings ->> '$.typing.show_keymap' FROM attempt"
+    ) == [(1, "keep typing", 0)]
 
 
 def test_attempt_is_abandoned_unless_a_batch_finishes_it(client, db_path):
@@ -109,17 +115,22 @@ def test_a_missing_settings_file_is_created_with_defaults_and_comments(client, s
     assert "# " in settings_path.read_text()
 
 
-def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_are_added(client, settings_path):
+def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and_settings_are_added(
+    client, settings_path
+):
     client.get("/api/settings")
     settings_path.write_text('[typing]\nwrong_key_mode = "locked until fixed"\n')
 
-    assert client.get("/api/settings").json() == {**SETTINGS, "typing": {"wrong_key_mode": "locked until fixed"}}
+    typing = {"wrong_key_mode": "locked until fixed", "show_keymap": False}
+    assert client.get("/api/settings").json() == {**SETTINGS, "typing": typing}
     assert "min_length = 20" in settings_path.read_text()
 
 
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
+    rest += '\n[keymaps.Sweep.QWERTY]\nlayers = ["Base", "Sym"]\n'
+    rest = 'show_keymap = false\n' + rest
     settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + rest)
 
     response = client.put("/api/settings", json={"typing": {"wrong_key_mode": "locked until fixed"}})
@@ -165,6 +176,109 @@ def test_each_character_has_its_candidate_keys_from_the_keymap_best_first():
     assert keys_for(sweep, "-") == [(1, "4,3", "plain"), (4, "5,0", "plain"), (0, "5,4", "plain")]
     # Enter is the J+L combo or the key on Nav.
     assert keys_for(sweep, "\n") == [(0, "5,1+5,3", "combo"), (2, "7,1", "plain")]
+
+
+def drawing(vil, vial, layer, names=(), change=lambda vil: None):
+    """The Keymap drawing of a .vil from sweep-layouts as an XML tree. `change` may edit the .vil first."""
+    data = json.loads((SWEEP_LAYOUTS / "vil" / vil).read_text())
+    change(data)
+    vial_text = (SWEEP_LAYOUTS / "boards" / vial / "vial.json").read_text() if vial else None
+    return ET.fromstring(draw_keymap(json.dumps(data), vial_text, layer, names))
+
+
+def drawn(svg, key):
+    """The class and the texts of a key or combo in a drawing, or None if it is not drawn."""
+    found = svg.find(f".//*[@id='k{key}']")
+    return None if found is None else (found.get("class"), list(found.itertext()))
+
+
+def rect(svg, key):
+    """The x and y of a key's rectangle, and its rotation."""
+    found = svg.find(f".//*[@id='k{key}']")
+    box = next(found.iter("{http://www.w3.org/2000/svg}rect"))
+    return float(box.get("x")), float(box.get("y")), found.get("transform")
+
+
+NAMES = ["Base", "Sym", "Nav", "Stack", "Num"]
+
+
+def test_a_keymap_drawing_shows_tap_and_hold_legends_layer_keys_and_combos():
+    base = drawing("ferris_sweep_qwerty.vil", "sweep", 0, NAMES)
+
+    assert drawn(base, "2,0") == ("key", ["z", "⌘"])  # a mod-tap: the tap legend, then the hold legend
+    assert drawn(base, "7,0") == ("key", ["Space", "Sym"])  # a layer-tap
+    assert drawn(base, "3,1") == ("key", ["Nav"])  # MO(2)
+    assert drawn(base, "5,4") == ("key", ["_"])
+    assert drawn(base, "5,1+5,2") == ("combo", ["Esc"])  # J+K
+    assert drawn(base, "5,1+5,3") == ("combo", ["⏎"])  # J+L
+
+    sym = drawing("ferris_sweep_qwerty.vil", "sweep", 1, NAMES)
+
+    assert drawn(sym, "7,0") == ("key held", ["held"])  # the key held for Sym
+    assert drawn(sym, "3,0") == ("key trns", [])
+    assert drawn(sym, "5,2") == ("key", ["("])
+    # J and K type = and ( on Sym, so their combo is not drawn there; when they are
+    # transparent on Sym, it is.
+    assert drawn(sym, "5,1+5,2") is None
+
+    def transparent_j_and_k(vil):
+        vil["layout"][1][5][1:3] = ["KC_TRNS", "KC_TRNS"]
+
+    sym = drawing("ferris_sweep_qwerty.vil", "sweep", 1, NAMES, transparent_j_and_k)
+
+    assert drawn(sym, "5,1+5,2") == ("combo", ["Esc"])
+
+
+def test_macros_show_their_text_else_their_taps_else_their_number_and_kc_no_is_faint():
+    def change(vil):
+        vil["macro"][2] = []
+        vil["layout"][3][0][0] = "KC_NO"
+
+    sym = drawing("ferris_sweep_qwerty.vil", "sweep", 1, NAMES)
+    stack = drawing("ferris_sweep_qwerty.vil", "sweep", 3, NAMES, change)
+
+    assert drawn(sym, "2,0") == ("key", ["|>"])  # M0 types text
+    assert drawn(stack, "1,0") == ("key", ["b c"])  # M4 holds Ctrl, so it shows the keys it taps
+    assert drawn(stack, "1,2") == ("key", ["M2"])  # an empty macro
+    assert drawn(stack, "0,0") == ("key none", [])
+
+
+def test_layers_with_no_name_are_named_after_the_key_that_opens_them():
+    base = drawing("ferris_sweep_qwerty.vil", "sweep", 0)
+
+    assert drawn(base, "7,1") == ("key", ["Tab", "Tab"])  # LT(3,KC_TAB)
+    assert drawn(base, "3,1") == ("key", ["L2"])  # MO(2) has no tap legend
+
+
+def test_key_positions_come_from_the_vial_json_with_rotation_and_without_encoders_or_a_plain_grid():
+    cheapino = drawing("cheapino.vil", "cheapino", 0)
+
+    assert rect(cheapino, "4,11")[2] == "rotate(18 5.4 5)"
+    # 0,0 is also the matrix position of an encoder, which is not drawn.
+    assert rect(cheapino, "0,0") == (11.05, 1.3, None)
+
+    grid = drawing("cheapino.vil", None, 0)
+
+    assert rect(grid, "4,11") == (11.05, 4.05, None)
+
+
+def test_a_session_gets_a_drawing_of_each_layer_with_names_from_the_settings_and_the_key_for_each_character(
+    client, settings_path
+):
+    add_board(client, "Sweep", "ferris_sweep_qwerty.vil", "sweep")
+    session = start_session(client, client.get("/api/boards").json()["boards"][0]["keymaps"][0]["version"])
+    client.get("/api/settings")
+    with settings_path.open("a") as settings:
+        settings.write('\n[keymaps.Sweep.QWERTY]\nlayers = ["Base", "Sym"]\n')
+
+    keymap = client.get(f"/api/sessions/{session}/keymap").json()
+
+    assert len(keymap["layers"]) == 5  # the other 11 layers of the .vil are empty
+    assert drawn(ET.fromstring(keymap["layers"][0]), "7,0") == ("key", ["Space", "Sym"])
+    # Each character's key is its first candidate, which key attribution picks for a correct keystroke.
+    assert keymap["keys"]["("] == {"layer": 1, "key": "5,2"}
+    assert keymap["keys"]["\n"] == {"layer": 0, "key": "5,1+5,3"}
+    assert keymap["keys"]["A"] == {"layer": 0, "key": "1,0"}
 
 
 def test_each_keymap_has_its_letter_layout_and_a_session_puts_it_first(client, db_path):

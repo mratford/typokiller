@@ -15,4 +15,11 @@ Code Sources (`i` then `c` in the Escape menu) are cloned with the `git` command
 
 Articles (`i` then `a` in the Escape menu) are sent with a bookmarklet. Drag the link in that panel to the bookmarks bar. The link opens `/send` on the address that typokiller was loaded from. So open typokiller at the address that the reading browser uses to reach this Mac, and drag the link from there.
 
+Press `m` in the Escape menu to draw the Board's Keymap faintly under the Passage. Layer names come from `[keymaps]` in `typokiller.toml`, for example:
+
+```toml
+[keymaps.Sweep.QWERTY]
+layers = ["Base", "Sym", "Nav", "Stack", "Num"]
+```
+
 The server tests read real `.vil` and `vial.json` files from the `sweep-layouts` repo, which must be in the same folder as this repo.

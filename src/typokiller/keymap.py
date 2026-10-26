@@ -136,13 +136,10 @@ def read_keymap(vil_text: str) -> Keymap:
         for ko in vil.get("key_override", [])
         if ko["options"] & 0x80 and ko["trigger_mods"] & SHIFT_MODS  # enabled, and triggered by Shift
     }
-    base = {}  # the matrix position of each keycode on layer 0, for combos
     for layer, rows in enumerate(vil["layout"]):
         for r, row in enumerate(rows):
             for c, keycode in enumerate(row):
                 keycode, char = str(keycode), tapped(keycode)
-                if layer == 0:
-                    base[keycode] = f"{r},{c}"
                 kind = "layer-tap" if keycode.startswith("LT(") else "mod-tap" if "_T(" in keycode else "plain"
                 macro = re.fullmatch(r"M(\d+)", keycode)
                 kind = "macro" if macro else kind
@@ -159,18 +156,30 @@ def read_keymap(vil_text: str) -> Keymap:
                         found.append((True, SHIFT[char], key))
                 if replaced := overrides.get(keycode):
                     found.append((True, replaced, key))
-    for *inputs, output in vil.get("combo", []):
-        inputs = [i for i in inputs if i != "KC_NO"]
-        if inputs and all(i in base for i in inputs):
-            key = Key(0, "+".join(base[i] for i in inputs), "combo")
-            if char := key_char(output):
-                found.append((False, char, key))
-            if output in KEY_NAMES:
-                combos.append((KEY_NAMES[output], "".join(tapped(i) for i in inputs), key))
+    for inputs, output, _, name in combo_keys(vil):
+        key = Key(0, name, "combo")
+        if char := key_char(output):
+            found.append((False, char, key))
+        if output in KEY_NAMES:
+            combos.append((KEY_NAMES[output], "".join(tapped(i) for i in inputs), key))
     keys: dict[str, list[Key]] = {}
     for _, char, key in sorted(found, key=lambda f: (f[0], f[2].layer)):
         keys.setdefault(char, []).append(key)
     return Keymap(keys, macros, holds, combos)
+
+
+def combo_keys(vil: dict[str, Any]) -> list[tuple[list[str], str, list[tuple[int, int]], str]]:
+    """Each combo of a .vil whose keycodes are all on the base layer: its keycodes (without
+    KC_NO), the keycode it sends, the matrix positions of its keys on the base layer, and
+    those positions as `Key.key` gives them, joined by "+"."""
+    base = {str(k): (r, c) for r, row in enumerate(vil["layout"][0]) for c, k in enumerate(row)}
+    found = []
+    for *inputs, output in vil.get("combo", []):
+        inputs = [i for i in inputs if i != "KC_NO"]
+        if inputs and all(i in base for i in inputs):
+            at = [base[i] for i in inputs]
+            found.append((inputs, output, at, "+".join(f"{r},{c}" for r, c in at)))
+    return found
 
 
 def macro_text(actions: list[list[Any]]) -> str:

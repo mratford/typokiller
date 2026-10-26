@@ -24,8 +24,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from typokiller.analysis import attempts, weakness
+from typokiller.drawing import draw_keymap, drawn_layers
 from typokiller.drills import DRILL_GENERATORS
-from typokiller.keymap import keymap_letters
+from typokiller.keymap import keymap_letters, read_keymap
 from typokiller.sources import (
     article_paragraphs,
     code_passages,
@@ -105,6 +106,9 @@ DEFAULT_SETTINGS = """\
 # What a wrong key does: "keep typing" puts it in and moves the cursor on;
 # "locked until fixed" keeps the cursor in place until the right key is typed.
 wrong_key_mode = "keep typing"
+# Whether the practice screen draws the Keymap faintly under the Passage. m in the
+# Escape menu turns it on and off. Each Attempt records it with its settings.
+show_keymap = false
 
 [passages]
 # A paragraph or function is not made into a Passage when normalising it to ASCII
@@ -136,6 +140,13 @@ under_measured = 1
 min_seen = 20
 # The number of words in a Drill.
 words = 40
+
+[keymaps]
+# The layer names in Keymap drawings, for each Board and Letter layout. A layer with no
+# name is named after the key that opens it. Put a Board name with spaces in quotes,
+# such as [keymaps."Q3 Max".QWERTY]. For example:
+# [keymaps.Sweep.QWERTY]
+# layers = ["Base", "Sym", "Nav", "Stack", "Num"]
 """
 
 
@@ -147,10 +158,14 @@ def read_settings(path: Path) -> tomlkit.TOMLDocument:
     if not path.exists():
         path.write_text(DEFAULT_SETTINGS)
     doc = tomlkit.parse(path.read_text())
-    # A file made by an older typokiller gets the tables added since, with their comments.
-    missing = {name: table for name, table in tomlkit.parse(DEFAULT_SETTINGS).items() if name not in doc}
-    if missing:
-        doc.update(missing)
+    # A file made by an older typokiller gets the tables added since, with their comments,
+    # and the settings added since to its tables, without their comments.
+    text = tomlkit.dumps(doc)
+    for name, table in tomlkit.parse(DEFAULT_SETTINGS).items():
+        if name not in doc:
+            doc[name] = table
+        doc[name].update({key: value for key, value in table.items() if key not in doc[name]})
+    if tomlkit.dumps(doc) != text:
         path.write_text(tomlkit.dumps(doc))
     return doc
 
@@ -414,19 +429,24 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             "slowest_pairs": ranking.filter(pl.col("unit").is_in(pairs))["unit"].head(3).to_list(),
         }
 
-    # Makes a Drill for the Session's Board and Letter layout, with the generator that the
-    # settings name, and stores it as a Passage with no Source.
-    @app.post("/api/sessions/{session}/drills")
-    async def make_drill(session: int):
-        settings = read_settings(settings_path).unwrap()
+    def session_keymap(session: int) -> tuple[str | None, str | None, str | None, str | None]:
+        """The Board name, the Letter layout, the .vil and the vial.json of a Session's Keymap.
+        All are None for a Session from before Boards."""
         board, vil, vial = db.execute(
             "SELECT b.name, k.vil, b.vial FROM session s LEFT JOIN keymap_version k ON k.hash = s.keymap_version"
             " LEFT JOIN board b ON b.id = k.board WHERE s.id = ?",
             (session,),
         ).fetchone()
+        return board, keymap_letters(vil, vial) if vil else None, vil, vial
+
+    # Makes a Drill for the Session's Board and Letter layout, with the generator that the
+    # settings name, and stores it as a Passage with no Source.
+    @app.post("/api/sessions/{session}/drills")
+    async def make_drill(session: int):
+        settings = read_settings(settings_path).unwrap()
+        board, letters, _, _ = session_keymap(session)
         generator = settings["drills"]["generator"]
         # #30: the Unlocked keys of a free-range Letter layout go here, and into the drill row.
-        letters = keymap_letters(vil, vial) if vil else None
         drill = DRILL_GENERATORS[generator](db, board, letters, settings, None)
         with db:
             (passage,) = db.execute(
@@ -438,6 +458,21 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
                 (passage, now(), session, settings["weakness"]["model"], generator, json.dumps(drill.targets)),
             )
         return {"id": passage, "text": drill.text, "targets": drill.targets}
+
+    # The practice screen fetches this once per Session: a drawing of each layer of the
+    # Keymap, with the layer names of the [keymaps] settings, and the key to press for each
+    # character. That key is the character's first candidate, which key attribution picks
+    # for a correct keystroke.
+    @app.get("/api/sessions/{session}/keymap")
+    async def keymap_drawing(session: int):
+        board, letters, vil, vial = session_keymap(session)
+        if not vil:
+            return {"layers": [], "keys": {}}
+        names = read_settings(settings_path)["keymaps"].unwrap().get(board, {}).get(letters, {}).get("layers", [])
+        return {
+            "layers": [draw_keymap(vil, vial, layer, names) for layer in range(drawn_layers(vil))],
+            "keys": {char: {"layer": keys[0].layer, "key": keys[0].key} for char, keys in read_keymap(vil).keys.items()},
+        }
 
     @app.get("/api/gutenberg")
     async def search_books(q: str):

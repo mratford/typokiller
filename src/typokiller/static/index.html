@@ -7,13 +7,13 @@
 <style>
 :root {
   --bg: #fbfaf7; --fg: #23221f; --dim: #a29e94; --faint: #d9d5cc; --bad: #c62828; --badbg: #fde4e4;
-  --line: #e5e1d8; --panel: #ffffff;
+  --line: #e5e1d8; --panel: #ffffff; --next: #2456a6;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #16171a; --fg: #e8e6e1; --dim: #75726b; --faint: #3a3a3d; --bad: #ff7070; --badbg: #3d1f23;
-    --line: #2d2e33; --panel: #1f2024;
+    --line: #2d2e33; --panel: #1f2024; --next: #7fb0ff;
   }
 }
 * { box-sizing: border-box; }
@@ -29,6 +29,8 @@ main {
 .p .bad { color: var(--bad); background: var(--badbg); border-radius: 2px; }
 .p .cur { box-shadow: inset 0 -2px 0 var(--fg); }
 .p.next { font-size: 15px; color: var(--faint); margin-top: 32px; }
+.drawing { width: min(620px, 100% - 48px); margin: 0 auto 16px; opacity: .45; } /* the faint Keymap drawing under the Passage */
+.drawing svg { display: block; width: 100%; height: auto; }
 .menu { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 24px; }
 h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
 .groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 6px 24px; }

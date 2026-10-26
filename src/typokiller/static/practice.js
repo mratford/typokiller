@@ -7,6 +7,7 @@ const MENU = [
     ['d', 'Drill', () => showDrill(drill?.endless ?? false)],
     ['s', 'skip this Passage', () => { moveOn(); screen = 'typing'; }],
     ['r', 'restart this Passage', () => { nextAttempt(); screen = 'typing'; }],
+    ['m', 'Keymap on/off', toggleKeymap],
   ]],
   ['Sources', [
     ['o', 'open a Source or endless Drills', async () => { await showSources(); screen = 'sources'; }],
@@ -22,7 +23,7 @@ const MENU = [
 const ITEMS = MENU.flatMap(([, items]) => items);
 
 // The values each choice setting can take. Enter on the settings page moves to the next one.
-const CHOICES = { 'typing.wrong_key_mode': ['keep typing', 'locked until fixed'] };
+const CHOICES = { 'typing.wrong_key_mode': ['keep typing', 'locked until fixed'], 'typing.show_keymap': [false, true] };
 
 // The screens shown before a Session starts: the Board list, the Keymap list, and
 // the three steps of adding a Board.
@@ -42,6 +43,8 @@ let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings',
 let boards = []; // from the server, each with its Keymaps, last used first
 let board = null; // the Board chosen on the start screen
 let boardLabel = ''; // the status line's "Board · Letter layout"
+let drawing = { layers: [], keys: {} }; // the Session's Keymap: an SVG drawing of each layer, and
+                                        // the key to press for each character, as { layer, key }
 let draft = {}; // the name and .vil of a Board being added
 
 let seq = 0;
@@ -201,6 +204,7 @@ async function startSession(keymap) {
   const settings = await getSettings();
   const started = await sendJSON('/api/sessions', { keymap_version: keymap.version });
   session = started.session;
+  drawing = await getJSON(`/api/sessions/${session}/keymap`);
   show(started);
   const resumed = resume();
   if (resumed) await openSource(resumed.id, resumed.at);
@@ -263,6 +267,17 @@ function nextAttempt() {
 
 const wrongKeyMode = () => attempts[ord].settings.typing.wrong_key_mode;
 
+// m turns the Keymap drawing on or off at once, and saves it in the settings file for the
+// next Attempts. The current Attempt records the new value only if none of its key events
+// have been sent yet. That small error in the data is accepted.
+function toggleKeymap() {
+  const old = attempts[ord].settings;
+  const shown = !old.typing.show_keymap;
+  attempts[ord].settings = { ...old, typing: { ...old.typing, show_keymap: shown } };
+  saveSetting(['typing', 'show_keymap'], shown);
+  screen = 'typing';
+}
+
 function record(e, attempt) {
   events.push({
     seq: seq++, attempt, t: e.timeStamp, type: e.type, code: e.code, key: e.key,
@@ -296,23 +311,30 @@ async function openSettings() {
   render();
 }
 
-// One row per setting: [table, key, value].
-const settingRows = () =>
-  Object.entries(settings).flatMap(([table, values]) => Object.entries(values).map(([k, v]) => [table, k, v]));
+// One row per setting: [its path of TOML keys, such as ['typing', 'wrong_key_mode'], value].
+// A table inside a table, such as the layer names of a Keymap, gives a row for each of its values.
+const settingRows = (values = settings, path = []) => Object.entries(values).flatMap(([k, v]) =>
+  v?.constructor === Object ? settingRows(v, [...path, k]) : [[[...path, k], v]]);
+
+// Saves one setting of a table, such as ['typing', 'show_keymap'], in the settings file.
+// The server changes only that value, so the rest of the file stays as it is.
+const saveSetting = ([table, key], value) => send('/api/settings', { [table]: { [key]: value } }, { method: 'PUT' });
 
 // Enter moves a choice setting to its next value, or edits a number setting:
-// type the new number, then Enter saves it.
+// type the new number, then Enter saves it. Other values, such as the layer names of a Keymap,
+// are edited in the file.
 function settingsKey(e) {
   const rows = settingRows();
-  const [table, key, value] = rows[sel];
-  const choices = CHOICES[`${table}.${key}`];
+  const [path, value] = rows[sel];
+  const [table, key] = path;
+  const choices = CHOICES[path.join('.')];
   if (editing !== null && e.key !== 'Enter') { editing = edit(editing, e); return; }
-  if (editing === null && (moveSel(e, rows.length) || e.key !== 'Enter')) return;
+  if (editing === null && (moveSel(e, rows.length) || e.key !== 'Enter' || !(choices || typeof value === 'number'))) return;
   if (choices) settings[table][key] = choices[(choices.indexOf(value) + 1) % choices.length];
   else if (editing === null) { editing = String(value); return; }
   else if (editing.trim() && !isNaN(editing)) settings[table][key] = Number(editing);
   editing = null;
-  send('/api/settings', settings, { method: 'PUT' });
+  saveSetting(path, settings[table][key]);
   message = 'Settings saved. They apply from the next Attempt.';
 }
 
@@ -495,9 +517,9 @@ const PANELS = {
 };
 
 function settingsHTML() {
-  const items = settingRows().map(([table, key, value], i) => {
+  const items = settingRows().map(([path, value], i) => {
     const shown = i === sel && editing !== null ? `${esc(editing)}<span class="cur"> </span>` : esc(String(value));
-    return `<div class="item ${i === sel ? 'sel' : ''}">${table}.${key} = ${shown}</div>`;
+    return `<div class="item ${i === sel ? 'sel' : ''}">${esc(path.join('.'))} = ${shown}</div>`;
   }).join('');
   return `<div class="menu"><h4>Settings</h4>${items}<div class="hint"><kbd>j</kbd>/<kbd>k</kbd> select, <kbd>Enter</kbd> changes the value, <kbd>Esc</kbd> goes back. They are saved in typokiller.toml.</div></div>`;
 }
@@ -524,6 +546,16 @@ function startHTML() {
     + '<p class="hint">A name that exists adds the <code>.vil</code> to that Board. <kbd>Esc</kbd> goes back.</p>';
 }
 
+// The key to press for the next character of the Passage, as { layer, key }, if the Keymap has one.
+const nextKey = () => drawing.keys[passage?.text[typed.length]];
+
+// The Keymap drawn faintly under the Passage while typing, when the setting is on. It shows the
+// layer of the next character; render() outlines the key to press.
+function keymapHTML() {
+  if (screen !== 'typing' || !passage || !attempts[ord].settings.typing.show_keymap) return '';
+  return `<div class="drawing">${drawing.layers[nextKey()?.layer ?? 0] ?? ''}</div>`;
+}
+
 // The status line's Drill part: the Targets, a space shown as ·.
 const drillLabel = () => (drill.endless ? 'Endless Drills' : 'Drill')
   + (drill.targets.length ? ` · Targets: ${drill.targets.map(t => showChars(t.unit)).join(' ')}` : '');
@@ -533,11 +565,12 @@ function render() {
   const mode = starting ? 'start' : { typing: drill ? 'drill' : 'typing', ended: 'ended' }[screen] ?? 'paused';
   document.getElementById('app').innerHTML = `
     <main>${screen === 'ended' ? '<p>Session ended. Reload the page to start a new Session.</p>' : starting ? startHTML() : passageHTML()}</main>
-    ${PANELS[screen]?.() ?? ''}
+    ${keymapHTML()}${PANELS[screen]?.() ?? ''}
     <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(boardLabel)}</span>
       <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'built-in Passage')}</span>
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;
+  document.getElementById(`k${nextKey()?.key}`)?.classList.add('next');
   scrollToCursor();
 }
 
