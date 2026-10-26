@@ -12,6 +12,7 @@ const MENU = [
   ]],
   ['Sources', [
     ['o', 'open a Source or endless Drills', async () => { await showSources(); screen = 'sources'; }],
+    ['l', 'new Lesson', openLessonForm],
     ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
   ['Learning', [
@@ -35,7 +36,8 @@ const CHOICES = { 'typing.wrong_key_mode': ['keep typing', 'locked until fixed']
 const START = ['boards', 'keymaps', 'name', 'vil', 'vial'];
 
 let session;
-let passage, nextPassage; // each { id, text }; nextPassage is shown faint below
+let passage, nextPassage; // each { id, text, heading }; nextPassage is shown faint below, and
+                          // a Lesson's heading above its Passage
 let source = null; // the open Source: { id, title, at, total }, where `at` is its bookmark;
                    // null while the built-in Passage is typed
 let drill = null; // while Drills are typed: { endless, generator, targets, back, done }, where `back`
@@ -44,7 +46,8 @@ let drill = null; // while Drills are typed: { endless, generator, targets, back
 let unlocking = null; // the unlock state of a Letter layout being learned, from the server:
                       // { unlocked, total, next, introducing }; null for other Letter layouts
 let sources = []; // from the server, unfinished first, the last opened first
-let query = ''; // typed into the open text field of the import panel
+let query = ''; // typed into the open text field of the import panel or the Lesson form
+let spend = null; // what Lessons cost this month, for the Lesson form: { spent, cap } in pounds
 let results = []; // the Gutenberg search results
 let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings', 'sources', 'import',
                        // a key of FIELDS, 'results', 'article', 'progress' or 'ended'
@@ -210,6 +213,25 @@ function importCode() {
   screen = 'typing';
 }
 
+// l opens the Lesson form, which shows what Lessons cost this month.
+async function openLessonForm() {
+  spend = await getJSON('/api/lessons/spend');
+  query = '';
+  screen = 'lesson';
+}
+
+// The server writes the Lesson in the background, after the ones asked for before it, and a
+// notice says when it is ready. A request that could make this month's cost more than the cap is refused.
+async function requestLesson() {
+  const topic = query.trim();
+  if (!topic) return;
+  const r = await send('/api/lessons', { topic });
+  if (!r.ok) { message = (await r.json()).detail; render(); return; }
+  message = `Writing a Lesson on ${topic} in the background.`;
+  screen = 'typing';
+  render();
+}
+
 // The import panel's choices: [key, label, the screen it opens].
 const IMPORTS = [
   ['g', 'Project Gutenberg book', 'gutenberg'],
@@ -223,6 +245,8 @@ const FIELDS = {
   gutenberg: { enter: search, enterHint: 'searches',
     title: 'Gutenberg: search title and author, or paste a book number or URL' },
   code: { enter: importCode, enterHint: 'clones it in the background', title: 'Code: type or paste a git URL' },
+  lesson: { enter: requestLesson, enterHint: 'asks for it; it is written in the background',
+    get title() { return `New Python Lesson: type a topic · £${spend.spent.toFixed(2)} of £${spend.cap} this month`; } },
 };
 
 async function showBoards(id) {
@@ -485,7 +509,8 @@ function passageHTML() {
     else if (j < typed.length) { cls = 'bad'; shown = showChars(typed[j]); }
     h += `<span class="${cls}">${esc(shown)}</span>${newline ? '\n' : ''}`;
   }
-  return `<div class="p">${h}</div>${nextPassage ? `<div class="p next">${esc(nextPassage.text)}</div>` : ''}`;
+  const heading = passage.heading ? `<h3 class="heading">${esc(passage.heading)}</h3>` : '';
+  return `${heading}<div class="p">${h}</div>${nextPassage ? `<div class="p next">${esc(nextPassage.text)}</div>` : ''}`;
 }
 
 // A Passage taller than the screen scrolls to keep the cursor's line a third of the way down.
@@ -552,7 +577,7 @@ function articleHTML() {
 
 const PANELS = {
   menu: menuHTML, help: menuHTML, settings: settingsHTML, sources: sourcesHTML,
-  import: importHTML, gutenberg: importHTML, code: importHTML, results: importHTML, article: articleHTML,
+  import: importHTML, gutenberg: importHTML, code: importHTML, lesson: importHTML, results: importHTML, article: articleHTML,
 };
 
 function settingsHTML() {

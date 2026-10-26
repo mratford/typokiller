@@ -9,7 +9,9 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from collections.abc import Sequence
 from contextlib import asynccontextmanager, suppress
+from itertools import zip_longest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -36,10 +38,12 @@ from typokiller.analysis import (
 from typokiller.drawing import draw_keymap, drawn_layers, layer_name
 from typokiller.drills import DRILL_GENERATORS
 from typokiller.keymap import keymap_letters, read_keymap
+from typokiller.lessons import LESSON_PROMPTS, Provider, Reply, cap_refusal, spent, worst_case
 from typokiller.sources import (
     article_paragraphs,
     code_passages,
     gutenberg_paragraphs,
+    lesson_passages,
     prose_passages,
     search_catalogue,
 )
@@ -68,7 +72,8 @@ CREATE TABLE IF NOT EXISTS passage (
     source INTEGER,
     ord INTEGER NOT NULL,
     text TEXT NOT NULL,
-    normaliser TEXT NOT NULL
+    normaliser TEXT NOT NULL,
+    heading TEXT  -- a Lesson's heading, shown above the Passage and not typed
 );
 CREATE TABLE IF NOT EXISTS drill (
     passage INTEGER PRIMARY KEY,  -- a Drill is a Passage with no Source
@@ -86,6 +91,23 @@ CREATE TABLE IF NOT EXISTS unlock (  -- the unlock log of the Letter layout bein
     how TEXT NOT NULL,  -- "rule" or "manual"
     settings TEXT NOT NULL,  -- JSON: the [unlocking] settings then
     model TEXT NOT NULL  -- the Weakness model then
+);
+CREATE TABLE IF NOT EXISTS lesson (  -- one row per Lesson that the model wrote
+    id INTEGER PRIMARY KEY,
+    made TEXT NOT NULL,
+    topic TEXT NOT NULL,  -- as typed; also the Source's title
+    language TEXT NOT NULL,
+    model TEXT NOT NULL,  -- the model ID, as the provider names it
+    prompt TEXT NOT NULL,  -- the Lesson prompt
+    settings TEXT NOT NULL,  -- JSON: the [lessons] settings then
+    output TEXT NOT NULL,  -- the model's raw output
+    source INTEGER  -- the Source made from it; NULL when it had no Passage to type
+);
+CREATE TABLE IF NOT EXISTS spend (  -- the spend ledger: one row per call to a model
+    lesson INTEGER NOT NULL,
+    time TEXT NOT NULL,
+    usage TEXT NOT NULL,  -- JSON: the token counts, as the provider gave them
+    dollars REAL NOT NULL  -- the cost, as charged
 );
 CREATE INDEX IF NOT EXISTS passage_source ON passage (source, ord);
 CREATE TABLE IF NOT EXISTS attempt (
@@ -176,6 +198,26 @@ threshold = 400
 last = 50
 min_seen = 20
 
+[lessons]
+# The prompt that asks the model for a Lesson. There is one so far: "lesson-prompt-v1", which
+# asks for paragraphs, ## headings and code blocks only, each example a complete program.
+prompt = "lesson-prompt-v1"
+# The model that writes Python Lessons, by its OpenRouter ID, and how hard it thinks before it
+# writes: "low", "medium" or "high". It writes at most max_tokens tokens, thinking included.
+python_model = "anthropic/claude-haiku-5.5"
+reasoning = "low"
+max_tokens = 8000
+# The length that the prompt asks for, in words with the code, and the learner's level.
+words = 1300
+level = "intermediate"
+# A code block longer than this many lines is split into Passages at blank lines before
+# unindented lines.
+split_lines = 40
+# The most that calls to models may cost in a calendar month (UK time), in pounds. A request
+# that could make the cost more than this is refused. The dollars charged become pounds at this fixed rate.
+cap = 5.0
+dollars_per_pound = 1.337
+
 [keymaps]
 # The layer names in Keymap drawings, for each Board and Letter layout. A layer with no
 # name is named after the key that opens it. Put a Board name with spaces in quotes,
@@ -213,10 +255,47 @@ CATALOGUE_URL = "https://www.gutenberg.org/cache/epub/feeds/pg_catalog.csv"
 TLS = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
 
-def fetch(url: str) -> bytes:
-    request = urllib.request.Request(url, headers={"User-Agent": "typokiller"})
-    with urllib.request.urlopen(request, timeout=60, context=TLS) as response:
+def fetch(url: str, body: dict | None = None, headers: dict[str, str] | None = None, timeout: int = 60) -> bytes:
+    """GETs the URL, or POSTs `body` to it as JSON."""
+    headers = {"User-Agent": "typokiller", "Content-Type": "application/json", **(headers or {})}
+    request = urllib.request.Request(url, None if body is None else json.dumps(body).encode(), headers)
+    with urllib.request.urlopen(request, timeout=timeout, context=TLS) as response:
         return response.read()
+
+
+class OpenRouter:
+    """The Provider of the models that write Lessons: OpenRouter's chat API. The API key is
+    OPENROUTER_API_KEY, from the environment or else from the file `env`, read for each call."""
+
+    API = "https://openrouter.ai/api/v1"
+
+    def __init__(self, env: Path):
+        self.env = env
+        self.price_list: dict[str, tuple[float, float]] = {}
+
+    # The model list needs no key. It is read once, when the first Lesson is asked for.
+    def prices(self, model: str) -> tuple[float, float]:
+        if not self.price_list:
+            listed = json.loads(fetch(f"{self.API}/models"))["data"]
+            self.price_list = {m["id"]: (float(m["pricing"]["prompt"]), float(m["pricing"]["completion"])) for m in listed}
+        return self.price_list[model]
+
+    def write(self, model: str, messages: list[dict[str, str]], max_tokens: int, reasoning: str) -> Reply:
+        body = {
+            "model": model, "messages": messages, "max_tokens": max_tokens,
+            "reasoning": {"effort": reasoning}, "usage": {"include": True},
+        }  # fmt: skip
+        answer = json.loads(fetch(f"{self.API}/chat/completions", body, {"Authorization": f"Bearer {self.key()}"}, 300))
+        return Reply(answer["choices"][0]["message"]["content"] or "", answer["usage"], answer["usage"]["cost"])
+
+    def key(self) -> str:
+        if key := os.environ.get("OPENROUTER_API_KEY"):
+            return key
+        for line in self.env.read_text().splitlines() if self.env.exists() else []:
+            name, _, value = line.partition("=")
+            if name.strip() == "OPENROUTER_API_KEY":
+                return value.strip().strip("\"'")
+        raise ValueError(f"OPENROUTER_API_KEY is not set and not in {self.env}.")
 
 
 async def refresh_catalogue(catalogue: Path):
@@ -299,6 +378,11 @@ class Article(BaseModel):
     text: str  # the page's selected text, or else the text of its `article` or `body`
 
 
+class LessonRequest(BaseModel):
+    topic: str  # free text, as typed
+    language: Literal["python"] = "python"  # a key of lessons.LANGUAGES
+
+
 class DrillRequest(BaseModel):
     # True when the page wants an Introduction Drill. If none is due, no Drill is made.
     introduction: bool = False
@@ -310,15 +394,15 @@ class NewBoard(BaseModel):
     vial: str  # the text of the vial.json file
 
 
-def create_app(db_path: Path, settings_path: Path) -> FastAPI:
+def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAPI:
     db = sqlite3.connect(db_path, check_same_thread=False)
     db.executescript(SCHEMA)
     # Databases made before these columns existed get them here. Their old rows keep NULL.
-    for table, column in [("session", "keymap_version"), ("attempt", "settings")]:
+    for table, column in [("session", "keymap_version"), ("attempt", "settings"), ("passage", "heading")]:
         with suppress(sqlite3.OperationalError):  # fails when the column is there already
             db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
     with db:
-        db.execute("INSERT OR IGNORE INTO passage VALUES (1, NULL, 0, ?, 'ascii-v1')", (PASSAGE,))
+        db.execute("INSERT OR IGNORE INTO passage (id, ord, text, normaliser) VALUES (1, 0, ?, 'ascii-v1')", (PASSAGE,))
         with suppress(sqlite3.OperationalError):
             db.execute("ALTER TABLE attempt ADD COLUMN passage INTEGER")
             db.execute("UPDATE attempt SET passage = 1")  # every Attempt before there were Sources typed it
@@ -329,21 +413,22 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         rows = []
         if source:
             rows = db.execute(
-                "SELECT id, text FROM passage WHERE source = ? AND ord >= ? ORDER BY ord LIMIT 2",
+                "SELECT id, text, heading FROM passage WHERE source = ? AND ord >= ? ORDER BY ord LIMIT 2",
                 (source["id"], source["at"]),
             ).fetchall()
-        passages = [{"id": id, "text": text} for id, text in rows] + [BUILT_IN]
+        passages = [{"id": id, "text": text, "heading": heading} for id, text, heading in rows] + [BUILT_IN]
         return {"source": source if rows else None, "passages": passages[:2]}
 
-    def add_source(title: str, text: str, passages: list[str]) -> int:
+    def add_source(title: str, text: str, passages: list[str], headings: Sequence[str | None] = ()) -> int:
+        """Stores a Source with its Passages, and with the heading above each Passage of a Lesson."""
         with db:
             (source,) = db.execute(
                 "INSERT INTO source (title, text, total, opened) VALUES (?, ?, ?, ?) RETURNING id",
                 (title, text, len(passages), now()),
             ).fetchone()
             db.executemany(
-                "INSERT INTO passage (source, ord, text, normaliser) VALUES (?, ?, ?, 'ascii-v1')",
-                [(source, i, p) for i, p in enumerate(passages)],
+                "INSERT INTO passage (source, ord, text, normaliser, heading) VALUES (?, ?, ?, 'ascii-v1', ?)",
+                [(source, i, p, h) for i, (p, h) in enumerate(zip_longest(passages, headings))],
             )
         return source
 
@@ -378,14 +463,63 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         add_source(title, "".join(f"--- {path}\n{text}" for path, text in files), passages)
         notices.append(f"Imported {title}: {len(passages)} Passages, {skipped} functions skipped.")
 
+    def lesson_call(request: LessonRequest, lessons: dict) -> tuple[str, list[dict[str, str]]]:
+        """The model and the prompt messages of a Lesson, by the [lessons] settings."""
+        return lessons[f"{request.language}_model"], LESSON_PROMPTS[lessons["prompt"]](request.language, request.topic, lessons)
+
+    async def write_lesson(request: LessonRequest) -> str:
+        """Has the model write a Lesson, stores it as a Source, and returns the notice."""
+        topic, language = request.topic, request.language
+        settings = read_settings(settings_path).unwrap()
+        lessons = settings["lessons"]
+        model, messages = lesson_call(request, lessons)
+        reply = await asyncio.to_thread(provider.write, model, messages, lessons["max_tokens"], lessons["reasoning"])
+        with db:
+            (lesson,) = db.execute(
+                "INSERT INTO lesson (made, topic, language, model, prompt, settings, output)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                (now(), topic, language, model, lessons["prompt"], json.dumps(lessons), reply.text),
+            ).fetchone()
+            db.execute(
+                "INSERT INTO spend (lesson, time, usage, dollars) VALUES (?, ?, ?, ?)",
+                (lesson, now(), json.dumps(reply.usage), reply.dollars),
+            )
+        # #32 checks the code blocks here: it runs each one, repairs or drops those that fail,
+        # and has the Lesson written again when too many are dropped.
+        rule = settings["passages"]
+        parts, skipped = lesson_passages(reply.text, lessons["split_lines"], rule["max_dropped"], rule["min_length"])
+        if not parts:
+            return f"Lesson {topic} failed: it has nothing long enough to type."
+        source = add_source(topic, reply.text, [text for _, text in parts], [heading for heading, _ in parts])
+        with db:
+            db.execute("UPDATE lesson SET source = ? WHERE id = ?", (source, lesson))
+        return f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped. It is first in the list of Sources (o)."
+
+    # The Lessons asked for and not written yet, in the order asked for, each with its worst
+    # case in dollars. `waiting` is the sum of those worst cases, which the cap counts.
+    lesson_requests: asyncio.Queue[tuple[LessonRequest, float]] = asyncio.Queue()
+    waiting = 0.0
+
+    async def write_lessons():
+        """Writes the Lessons asked for, one at a time. A notice says when each is ready, or why not."""
+        nonlocal waiting
+        while True:
+            request, worst = await lesson_requests.get()
+            try:
+                notices.append(await write_lesson(request))
+            except Exception as e:  # reported, so the next Lesson is still written
+                notices.append(f"Lesson {request.topic} failed: {e}")
+            waiting -= worst
+
     catalogue = db_path.with_name("pg_catalog.csv")
     static = Path(__file__).parent / "static"
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        refresh = asyncio.create_task(refresh_catalogue(catalogue))
+        background = [asyncio.create_task(refresh_catalogue(catalogue)), asyncio.create_task(write_lessons())]
         yield
-        refresh.cancel()
+        for task in background:
+            task.cancel()
 
     app = FastAPI(lifespan=lifespan)
 
@@ -635,6 +769,31 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
+    # l in the Escape menu. The Lesson is written in the background after the ones asked for
+    # before it. A request is refused, and nothing is sent, when the month-to-date spend plus the
+    # worst cases of the Lessons still waiting and of this one (one call with the most output)
+    # could be more than the cap (spec §9).
+    # #32: add the most that the repair calls can cost to the worst case.
+    @app.post("/api/lessons", status_code=202)
+    async def request_lesson(request: LessonRequest):
+        nonlocal waiting
+        lessons = read_settings(settings_path).unwrap()["lessons"]
+        model, messages = lesson_call(request, lessons)
+        try:
+            worst = await asyncio.to_thread(worst_case, provider, model, messages, lessons["max_tokens"])
+        except (OSError, ValueError, KeyError) as e:  # the price list could not be read, or has no such model
+            raise HTTPException(502, f"No price for {model}: {e!r}")
+        if refused := cap_refusal(db, waiting + worst, lessons):
+            raise HTTPException(409, refused)
+        waiting += worst
+        lesson_requests.put_nowait((request, worst))
+
+    # The month-to-date spend in pounds, which the Lesson form shows, and the cap.
+    @app.get("/api/lessons/spend")
+    async def lesson_spend():
+        lessons = read_settings(settings_path).unwrap()["lessons"]
+        return {"spent": spent(db, lessons["dollars_per_pound"]), "cap": lessons["cap"]}
+
     # The /send page posts the text that the article bookmarklet took from a web page.
     @app.post("/api/articles")
     async def import_article(article: Article):
@@ -695,4 +854,5 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
 
 
 def main():
-    uvicorn.run(create_app(Path("typokiller.db"), Path("typokiller.toml")), host="0.0.0.0", port=8000)
+    app = create_app(Path("typokiller.db"), Path("typokiller.toml"), OpenRouter(Path(".env")))
+    uvicorn.run(app, host="0.0.0.0", port=8000)

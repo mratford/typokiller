@@ -3,10 +3,12 @@ import json
 import re
 import sqlite3
 import subprocess
+import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,9 +16,10 @@ from fastapi.testclient import TestClient
 from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, progress, weakness
 from typokiller.app import create_app
 from typokiller.drawing import Heat, draw_keymap
-from typokiller.drills import WORDS
+from typokiller.drills import WORDS, pool
 from typokiller.keymap import qmk_settings, read_keymap
-from typokiller.sources import ascii_v1, code_passages
+from typokiller.lessons import Reply
+from typokiller.sources import ascii_v1, code_passages, lesson_passages
 
 
 @pytest.fixture
@@ -29,9 +32,37 @@ def settings_path(tmp_path):
     return tmp_path / "typokiller.toml"
 
 
+class FakeProvider:
+    """Answers each Lesson request with `text`, or raises `error`, and records each call. It
+    answers only while `going` is set. Its prices are Haiku 5.5's on OpenRouter: $0.10 and
+    $0.50 per million tokens."""
+
+    def __init__(self):
+        self.text = LESSON
+        self.error: Exception | None = None
+        self.calls = []
+        self.going = threading.Event()
+        self.going.set()
+
+    def prices(self, model):
+        return 0.1e-6, 0.5e-6
+
+    def write(self, model, messages, max_tokens, reasoning):
+        self.calls.append({"model": model, "messages": messages, "max_tokens": max_tokens, "reasoning": reasoning})
+        self.going.wait(5)
+        if self.error:
+            raise self.error
+        return Reply(self.text, {"prompt_tokens": 200, "completion_tokens": 3000}, 0.0015)
+
+
 @pytest.fixture
-def client(db_path, settings_path):
-    return TestClient(create_app(db_path, settings_path))
+def provider():
+    return FakeProvider()
+
+
+@pytest.fixture
+def client(db_path, settings_path, provider):
+    return TestClient(create_app(db_path, settings_path, provider))
 
 
 WEAKNESS = {"model": "recent-cost-v1", "weeks": 4, "min_seen": 20}
@@ -43,12 +74,24 @@ UNLOCKING = {
     "last": 50,
     "min_seen": 20,
 }
+LESSONS = {
+    "prompt": "lesson-prompt-v1",
+    "python_model": "anthropic/claude-haiku-5.5",
+    "reasoning": "low",
+    "max_tokens": 8000,
+    "words": 1300,
+    "level": "intermediate",
+    "split_lines": 40,
+    "cap": 5.0,
+    "dollars_per_pound": 1.337,
+}
 SETTINGS = {
     "typing": {"wrong_key_mode": "keep typing", "show_keymap": False},
     "passages": {"max_dropped": 0.05, "min_length": 20},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
     "unlocking": UNLOCKING,
+    "lessons": LESSONS,
     "keymaps": {},
 }
 ATTEMPT = {"passage": 1, "settings": SETTINGS}  # the built-in Passage
@@ -142,6 +185,7 @@ def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
     rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
+    rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
     rest += '\n[keymaps.Sweep.QWERTY]\nlayers = ["Base", "Sym"]\n'
     rest = 'show_keymap = false\n' + rest
     settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + rest)
@@ -450,16 +494,16 @@ def repo(tmp_path):
 
 
 @pytest.fixture
-def running(db_path, settings_path):
+def running(db_path, settings_path, provider):
     """A client whose server keeps running between requests, so background work can finish."""
     db_path.with_name("pg_catalog.csv").write_text(CATALOGUE)  # so nothing is downloaded
-    with TestClient(create_app(db_path, settings_path)) as client:
+    with TestClient(create_app(db_path, settings_path, provider)) as client:
         yield client
 
 
-def wait_for_notice(client):
+def wait_for_notice(client, n=1):
     for _ in range(100):
-        if notices := client.get("/api/notices").json():
+        if len(notices := client.get("/api/notices").json()) >= n:
             return notices
         time.sleep(0.05)
     raise AssertionError("no notice")
@@ -549,7 +593,7 @@ def sweep_versions(client, db_path):
     add_board(client, "Sweep", "ferris_sweep_qwerty.vil", "sweep")
     add_board(client, "Sweep", "ferris_sweep_freerange.vil", "sweep")
     with sqlite3.connect(db_path) as db:
-        db.execute("INSERT INTO passage VALUES (2, NULL, 0, ?, 'ascii-v1')", ("ab\n  cd",))
+        db.execute("INSERT INTO passage (id, source, ord, text, normaliser) VALUES (2, NULL, 0, ?, 'ascii-v1')", ("ab\n  cd",))
     keymaps = client.get("/api/boards").json()["boards"][0]["keymaps"]
     return [k["version"] for k in keymaps]
 
@@ -636,7 +680,7 @@ def typed_keystrokes(client, db_path, board, passage, *events):
     vil = {"sweep": "ferris_sweep_qwerty.vil", "cheapino": "cheapino.vil"}[board]
     add_board(client, board, vil, board)
     with sqlite3.connect(db_path) as db:
-        db.execute("INSERT INTO passage VALUES (2, NULL, 0, ?, 'ascii-v1')", (passage,))
+        db.execute("INSERT INTO passage (id, source, ord, text, normaliser) VALUES (2, NULL, 0, ?, 'ascii-v1')", (passage,))
     session = start_session(client, client.get("/api/boards").json()["boards"][0]["keymaps"][0]["version"])
     flat = [e for item in events for e in (item if isinstance(item, list) else [item])]
     batch = [key_event(seq) | e for seq, e in enumerate(sorted(flat, key=lambda e: e["t"]))]
@@ -915,7 +959,7 @@ def free_range_boards(client, db_path):
     qwerty, sweep = sweep_versions(client, db_path)
     add_board(client, "Sofle", "sofle.vil", "sofle")
     with sqlite3.connect(db_path) as db:
-        db.execute("INSERT INTO passage VALUES (3, NULL, 0, 'rea', 'ascii-v1')")
+        db.execute("INSERT INTO passage (id, source, ord, text, normaliser) VALUES (3, NULL, 0, 'rea', 'ascii-v1')")
     sofle = client.get("/api/boards").json()["boards"][1]["keymaps"][0]["version"]
     return qwerty, sweep, sofle
 
@@ -1027,3 +1071,129 @@ def test_each_unlock_queues_introduction_drills_of_the_new_key_and_its_two_commo
     asked = client.post(f"/api/sessions/{later}/drills", json={"introduction": True}).json()
     assert asked == {"unlocking": {"unlocked": 3, "total": 4, "next": "t", "introducing": None}}
     assert drill(client, later)["generator"] == "density-v1"
+
+
+# A Lesson as a model might write it, with the parts that the prompt asks it to leave out.
+LESSON = """\
+# Pattern Matching in Python
+
+Python's `match` statement compares a **value** against *patterns*,
+as [the tutorial](https://docs.python.org/3/tutorial/) shows.
+
+## Literal patterns
+
+- A literal matches an equal value.
+- The wildcard `_` matches anything.
+
+| Pattern | Matches |
+| --- | --- |
+| `1` | one |
+
+```python
+import sys
+
+def describe(command):
+    match command:
+
+        case "quit":   \t
+            return "leaving"
+
+
+
+print(describe(sys.argv[0]))
+```
+"""
+
+
+def test_a_lesson_is_split_into_paragraphs_and_code_blocks_under_their_headings():
+    heading = "Pattern Matching in Python"
+    code = 'import sys\n\ndef describe(command):\n    match command:\n\n        case "quit":\n            return "leaving"'
+
+    assert lesson_passages(LESSON, 40, 0.05, 20) == (
+        [
+            (heading, "Python's match statement compares a value against patterns, as the tutorial shows."),
+            ("Literal patterns", "A literal matches an equal value."),
+            ("Literal patterns", "The wildcard _ matches anything."),
+            ("Literal patterns", code + "\n\nprint(describe(sys.argv[0]))"),
+        ],
+        1,  # the table
+    )
+    # A block over split_lines lines (9 > 7) is split at blank lines before unindented lines,
+    # with as many whole parts as fit in split_lines.
+    assert lesson_passages(LESSON, 7, 0.05, 20)[0][3:] == [
+        ("Literal patterns", code),
+        ("Literal patterns", "print(describe(sys.argv[0]))"),
+    ]
+
+
+def spend_row(dollars, time):
+    return f"INSERT INTO spend (lesson, time, usage, dollars) VALUES (0, '{time}', '{{}}', {dollars})"
+
+
+def test_a_lesson_is_written_in_the_background_in_the_order_asked_and_recorded_and_first_in_o(
+    running, db_path, provider, gutenberg
+):
+    book = import_book(running)["source"]
+
+    responses = [running.post("/api/lessons", json={"topic": topic}) for topic in ["pattern matching", "decorators"]]
+
+    assert [r.status_code for r in responses] == [202, 202]
+    ready = "4 Passages, 1 skipped. It is first in the list of Sources (o)."
+    assert wait_for_notice(running, 2) == [f"Lesson ready: pattern matching: {ready}", f"Lesson ready: decorators: {ready}"]
+    [call, _] = provider.calls
+    assert {k: v for k, v in call.items() if k != "messages"} == {
+        "model": "anthropic/claude-haiku-5.5", "max_tokens": 8000, "reasoning": "low"
+    }  # fmt: skip
+    prompt = " ".join(m["content"] for m in call["messages"])
+    assert "pattern matching" in prompt and "1300 words" in prompt and "intermediate" in prompt
+    sources = running.get("/api/sources").json()
+    assert [(s["title"], s["total"]) for s in sources] == [("decorators", 4), ("pattern matching", 4), ("Pride and Prejudice", 2)]
+    assert sources[2]["id"] == book
+    # Each Passage is served with its heading.
+    served = running.put(f"/api/sources/{sources[1]['id']}/bookmark", json={"at": 1}).json()
+    assert [p["heading"] for p in served["passages"]] == ["Literal patterns", "Literal patterns"]
+    # Each Lesson records how it was made, and each call its usage and cost.
+    lessons = rows(db_path, "SELECT topic, language, model, prompt, settings, output, source FROM lesson ORDER BY id")
+    assert lessons[0][:4] == ("pattern matching", "python", "anthropic/claude-haiku-5.5", "lesson-prompt-v1")
+    assert json.loads(lessons[0][4]) == LESSONS
+    assert lessons[0][5:] == (LESSON, sources[1]["id"])
+    assert rows(db_path, "SELECT lesson, usage, dollars FROM spend ORDER BY rowid") == [
+        (1, '{"prompt_tokens": 200, "completion_tokens": 3000}', 0.0015),
+        (2, '{"prompt_tokens": 200, "completion_tokens": 3000}', 0.0015),
+    ]
+    assert running.get("/api/lessons/spend").json() == {"spent": 0.003 / 1.337, "cap": 5.0}
+    # Lesson text joins the Drill word pool.
+    assert pool(sqlite3.connect(db_path), None)["literal"] == 2
+
+
+def test_a_lesson_that_fails_says_why(running, db_path, provider):
+    provider.error = OSError("HTTP Error 500")
+
+    running.post("/api/lessons", json={"topic": "decorators"})
+
+    assert wait_for_notice(running) == ["Lesson decorators failed: HTTP Error 500"]
+    assert rows(db_path, "SELECT * FROM source") == []
+
+
+def test_a_request_whose_worst_case_with_the_waiting_ones_could_pass_the_cap_this_uk_month_is_refused_and_not_sent(
+    running, db_path, provider
+):
+    # A request's worst case is about $0.0042: 8,000 output tokens at $0.50 per million, and the
+    # prompt. $0.006 is left this month, enough for one request but not for two.
+    london = datetime.now(ZoneInfo("Europe/London"))
+    month = london.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    with sqlite3.connect(db_path) as db:
+        db.execute(spend_row(5 * 1.337 - 0.006, month.astimezone(UTC).isoformat()))
+        db.execute(spend_row(100, (month - timedelta(seconds=1)).astimezone(UTC).isoformat()))  # last month
+    provider.going.clear()  # so the first Lesson is still being written when the second is asked for
+
+    first = running.post("/api/lessons", json={"topic": "decorators"})
+    second = running.post("/api/lessons", json={"topic": "generators"})
+    provider.going.set()
+
+    resets = (month + timedelta(days=32)).replace(day=1)
+    assert first.status_code == 202
+    assert (second.status_code, second.json()["detail"]) == (409, f"Cap reached: resets 1 {resets:%b}")
+    wait_for_notice(running)
+    assert [call["messages"][1]["content"] for call in provider.calls] == ["Write a Python Lesson on decorators."]
+    assert running.get("/api/lessons/spend").json()["spent"] == pytest.approx(5 - 0.0045 / 1.337)

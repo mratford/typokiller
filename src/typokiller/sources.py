@@ -40,34 +40,126 @@ def keep_passages(normalised: list[tuple[str, int]], max_dropped: float, min_len
     characters normalising dropped from it. A text is skipped when normalising dropped more than
     `max_dropped` of its characters or left fewer than `min_length`.
     """
-    passages = [
-        text for text, dropped in normalised if dropped <= max_dropped * (len(text) + dropped) and len(text) >= min_length
-    ]
+    passages = [text for text, dropped in normalised if kept(text, dropped, max_dropped, min_length)]
     return passages, len(normalised) - len(passages)
+
+
+def kept(text: str, dropped: int, max_dropped: float, min_length: int) -> bool:
+    """Whether a normalised text is kept as a Passage, by the rule of `keep_passages`."""
+    return dropped <= max_dropped * (len(text) + dropped) and len(text) >= min_length
 
 
 def prose_passages(paragraphs: list[str], max_dropped: float, min_length: int) -> tuple[list[str], int]:
     """The Passages made from prose paragraphs with `ascii-v1`, and how many paragraphs were skipped.
     Line breaks inside a paragraph become spaces."""
-    return keep_passages([ascii_v1(" ".join(p.split())) for p in paragraphs], max_dropped, min_length)
+    return keep_passages([prose(p) for p in paragraphs], max_dropped, min_length)
+
+
+def prose(paragraph: str) -> tuple[str, int]:
+    """A prose paragraph normalised with `ascii-v1`, with its line breaks made spaces, and how
+    many characters were dropped."""
+    return ascii_v1(" ".join(paragraph.split()))
 
 
 def code_passages(text: str, max_dropped: float, min_length: int) -> tuple[list[str], int]:
     """The Passages made from one code file with `ascii-v1`: one for each function, and how many were skipped.
 
-    The file is split at blank lines. A part that starts indented belongs to the function
-    before it, which keeps one blank line there. Tabs become 4 columns. Each line keeps its
-    indentation, and the rest of the line has each run of whitespace made one space and no
-    trailing whitespace. A function is skipped by the same rule as a prose paragraph.
+    The file is tidied with `tidy_code` and split into `top_level_parts`. A function is skipped by
+    the same rule as a prose paragraph.
     """
-    lines = [re.sub(r"(?<=\S)\s+", " ", line).rstrip() for line in text.expandtabs(4).splitlines()]
-    functions: list[str] = []
-    for part in re.split(r"\n\n+", "\n".join(lines)):
-        if functions and part.startswith(" "):
-            functions[-1] += "\n\n" + part
-        elif part:
-            functions.append(part)
-    return keep_passages([ascii_v1(f) for f in functions], max_dropped, min_length)
+    return keep_passages([ascii_v1(f) for f in top_level_parts(tidy_code(text))], max_dropped, min_length)
+
+
+def top_level_parts(code: str) -> list[str]:
+    """Tidied code split at blank lines before unindented lines: the functions, classes and
+    other top-level parts, in written order. Runs of blank lines become one blank line."""
+    return [part for part in re.split(r"\n\n(?=\S)", re.sub(r"\n\n+", "\n\n", code.strip("\n"))) if part]
+
+
+def tidy_code(text: str) -> str:
+    """Code with tabs made 4 columns, and each line with its indentation, each run of whitespace
+    after it made one space, and no trailing whitespace."""
+    return "\n".join(re.sub(r"(?<=\S)\s+", " ", line).rstrip() for line in text.expandtabs(4).splitlines())
+
+
+FENCE = re.compile(r"\s*(```|~~~)")
+
+
+def lesson_passages(
+    markdown: str, split_lines: int, max_dropped: float, min_length: int
+) -> tuple[list[tuple[str | None, str]], int]:
+    """The Passages of a Lesson written in Markdown, each with the heading above it, and how
+    many paragraphs and code blocks were skipped (spec §9).
+
+    Headings are not typed. Each paragraph and each list item is a prose Passage, with inline
+    markup removed: code spans keep their text without the backticks, and bold, italics and
+    links keep their words. A table is dropped, and counts as skipped. Each fenced code block is
+    a code Passage, tidied like a code file with runs of blank lines made one. A block over
+    `split_lines` lines is split at blank lines before unindented lines, with as many whole
+    parts in each Passage as fit in `split_lines`. Then each Passage is normalised with
+    `ascii-v1` and skipped by the rule of `keep_passages`.
+    """
+    heading = None
+    normalised: list[tuple[str | None, str, int]] = []  # (heading, text, characters dropped)
+    paragraph: list[str] = []
+    code: list[str] | None = None  # the lines of the open code block
+
+    def end_paragraph():
+        if paragraph and paragraph[0].lstrip().startswith("|"):
+            normalised.append((heading, "", 0))  # a table: never long enough to keep
+        elif paragraph:
+            normalised.append((heading, *prose(plain(" ".join(paragraph)))))
+        paragraph.clear()
+
+    for line in markdown.splitlines():
+        if code is not None:
+            if FENCE.match(line):
+                normalised += [(heading, *ascii_v1(c)) for c in split_code(tidy_code("\n".join(code)), split_lines)]
+                code = None
+            else:
+                code.append(line)
+            continue
+        if FENCE.match(line):
+            end_paragraph()
+            code = []
+        elif not line.strip():
+            end_paragraph()
+        elif title := re.match(r"#+\s+(.*)", line):
+            end_paragraph()
+            heading = plain(title[1].strip("# "))
+        elif item := re.match(r"\s*(?:[-*+]|\d+[.)])\s+(.*)", line):
+            end_paragraph()
+            paragraph.append(item[1])
+        else:
+            paragraph.append(line)
+    end_paragraph()
+    parts = [(h, text) for h, text, dropped in normalised if kept(text, dropped, max_dropped, min_length)]
+    return parts, len(normalised) - len(parts)
+
+
+def plain(text: str) -> str:
+    """Markdown text without inline markup. Code spans keep their text exactly."""
+    pieces = re.split(r"`([^`]*)`", text)  # odd pieces are the text of code spans
+    for i in range(0, len(pieces), 2):
+        words = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", pieces[i])  # links and images
+        words = re.sub(r"(\*\*|__)(.+?)\1", r"\2", words)  # bold
+        pieces[i] = re.sub(r"(?<!\w)([*_])(?=\S)(.+?)(?<=\S)\1(?!\w)", r"\2", words)  # italics
+    return "".join(pieces)
+
+
+def split_code(code: str, split_lines: int) -> list[str]:
+    """A tidied code block as `top_level_parts` put together, split as `lesson_passages` says."""
+    parts = top_level_parts(code)
+    if (whole := "\n\n".join(parts)).count("\n") < split_lines:
+        return [whole]
+    chunks: list[str] = []
+    for part in parts:
+        # The lines of the last chunk, a blank line and the lines of this part.
+        if chunks and chunks[-1].count("\n") + 1 + 1 + part.count("\n") + 1 <= split_lines:
+            chunks[-1] += "\n\n" + part
+        else:
+            chunks.append(part)
+    return chunks
 
 
 def search_catalogue(catalogue: Path, query: str) -> list[dict]:
