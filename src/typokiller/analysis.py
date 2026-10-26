@@ -7,7 +7,6 @@ Polars 2 does not keep the order of rows, so every table is sorted on explicit c
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from itertools import groupby
 from typing import Any, NamedTuple
 
 import polars as pl
@@ -110,36 +109,8 @@ def keydowns(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataF
     Passage by `first_error_v1`. Columns: session, ord (of the Attempt), seq, t, key, and
     cursor, position, status, first and fix_ms as `first_error_v1` gives them, and alignment.
     Sorted on session and seq."""
-    passage_and_mode = {
-        (session, ord): (text, mode)
-        for session, ord, text, mode in db.execute(
-            "SELECT a.session, a.ord, p.text, a.settings ->> '$.typing.wrong_key_mode'"
-            " FROM attempt a JOIN passage p ON p.id = a.passage JOIN session s ON s.id = a.session"
-            " WHERE s.started >= ?",
-            (since.isoformat(),),
-        )
-    }
-    # An Attempt's keydowns come one after another in seq: the next Attempt starts after them.
-    found = db.execute(
-        "SELECT e.session, attempt, seq, t, key, ctrl, meta FROM key_event e JOIN session s ON s.id = e.session"
-        " WHERE type = 'keydown' AND s.started >= ? ORDER BY e.session, seq",
-        (since.isoformat(),),
-    )
-    events, aligned = [], []
-    for attempt, group in groupby(found, lambda e: e[:2]):
-        group = list(group)
-        events += [e[:5] for e in group]
-        aligned += first_error_v1(*passage_and_mode[attempt], [Keydown(*e[3:]) for e in group])
-    columns = {"session": pl.Int64, "ord": pl.Int64, "seq": pl.Int64, "t": pl.Float64, "key": pl.String}
-    alignment = {
-        "cursor": pl.Int64, "position": pl.Int64, "status": pl.String, "first": pl.Boolean, "fix_ms": pl.Float64,
-    }  # fmt: skip
-    return (
-        pl.DataFrame(events, schema=columns, orient="row")
-        .hstack(pl.DataFrame(aligned, schema=alignment))
-        .with_columns(alignment=pl.lit(ALIGNMENT))
-        .sort("session", "seq")
-    )
+    found = [pl.DataFrame(schema=KEYDOWNS), *(r.keydowns for r in replayed(db, since).values())]
+    return pl.concat(found).with_columns(alignment=pl.lit(ALIGNMENT)).sort("session", "seq")
 
 
 def attempts(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataFrame:
@@ -157,47 +128,49 @@ def attempts(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataF
       characters do not count.
     - alignment: the alignment step that gave the accuracy.
     """
+    boards = keymaps(db)
+    found = replayed(db, since)
     rows = []
-    for session, ord, started, board, vil, vial, passage, text, finished, start, end in db.execute(
-        "SELECT a.session, a.ord, s.started, b.name, k.vil, b.vial, a.passage, p.text, a.finished,"
-        " min(e.t) FILTER (WHERE e.type = 'keydown'), coalesce(max(e.t) FILTER (WHERE e.type = 'keyup'), max(e.t))"
-        " FROM attempt a JOIN session s ON s.id = a.session JOIN passage p ON p.id = a.passage"
-        " LEFT JOIN keymap_version k ON k.hash = s.keymap_version LEFT JOIN board b ON b.id = k.board"
-        " LEFT JOIN key_event e ON (e.session, e.attempt) = (a.session, a.ord)"
-        " WHERE s.started >= ? GROUP BY a.session, a.ord",
+    for session, ord, started, version, passage, text, finished in db.execute(
+        "SELECT a.session, a.ord, s.started, s.keymap_version, a.passage, p.text, a.finished"
+        " FROM attempt a JOIN session s ON s.id = a.session JOIN passage p ON p.id = a.passage WHERE s.started >= ?",
         (since.isoformat(),),
     ):
+        r = found[session, ord]  # an Attempt is stored with its first key event
         wpm = None
         if finished:
             typed = len(text) - sum(len(indent_at(text, i + 1)) for i, c in enumerate(text) if c == "\n")
-            wpm = typed / 5 / ((end - start) / 60000)
+            wpm = typed / 5 / (r.wpm_ms / 60000)
         rows.append((
-            session, ord, datetime.fromisoformat(started), board, keymap_letters(vil, vial) if vil else None,
-            passage, bool(finished), wpm,
+            session, ord, datetime.fromisoformat(started), *boards.get(version, NO_BOARD)[:2], passage,
+            bool(finished), wpm, r.accuracy,
         ))  # fmt: skip
     schema = {
         "session": pl.Int64, "ord": pl.Int64, "started": pl.Datetime("us", "UTC"), "board": pl.String,
         "letter_layout": pl.String, "passage": pl.Int64, "finished": pl.Boolean, "wpm": pl.Float64,
+        "accuracy": pl.Float64,
     }  # fmt: skip
-    counted = pl.col("first") & pl.col("status").is_in(["correct", "error"])
-    accuracy = (
-        keydowns(db, since)
-        .group_by("session", "ord")
-        .agg(accuracy=(counted & (pl.col("status") == "correct")).sum() / counted.sum())
-        .with_columns(pl.col("accuracy").fill_nan(None))
-    )
     return (
-        pl.DataFrame(rows, schema=schema, orient="row")
-        .join(accuracy, on=["session", "ord"], how="left")
-        .with_columns(alignment=pl.lit(ALIGNMENT))
-        .sort("session", "ord")
+        pl.DataFrame(rows, schema=schema, orient="row").with_columns(alignment=pl.lit(ALIGNMENT)).sort("session", "ord")
     )
 
 
 MODIFIERS = {"Shift", "Control", "Alt", "Meta", "CapsLock"}  # the `key` of modifier keys
 MACRO_GAP_MS = 5  # a macro types its characters about 1 ms apart, faster than any finger
 KEY_SCHEMA = pl.Struct({"layer": pl.Int64, "key": pl.String, "kind": pl.String})
-NO_KEYMAP = Keymap({}, {}, {}, [])  # for Sessions from before Boards
+NO_BOARD = (None, None, Keymap({}, {}, {}, []))  # the Board, Letter layout and Keymap of Sessions from before Boards
+KEYDOWNS = {
+    "session": pl.Int64, "ord": pl.Int64, "seq": pl.Int64, "t": pl.Float64, "key": pl.String,
+    "cursor": pl.Int64, "position": pl.Int64, "status": pl.String, "first": pl.Boolean, "fix_ms": pl.Float64,
+}  # fmt: skip
+KEYSTROKES = {
+    "session": pl.Int64, "ord": pl.Int64, "seq": pl.Int64, "t": pl.Float64, "board": pl.String,
+    "letter_layout": pl.String, "position": pl.Int64, "char": pl.String, "typed": pl.String,
+    "status": pl.String, "event": pl.String, "layer": pl.Int64, "key": pl.String, "kind": pl.String,
+    "candidates": pl.List(KEY_SCHEMA), "dwell": pl.Float64, "flight": pl.Float64, "time": pl.Float64,
+    "first_time_correct": pl.Boolean, "fix_ms": pl.Float64,
+}  # fmt: skip
+REPLAYED = {name: schema for name, schema in KEYSTROKES.items() if name not in ("board", "letter_layout")}
 
 
 class Event(NamedTuple):
@@ -206,7 +179,82 @@ class Event(NamedTuple):
     type: str
     code: str
     key: str
+    ctrl: bool
+    meta: bool
     repeat: bool
+
+
+class Replay(NamedTuple):
+    """What replaying the key events of one Attempt gives."""
+
+    events: int  # its number of key events
+    keydowns: pl.DataFrame  # its rows of `keydowns`, with no alignment column
+    keystrokes: pl.DataFrame  # its rows of `keystrokes`, without board, letter_layout and alignment
+    wpm_ms: float  # the time that its WPM counts (see `attempts`)
+    accuracy: float | None  # its first-time accuracy (see `attempts`)
+
+
+# The Replay of each Attempt, by (database file, session, ord). An Attempt's Passage,
+# settings and Session (so its Keymap version) never change, but it can still get key
+# events: a late keyup, or a batch sent again. So it is replayed again when its number of
+# key events changes. Nothing is kept for an in-memory database.
+replay_cache: dict[tuple[str, int, int], Replay] = {}
+
+
+def keymaps(db: sqlite3.Connection) -> dict[str, tuple[str | None, str | None, Keymap]]:
+    """The Board name, Letter layout and Keymap of each Keymap version, by its hash."""
+    return {
+        version: (board, keymap_letters(vil, vial), read_keymap(vil))
+        for version, board, vil, vial in db.execute(
+            "SELECT k.hash, b.name, k.vil, b.vial FROM keymap_version k JOIN board b ON b.id = k.board"
+        )
+    }
+
+
+def replayed(db: sqlite3.Connection, since: datetime) -> dict[tuple[int, int], Replay]:
+    """The Replay of each Attempt in the Sessions started at `since` or later, by session and ord."""
+    file = db.execute("PRAGMA database_list").fetchone()[2]
+    kept = replay_cache if file else {}
+    counts = db.execute(
+        "SELECT e.session, attempt, count(*) FROM key_event e JOIN session s ON s.id = e.session"
+        " WHERE s.started >= ? GROUP BY e.session, attempt",
+        (since.isoformat(),),
+    ).fetchall()
+    known = keymaps(db)
+    for session, ord, n in counts:
+        if (file, session, ord) in kept and kept[file, session, ord].events == n:
+            continue
+        text, mode, version = db.execute(
+            "SELECT p.text, a.settings ->> '$.typing.wrong_key_mode', s.keymap_version FROM attempt a"
+            " JOIN passage p ON p.id = a.passage JOIN session s ON s.id = a.session WHERE (a.session, a.ord) = (?, ?)",
+            (session, ord),
+        ).fetchone()
+        # A keyup belongs to the Attempt of its keydown, so it can come after the next Attempt's first keydown.
+        events = db.execute(
+            "SELECT seq, t, type, code, key, ctrl, meta, repeat FROM key_event WHERE (session, attempt) = (?, ?)"
+            " ORDER BY seq",
+            (session, ord),
+        )
+        keymap = known.get(version, NO_BOARD)[2]
+        kept[file, session, ord] = replay(session, ord, text, mode, keymap, [Event(*e) for e in events])
+    return {(session, ord): kept[file, session, ord] for session, ord, _ in counts}
+
+
+def replay(session: int, ord: int, passage: str, mode: str | None, keymap: Keymap, events: list[Event]) -> Replay:
+    """Replays the key events of one Attempt, given in seq order."""
+    downs = [e for e in events if e.type == "keydown"]
+    aligned = first_error_v1(passage, mode, [Keydown(e.t, e.key, e.ctrl, e.meta) for e in downs])
+    attempt = {"session": session, "ord": ord}
+    rows = attempt_keystrokes(passage, keymap, events, dict(zip((e.seq for e in downs), aligned)))
+    counted = [a["status"] == "correct" for a in aligned if a["first"] and a["status"] in ("correct", "error")]
+    ups = [e.t for e in events if e.type == "keyup"]
+    return Replay(
+        len(events),
+        pl.DataFrame([attempt | e._asdict() | a for e, a in zip(downs, aligned)], schema=KEYDOWNS),
+        pl.DataFrame([attempt | r for r in rows], schema=REPLAYED),
+        max(ups or [e.t for e in events]) - min(e.t for e in downs) if downs else 0,
+        sum(counted) / len(counted) if counted else None,
+    )
 
 
 def keystrokes(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataFrame:
@@ -249,45 +297,22 @@ def keystrokes(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.Dat
       (True) or an Error (False). None for later keystrokes, off-track keys and misfires.
     - alignment: the alignment step that gave the positions.
     """
-    aligned: dict[int, dict[int, dict[str, Any]]] = {}  # the keydowns rows, by session and seq
-    for r in keydowns(db, since).iter_rows(named=True):
-        aligned.setdefault(r["session"], {})[r["seq"]] = r
-    found = db.execute(
-        "SELECT a.session, a.ord, p.text, b.name, k.vil, b.vial FROM attempt a JOIN passage p ON p.id = a.passage"
-        " JOIN session s ON s.id = a.session LEFT JOIN keymap_version k ON k.hash = s.keymap_version"
-        " LEFT JOIN board b ON b.id = k.board WHERE s.started >= ?",
-        (since.isoformat(),),
+    boards = keymaps(db)
+    sessions = pl.DataFrame(
+        [
+            (session, *boards.get(version, NO_BOARD)[:2])
+            for session, version in db.execute(
+                "SELECT id, keymap_version FROM session WHERE started >= ?", (since.isoformat(),)
+            )
+        ],
+        schema={"session": pl.Int64, "board": pl.String, "letter_layout": pl.String},
+        orient="row",
     )
-    attempt_info = {
-        (session, ord): (
-            text,
-            board,
-            keymap_letters(vil, vial) if vil else None,
-            read_keymap(vil) if vil else NO_KEYMAP,
-        )
-        for session, ord, text, board, vil, vial in found
-    }
-    # A keyup belongs to the Attempt of its keydown, so it can come after the next Attempt's first keydown.
-    events = db.execute(
-        "SELECT e.session, attempt, seq, t, type, code, key, repeat FROM key_event e JOIN session s ON s.id = e.session"
-        " WHERE s.started >= ? ORDER BY e.session, attempt, seq",
-        (since.isoformat(),),
-    )
-    rows = []
-    for (session, ord), group in groupby(events, lambda e: e[:2]):
-        passage, board, letters, keymap = attempt_info[session, ord]
-        group = [Event(seq, t, type, code, key, bool(repeat)) for _, _, seq, t, type, code, key, repeat in group]
-        for row in attempt_keystrokes(passage, keymap, group, aligned[session]):
-            rows.append({"session": session, "ord": ord, "board": board, "letter_layout": letters, **row})
-    schema = {
-        "session": pl.Int64, "ord": pl.Int64, "seq": pl.Int64, "t": pl.Float64, "board": pl.String,
-        "letter_layout": pl.String, "position": pl.Int64, "char": pl.String, "typed": pl.String,
-        "status": pl.String, "event": pl.String, "layer": pl.Int64, "key": pl.String, "kind": pl.String,
-        "candidates": pl.List(KEY_SCHEMA), "dwell": pl.Float64, "flight": pl.Float64, "time": pl.Float64,
-        "first_time_correct": pl.Boolean, "fix_ms": pl.Float64,
-    }  # fmt: skip
+    found = [pl.DataFrame(schema=REPLAYED), *(r.keystrokes for r in replayed(db, since).values())]
     return (
-        pl.DataFrame([{name: row[name] for name in schema} for row in rows], schema=schema)
+        pl.concat(found)
+        .join(sessions, on="session", how="left")
+        .select(list(KEYSTROKES))
         .with_columns(alignment=pl.lit(ALIGNMENT))
         .sort("session", "seq")
     )
@@ -297,8 +322,8 @@ def attempt_keystrokes(
     passage: str, keymap: Keymap, events: list[Event], aligned: dict[int, dict[str, Any]]
 ) -> list[dict[str, Any]]:
     """The rows of `keystrokes` for one Attempt, without its session, ord, board and Letter
-    layout. `events` are its key events in seq order; `aligned` holds the rows of `keydowns`
-    of its Session, by seq."""
+    layout. `events` are its key events in seq order; `aligned` holds its rows of
+    `first_error_v1`, by seq."""
 
     def candidates(char: str) -> list[Key]:
         return keymap.keys.get("\n" if char == "Enter" else char, [])

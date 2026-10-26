@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS key_event (
     repeat INTEGER NOT NULL,
     PRIMARY KEY (session, seq)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS key_event_attempt ON key_event (session, attempt);
 """
 
 # Written to the settings file when it is missing. Later tickets add their settings here.

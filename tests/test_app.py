@@ -607,6 +607,15 @@ def test_dwell_and_flight_come_from_finger_events_with_summed_time_around_tap_ho
     ]
 
 
+def test_an_attempt_is_replayed_again_when_more_of_its_key_events_come(client, db_path):
+    table = typed_keystrokes(client, db_path, "sweep", "ab", down(0, "a"), tap(200, "b"))
+    late_keyup = key_event(3) | up(150, "a")
+    client.post("/api/sessions/1/batch", json={"events": [late_keyup], "attempts": {0: CODE}})
+
+    assert table["dwell"].to_list() == [None, 80.0]
+    assert keystrokes(sqlite3.connect(db_path))["dwell"].to_list() == [150.0, 80.0]
+
+
 def drill(client, session):
     return client.post(f"/api/sessions/{session}/drills").json()
 
