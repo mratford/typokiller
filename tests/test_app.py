@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from typokiller.analysis import attempts, keystrokes
+from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, weakness
 from typokiller.app import create_app
 from typokiller.keymap import qmk_settings, read_keymap
 from typokiller.sources import ascii_v1, code_passages
@@ -29,7 +29,12 @@ def client(db_path, settings_path):
     return TestClient(create_app(db_path, settings_path))
 
 
-SETTINGS = {"typing": {"wrong_key_mode": "keep typing"}, "passages": {"max_dropped": 0.05, "min_length": 20}}
+WEAKNESS = {"model": "recent-cost-v1", "weeks": 4, "min_seen": 20}
+SETTINGS = {
+    "typing": {"wrong_key_mode": "keep typing"},
+    "passages": {"max_dropped": 0.05, "min_length": 20},
+    "weakness": WEAKNESS,
+}
 ATTEMPT = {"passage": 1, "settings": SETTINGS}  # the built-in Passage
 
 
@@ -111,14 +116,14 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_are
 
 
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
-    passages = "\n[passages]\nmax_dropped = 0.05\nmin_length = 20\n"
-    settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + passages)
+    rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
+    settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + rest)
 
     response = client.put("/api/settings", json={"typing": {"wrong_key_mode": "locked until fixed"}})
 
     assert response.status_code == 204
     assert settings_path.read_text() == (
-        '# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "locked until fixed"  # why\n' + passages
+        '# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "locked until fixed"  # why\n' + rest
     )
 
 
@@ -454,12 +459,32 @@ def test_the_summary_of_an_attempt_has_the_medians_of_this_keymaps_finished_atte
     typed_session(client, free_range, TYPE_CODE, finished=[0])
     one_error = ["a", "x", "Backspace", "b", "Enter", "c", "d"]  # in 6.1 s, 4 of 5 right first time
     session = typed_session(client, qwerty, ["a"], one_error, finished=[1])
+    client.put("/api/settings", json={"weakness": {"min_seen": 1}})
 
     summary = client.get(f"/api/sessions/{session}/attempts/1/summary").json()
 
+    # Of this Passage's pairs, only ab has a cost: the others follow the Enter combo or the c mod-tap.
+    assert summary.pop("slowest_pairs") == ["ab"]
     assert summary == pytest.approx(
         {"wpm": 60 / 6.1, "accuracy": 0.8, "median_wpm": (60 / 4.1 + 60 / 6.1) / 2, "median_accuracy": 0.9}
     )
+
+
+def test_the_weakness_ranking_has_the_cost_of_each_character_and_pair_on_one_keymap_in_the_window(client, db_path):
+    qwerty, free_range = sweep_versions(client, db_path)
+    typed_session(client, qwerty, TYPE_CODE, ["a", "x", "Backspace", "b"], finished=[0])  # the second is abandoned
+    old = typed_session(client, qwerty, TYPE_CODE, finished=[0])
+    with sqlite3.connect(db_path) as db:
+        db.execute(f"UPDATE session SET started = '2026-01-01T00:00:00+00:00' WHERE id = {old}")
+    typed_session(client, free_range, TYPE_CODE, finished=[0])
+
+    ranking = weakness(sqlite3.connect(db_path), "Sweep", "QWERTY", WEAKNESS | {"min_seen": 2})
+
+    # b took 1000 ms once, and was an Error once that took 2000 ms to fix; so was the pair ab.
+    # a was seen twice but never timed, as it starts each Attempt. The rest were seen once.
+    model = {"time": 1000.0, "error_rate": 0.5, "fix_ms": 2000.0, "seen": 2, "model": "recent-cost-v1"}
+    assert ranking.to_dicts() == [{"unit": "ab", "cost": 2000.0, **model}, {"unit": "b", "cost": 2000.0, **model}]
+    assert WEAKNESS_MODELS["recent-cost-v1"].scale == (150, 600, 400)
 
 
 def down(t, key, code=None, repeat=False):
@@ -562,17 +587,18 @@ def test_dwell_and_flight_come_from_finger_events_with_summed_time_around_tap_ho
         tap(2300, "g"),
     )  # fmt: skip
 
-    assert table.select("char", "kind", "dwell", "flight").rows() == [
-        ("a", "plain", 80.0, None),
-        ("b", "plain", 80.0, 120.0),
-        (" ", "layer-tap", None, 320.0),  # from b's keyup to e's keydown, for both pairs
-        ("e", "plain", 80.0, 320.0),
-        ("-", "plain", 80.0, 120.0),
-        ("d", "plain", None, 120.0),
-        ("-", "macro", None, None),
-        (">", "macro", None, None),
-        ("f", "plain", 550.0, None),  # its keyup came after the auto-repeat
-        ("f", "plain", None, None),  # auto-repeat
-        ("\n", "combo", None, None),
-        ("g", "plain", 80.0, None),
+    # time runs from keydown to keydown; across the layer-tap, the two pairs share it equally.
+    assert table.select("char", "kind", "dwell", "flight", "time").rows() == [
+        ("a", "plain", 80.0, None, None),
+        ("b", "plain", 80.0, 120.0, 200.0),
+        (" ", "layer-tap", None, 320.0, 200.0),  # from b's keyup to e's keydown, for both pairs
+        ("e", "plain", 80.0, 320.0, 200.0),
+        ("-", "plain", 80.0, 120.0, 200.0),
+        ("d", "plain", None, 120.0, 200.0),
+        ("-", "macro", None, None, None),
+        (">", "macro", None, None, None),
+        ("f", "plain", 550.0, None, None),  # its keyup came after the auto-repeat
+        ("f", "plain", None, None, None),  # auto-repeat
+        ("\n", "combo", None, None, None),
+        ("g", "plain", 80.0, None, None),
     ]

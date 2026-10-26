@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from typokiller.analysis import attempts
+from typokiller.analysis import attempts, weakness
 from typokiller.keymap import keymap_letters
 from typokiller.sources import (
     article_paragraphs,
@@ -101,6 +101,15 @@ wrong_key_mode = "keep typing"
 # characters.
 max_dropped = 0.05
 min_length = 20
+
+[weakness]
+# The Weakness model that ranks characters and pairs by cost. There is one so far:
+# "recent-cost-v1", where cost (ms) = median time + error rate × fix time.
+model = "recent-cost-v1"
+# recent-cost-v1 uses the last `weeks` weeks of typing, and leaves out characters and
+# pairs seen fewer than min_seen times. The Attempt summary medians use the same weeks.
+weeks = 4
+min_seen = 20
 """
 
 
@@ -355,11 +364,17 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             )
 
     # The page shows this on the message line after each finished Attempt. The medians are
-    # over the finished Attempts of the last 4 weeks on the same Board and Letter layout.
+    # over the finished Attempts on the same Board and Letter layout in the last `weeks` weeks
+    # (of the [weakness] settings). The slowest pairs are the 3 pairs of the Passage that the
+    # Weakness model in use ranks highest.
     @app.get("/api/sessions/{session}/attempts/{ord}/summary")
     async def attempt_summary(session: int, ord: int):
-        table = attempts(db, since=datetime.now(UTC) - timedelta(weeks=4))
+        settings = read_settings(settings_path)["weakness"].unwrap()
+        table = attempts(db, since=datetime.now(UTC) - timedelta(weeks=settings["weeks"]))
         attempt = table.filter(session=session, ord=ord).row(0, named=True)
+        (text,) = db.execute("SELECT text FROM passage WHERE id = ?", (attempt["passage"],)).fetchone()
+        pairs = {text[i : i + 2] for i in range(len(text) - 1)}
+        ranking = weakness(db, attempt["board"], attempt["letter_layout"], settings)
         same_keymap = table.filter(
             pl.col("finished"),
             pl.col("board").eq_missing(attempt["board"]),
@@ -370,6 +385,7 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             "accuracy": attempt["accuracy"],
             "median_wpm": same_keymap["wpm"].median(),
             "median_accuracy": same_keymap["accuracy"].median(),
+            "slowest_pairs": ranking.filter(pl.col("unit").is_in(pairs))["unit"].head(3).to_list(),
         }
 
     @app.get("/api/gutenberg")

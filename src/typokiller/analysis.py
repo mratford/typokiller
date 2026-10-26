@@ -5,7 +5,8 @@ Polars 2 does not keep the order of rows, so every table is sorted on explicit c
 """
 
 import sqlite3
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from itertools import groupby
 from typing import Any, NamedTuple
 
@@ -237,8 +238,12 @@ def keystrokes(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.Dat
     - flight: from the previous keystroke's keyup to this keydown, when only modifier keys
       came between them. Around a run of mod-tap or layer-tap keys, every pair gets the
       time from the keyup before the run to the keydown after it.
-      Dwell and flight are None for keys that are not finger presses: macros, combo outputs,
-      auto-repeat, misfires and off-track keys. Shift from Caps Word or from a shifted
+    - time: from the previous keystroke's keydown to this keydown, under the same rules as
+      flight, but a lost keyup does not matter. Around a run of mod-tap or layer-tap keys,
+      whose keydowns come at their release, every pair gets an equal share of the time from the keydown
+      before the run to the keydown after it.
+      Dwell, flight and time are None for keys that are not finger presses: macros, combo
+      outputs, auto-repeat, misfires and off-track keys. Shift from Caps Word or from a shifted
       keycode is a modifier key, so it does not count either.
     - first_time_correct: for the first keystroke at a position, whether it was correct
       (True) or an Error (False). None for later keystrokes, off-track keys and misfires.
@@ -278,7 +283,7 @@ def keystrokes(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.Dat
         "session": pl.Int64, "ord": pl.Int64, "seq": pl.Int64, "t": pl.Float64, "board": pl.String,
         "letter_layout": pl.String, "position": pl.Int64, "char": pl.String, "typed": pl.String,
         "status": pl.String, "event": pl.String, "layer": pl.Int64, "key": pl.String, "kind": pl.String,
-        "candidates": pl.List(KEY_SCHEMA), "dwell": pl.Float64, "flight": pl.Float64,
+        "candidates": pl.List(KEY_SCHEMA), "dwell": pl.Float64, "flight": pl.Float64, "time": pl.Float64,
         "first_time_correct": pl.Boolean, "fix_ms": pl.Float64,
     }  # fmt: skip
     return (
@@ -378,8 +383,79 @@ def attempt_keystrokes(
             start -= 1
         while rows[end]["tap_hold"] and linked(end + 1):
             end += 1
-        if linked(i) and not (rows[start]["tap_hold"] or rows[end]["tap_hold"]) and rows[start]["seq"] in up_at:
-            r["flight"] = rows[end]["t"] - up_at[rows[start]["seq"]]
-        else:
-            r["flight"] = None
+        r["flight"] = r["time"] = None
+        if linked(i) and not (rows[start]["tap_hold"] or rows[end]["tap_hold"]):
+            r["time"] = (rows[end]["t"] - rows[start]["t"]) / (end - start)
+            if rows[start]["seq"] in up_at:
+                r["flight"] = rows[end]["t"] - up_at[rows[start]["seq"]]
     return rows
+
+
+class WeaknessModel(NamedTuple):
+    # (db, board, letter_layout, the [weakness] settings) -> one row per character and pair
+    # with at least the columns unit, cost and seen
+    rank: Callable[[sqlite3.Connection, str | None, str | None, dict[str, Any]], pl.DataFrame]
+    scale: tuple[float, float, float]  # the fixed colour scale of Keymap drawings: low, high and tick costs in ms
+
+
+def recent_cost_v1(
+    db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
+) -> pl.DataFrame:
+    """The cost of each character and pair typed on the Board with the Letter layout in
+    the Sessions of the last settings["weeks"] weeks, abandoned Attempts too. Characters and
+    pairs seen fewer than settings["min_seen"] times, or never timed, are left out.
+
+    - unit: the Passage's character, or the pair of it and the character before it. The pair
+      is counted only when the keystroke before was correct.
+    - time: the median `time` of the unit's correct keystrokes.
+    - error_rate: the share of Errors among its first keystrokes at a position.
+    - fix_ms: the median fix time of its Errors.
+    - cost (ms) = time + error_rate × fix_ms.
+    - seen: its number of first keystrokes at a position.
+    Misfires and off-track keys do not count.
+    """
+    since = datetime.now(UTC) - timedelta(weeks=settings["weeks"])
+
+    def before(column: str) -> pl.Expr:
+        """The column's value in the keystroke before, in the same Attempt."""
+        return pl.col(column).shift().over("session", "ord", order_by="seq")
+
+    return (
+        keystrokes(db, since)
+        .filter(pl.col("board").eq_missing(board), pl.col("letter_layout").eq_missing(letter_layout))
+        .with_columns(pair=pl.when(before("status") == "correct").then(before("char") + pl.col("char")))
+        .filter(pl.col("event") == "typed", pl.col("status").is_in(["correct", "error"]))
+        .with_columns(unit=pl.concat_list("char", "pair"))
+        .explode("unit")
+        .drop_nulls("unit")
+        .group_by("unit")
+        .agg(
+            time=pl.col("time").filter(pl.col("status") == "correct").median(),
+            error_rate=pl.col("first_time_correct").not_().mean(),
+            fix_ms=pl.col("fix_ms").median(),
+            seen=pl.col("first_time_correct").count(),
+        )
+        .filter(pl.col("seen") >= settings["min_seen"])
+        .drop_nulls("time")
+        .with_columns(cost=pl.col("time") + pl.col("error_rate") * pl.col("fix_ms").fill_null(0))
+    )
+
+
+# The Weakness models, by name (spec §12). The settings file names the one in use.
+WEAKNESS_MODELS = {"recent-cost-v1": WeaknessModel(recent_cost_v1, (150, 600, 400))}
+
+
+def weakness(
+    db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
+) -> pl.DataFrame:
+    """The ranking of the characters and pairs typed on the Board with the Letter layout,
+    by the Weakness model named settings["model"]. `settings` is the [weakness] table of the
+    settings file. Columns: unit, cost (ms), seen, the model's own columns, and model (its
+    name). Sorted on cost, the highest first, then on unit."""
+    name = settings["model"]
+    return (
+        WEAKNESS_MODELS[name]
+        .rank(db, board, letter_layout, settings)
+        .with_columns(model=pl.lit(name))
+        .sort(["cost", "unit"], descending=[True, False])
+    )

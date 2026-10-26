@@ -339,6 +339,8 @@ addEventListener('keyup', e => {
 });
 
 const percent = x => `${Math.round(x * 100)}%`;
+// Typed characters as the page shows them outside the Passage text: a space as ·, a newline as ↵.
+const showChars = text => text.replaceAll(' ', '·').replaceAll('\n', '↵');
 
 // Shows a finished Attempt's summary on the message line, after its last keyup, so that
 // the server has all its key events. Typing the next Passage goes on meanwhile.
@@ -348,7 +350,8 @@ async function showSummary() {
   await flush();
   const s = await getJSON(`/api/sessions/${session}/attempts/${attempt}/summary`);
   summary = `✓ ${Math.round(s.wpm)} wpm (median ${Math.round(s.median_wpm)})`
-    + ` · ${percent(s.accuracy)} first time (median ${percent(s.median_accuracy)})`;
+    + ` · ${percent(s.accuracy)} first time (median ${percent(s.median_accuracy)})`
+    + (s.slowest_pairs.length ? ` · slowest pairs: ${s.slowest_pairs.map(showChars).join(' ')}` : '');
   render();
 }
 
@@ -386,7 +389,7 @@ function passageHTML() {
     let cls = '', shown = newline ? ' ' : text[j];
     if (j === typed.length) cls = 'cur';
     else if (j < typed.length && typed[j] === text[j]) cls = 'ok';
-    else if (j < typed.length) { cls = 'bad'; shown = typed[j] === ' ' ? '·' : typed[j]; }
+    else if (j < typed.length) { cls = 'bad'; shown = showChars(typed[j]); }
     h += `<span class="${cls}">${esc(shown)}</span>${newline ? '\n' : ''}`;
   }
   return `<div class="p">${h}</div>${nextPassage ? `<div class="p next">${esc(nextPassage.text)}</div>` : ''}`;
