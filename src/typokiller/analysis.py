@@ -7,11 +7,15 @@ Polars 2 does not keep the order of rows, so every table is sorted on explicit c
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import polars as pl
 
+from typokiller.drawing import Heat
 from typokiller.keymap import Key, Keymap, keymap_letters, read_keymap
+
+if TYPE_CHECKING:
+    import altair as alt
 
 # The name of the alignment step (spec §12), given in the tables made with it.
 ALIGNMENT = "first-error-v1"
@@ -492,3 +496,85 @@ def weakness(
         .with_columns(model=pl.lit(name))
         .sort(["cost", "unit"], descending=[True, False])
     )
+
+
+def seen_counts(db: sqlite3.Connection, board: str | None, letter_layout: str | None, since: datetime) -> pl.DataFrame:
+    """How many times each character and pair was seen on the Board with the Letter layout
+    in the Sessions started at `since` or later: its number of first keystrokes at a
+    position, as `recent_cost_v1` counts it. Columns: unit, seen. Sorted on unit."""
+    return (
+        units(db, board, letter_layout, since)
+        .group_by("unit")
+        .agg(seen=pl.col("first_time_correct").count())
+        .sort("unit")
+    )
+
+
+TREND_WEEKS = 13  # the progress page's trend covers about 3 months
+
+
+class Progress(NamedTuple):
+    """What the progress page shows for one Board and Letter layout (spec §11)."""
+
+    trend: pl.DataFrame
+    chars: pl.DataFrame
+    pairs: pl.DataFrame
+    heat: Heat
+
+
+def progress(
+    db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
+) -> Progress:
+    """What the progress page shows for the Board with the Letter layout. `settings` is the
+    [weakness] table of the settings file.
+
+    - trend: one row per day with a finished Attempt in the last TREND_WEEKS weeks. day:
+      the date of the Attempt's Session start, in this computer's time zone. wpm, accuracy: the medians over that
+      day's finished Attempts. attempts: their number. Sorted on day.
+    - chars, pairs: the 10 weakest characters and the 10 weakest pairs, with the columns
+      of `weakness`.
+    - heat: the costs of the Weakness ranking, the seen counts of every unit in the
+      model's weeks, and the model's colour scale.
+    """
+    now = datetime.now(UTC)
+    finished = attempts(db, now - timedelta(weeks=TREND_WEEKS)).filter(
+        pl.col("finished"), pl.col("board").eq_missing(board), pl.col("letter_layout").eq_missing(letter_layout)
+    )
+    trend = (
+        finished.with_columns(day=pl.Series([d.astimezone().date() for d in finished["started"]], dtype=pl.Date))
+        .group_by("day")
+        .agg(pl.col("wpm").median(), pl.col("accuracy").median(), attempts=pl.len())
+        .sort("day")
+    )
+    ranking = weakness(db, board, letter_layout, settings)
+    seen = seen_counts(db, board, letter_layout, now - timedelta(weeks=settings["weeks"]))
+    length = pl.col("unit").str.len_chars()
+    return Progress(
+        trend,
+        ranking.filter(length == 1).head(10),
+        ranking.filter(length == 2).head(10),
+        Heat(
+            dict(zip(ranking["unit"], ranking["cost"])),
+            dict(zip(seen["unit"], seen["seen"])),
+            WEAKNESS_MODELS[settings["model"]].scale,
+        ),
+    )
+
+
+def trend_chart(trend: pl.DataFrame) -> alt.HConcatChart:
+    """The progress page's chart of a `progress` trend, one point per day: WPM, and first-time
+    accuracy beside it. The server sends it as a Vega-Lite spec; a notebook shows it as it is."""
+    import altair as alt  # here, as it takes about 0.2 s to import and only this chart needs it
+
+    base = (
+        alt.Chart(trend)
+        .mark_line(point=True)
+        .encode(x=alt.X("day:T", title=None))
+        .properties(width=360, height=140)
+    )
+    return alt.hconcat(
+        base.encode(y=alt.Y("wpm:Q", title="WPM", scale=alt.Scale(zero=False))),
+        base.encode(
+            y=alt.Y("accuracy:Q", title="first-time accuracy", scale=alt.Scale(zero=False), axis=alt.Axis(format="%"))
+        ),
+    ).configure(background="transparent")

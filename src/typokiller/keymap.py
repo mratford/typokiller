@@ -131,11 +131,7 @@ def read_keymap(vil_text: str) -> Keymap:
     vil = json.loads(vil_text)
     found: list[tuple[bool, str, Key]] = []  # (with Shift, character, key)
     macros, holds, combos = {}, {}, []
-    overrides = {
-        ko["trigger"]: key_char(ko["replacement"])
-        for ko in vil.get("key_override", [])
-        if ko["options"] & 0x80 and ko["trigger_mods"] & SHIFT_MODS  # enabled, and triggered by Shift
-    }
+    overrides = shift_overrides(vil)
     for layer, rows in enumerate(vil["layout"]):
         for r, row in enumerate(rows):
             for c, keycode in enumerate(row):
@@ -166,6 +162,16 @@ def read_keymap(vil_text: str) -> Keymap:
     for _, char, key in sorted(found, key=lambda f: (f[0], f[2].layer)):
         keys.setdefault(char, []).append(key)
     return Keymap(keys, macros, holds, combos)
+
+
+def shift_overrides(vil: dict[str, Any]) -> dict[str, str | None]:
+    """The character that each keycode types with Shift held, by an enabled key override
+    triggered by Shift, such as Shift + _ typing -."""
+    return {
+        ko["trigger"]: key_char(ko["replacement"])
+        for ko in vil.get("key_override", [])
+        if ko["options"] & 0x80 and ko["trigger_mods"] & SHIFT_MODS  # enabled, and triggered by Shift
+    }
 
 
 def combo_keys(vil: dict[str, Any]) -> list[tuple[list[str], str, list[tuple[int, int]], str]]:

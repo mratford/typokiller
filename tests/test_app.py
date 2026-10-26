@@ -1,17 +1,19 @@
 import hashlib
 import json
+import re
 import sqlite3
 import subprocess
 import time
 import xml.etree.ElementTree as ET
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, weakness
+from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, progress, weakness
 from typokiller.app import create_app
-from typokiller.drawing import draw_keymap
+from typokiller.drawing import Heat, draw_keymap
 from typokiller.drills import WORDS
 from typokiller.keymap import qmk_settings, read_keymap
 from typokiller.sources import ascii_v1, code_passages
@@ -178,12 +180,12 @@ def test_each_character_has_its_candidate_keys_from_the_keymap_best_first():
     assert keys_for(sweep, "\n") == [(0, "5,1+5,3", "combo"), (2, "7,1", "plain")]
 
 
-def drawing(vil, vial, layer, names=(), change=lambda vil: None):
+def drawing(vil, vial, layer, names=(), change=lambda vil: None, heat=None, pairs=()):
     """The Keymap drawing of a .vil from sweep-layouts as an XML tree. `change` may edit the .vil first."""
     data = json.loads((SWEEP_LAYOUTS / "vil" / vil).read_text())
     change(data)
     vial_text = (SWEEP_LAYOUTS / "boards" / vial / "vial.json").read_text() if vial else None
-    return ET.fromstring(draw_keymap(json.dumps(data), vial_text, layer, names))
+    return ET.fromstring(draw_keymap(json.dumps(data), vial_text, layer, names, heat, pairs))
 
 
 def drawn(svg, key):
@@ -793,3 +795,100 @@ def test_a_drill_targets_the_weakest_units_and_the_most_common_under_measured_on
         ("ab", "weak"), ("c", "under-measured"), (" ", "under-measured")
     ]
     assert made["text"] == " ".join(["abcc"] * 5)
+
+
+def test_the_trend_has_the_medians_of_each_days_finished_attempts_on_one_keymap_in_the_last_13_weeks(
+    client, db_path
+):
+    qwerty, free_range = sweep_versions(client, db_path)
+    one_error = ["a", "x", "Backspace", "b", "Enter", "c", "d"]  # in 6.1 s, 4 of 5 right first time
+    typed_session(client, qwerty, TYPE_CODE, one_error, ["a"], finished=[0, 1])  # the third is abandoned
+    days_ago = typed_session(client, qwerty, TYPE_CODE, finished=[0])
+    too_old = typed_session(client, qwerty, TYPE_CODE, finished=[0])
+    typed_session(client, free_range, TYPE_CODE, finished=[0])
+    today = datetime.now(UTC)
+    with sqlite3.connect(db_path) as db:
+        for session, weeks in [(days_ago, 2), (too_old, 14)]:
+            started = (today - timedelta(weeks=weeks)).isoformat()
+            db.execute("UPDATE session SET started = ? WHERE id = ?", (started, session))
+
+    trend = progress(sqlite3.connect(db_path), "Sweep", "QWERTY", WEAKNESS).trend
+
+    assert trend.rows() == pytest.approx([
+        ((today - timedelta(weeks=2)).astimezone().date(), 60 / 4.1, 1.0, 1),
+        (today.astimezone().date(), (60 / 4.1 + 60 / 6.1) / 2, 0.9, 2),
+    ])  # fmt: skip
+
+
+HEAT = Heat(
+    costs={"E": 600.0, "e": 150.0, " ": 200.0, "ab": 400.0},
+    seen={"E": 25, "e": 40, " ": 50, "z": 3, "ab": 30},
+    scale=(150, 600, 400),
+)
+
+
+def fills(svg, key):
+    """The fill of each half of a key in a heat drawing: the top half first, if it is split."""
+    found = svg.find(f".//*[@id='k{key}']")
+    return [e.get("style") for e in found if e.get("class") == "half"]
+
+
+def test_a_heat_drawing_splits_each_key_with_the_shifted_cost_on_top_and_greys_non_characters():
+    base = drawing("ferris_sweep_qwerty.vil", "sweep", 0, NAMES, heat=HEAT)
+
+    assert drawn(base, "0,2") == ("key", ["E", "600", "e", "150"])
+    # The fixed colour scale: its low end is the palest colour, its high end the darkest.
+    assert fills(base, "0,2") == ["fill:#6e2130", "fill:#fbf1d3"]
+    # Halves seen too few times for the Weakness model to rank are hatched, with their count.
+    assert drawn(base, "2,0") == ("key", ["Z", "n=0", "z", "n=3"])
+    assert fills(base, "2,0") == ["fill:url(#hatch)", "fill:url(#hatch)"]
+    assert drawn(base, "7,0") == ("key", ["Space", "200"])  # no Shifted character, so not split
+    assert drawn(base, "5,4") == ("key", ["-", "n=0", "_", "n=0"])  # Shift + _ types - by a key override
+    assert drawn(base, "3,1") == ("key grey", ["Nav"])
+    assert drawn(base, "3,0") == ("key grey", ["Esc", "Num"])
+    assert drawn(base, "5,1+5,3") == ("combo grey", ["⏎"])
+    assert list(next(e for e in base.iter() if e.get("class") == "scale").itertext())[:3] == ["150", "400", "600 ms"]
+
+    sym = drawing("ferris_sweep_qwerty.vil", "sweep", 1, NAMES, heat=HEAT)
+
+    assert drawn(sym, "2,0") == ("key grey", ["|>"])  # a macro
+    assert drawn(sym, "7,0") == ("key held", ["held"])
+
+
+def centre(svg, key):
+    """The centre of a key's rectangle, for a key that is not rotated."""
+    x, y, _ = rect(svg, key)
+    box = next(svg.find(f".//*[@id='k{key}']").iter("{http://www.w3.org/2000/svg}rect"))
+    return x + float(box.get("width")) / 2, y + float(box.get("height")) / 2
+
+
+def test_each_pair_is_an_arc_from_its_first_characters_key_to_its_seconds_on_any_layer():
+    base = drawing("ferris_sweep_qwerty.vil", "sweep", 0, NAMES, pairs=["e(", "ee"])
+
+    arcs = base.findall(".//*[@class='arc']")
+    assert [a.get("data-pair") for a in arcs] == ["e(", "ee"]
+    # ( is on Sym, so the arc ends where its key is, the k key on the base layer.
+    x, y, _, _, x_end, y_end = [float(v) for v in re.findall(r"-?[\d.]+", arcs[0][0].get("d") or "")]
+    (x1, y1), (x2, y2) = centre(base, "0,2"), centre(base, "5,2")
+    assert (x, y, x_end, y_end) == pytest.approx((x1, y1 - 0.25, x2, y2 - 0.25))
+
+
+def test_the_progress_page_has_the_trend_chart_the_heat_drawing_and_the_weakest_characters_and_pairs(
+    client, db_path
+):
+    qwerty, _ = sweep_versions(client, db_path)
+    typed_session(client, qwerty, TYPE_CODE, ["a", "x", "Backspace", "b"], finished=[0])
+    client.put("/api/settings", json={"weakness": {"min_seen": 2}})
+
+    page = client.get(f"/api/keymaps/{qwerty}/progress").json()
+
+    (trend,) = page["trend"]["datasets"].values()
+    assert [day["wpm"] for day in trend] == [60 / 4.1]
+    assert page["names"] == ["L0", "Space", "L2", "Tab", "Esc"]  # no layer names in the settings
+    # b and ab cost 2000 ms and were seen twice; no other unit was seen twice and timed.
+    assert page["chars"] == [{"unit": "b", "cost": 2000.0, "seen": 2}]
+    assert page["pairs"] == [{"unit": "ab", "cost": 2000.0, "seen": 2}]
+    layers = [ET.fromstring(svg) for svg in page["layers"]]
+    assert len(layers) == 5
+    assert drawn(layers[0], "2,4") == ("key", ["B", "n=0", "b", "2000"])
+    assert [a.get("data-pair") for a in layers[0].findall(".//*[@class='arc']")] == ["ab"]

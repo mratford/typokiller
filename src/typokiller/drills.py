@@ -12,7 +12,7 @@ from typing import Any, NamedTuple
 
 import polars as pl
 
-from typokiller.analysis import units, weakness
+from typokiller.analysis import seen_counts, weakness
 
 # Common English words. They join the pool while the Sources give fewer than SMALL_POOL
 # different words, so the first Drills have enough words to choose from.
@@ -103,12 +103,8 @@ def density_v1(
     words = pool(db, unlocked)
     counts = unit_counts(words)
     since = datetime.now(UTC) - timedelta(weeks=settings["weakness"]["weeks"])
-    seen = dict(
-        units(db, board, letter_layout, since)
-        .group_by("unit")
-        .agg(seen=pl.col("first_time_correct").count())
-        .iter_rows()
-    )
+    counted = seen_counts(db, board, letter_layout, since)
+    seen = dict(zip(counted["unit"], counted["seen"]))
     ranked = weakness(db, board, letter_layout, settings["weakness"]).filter(pl.col("unit").is_in(list(counts)))
     cost = dict(zip(ranked["unit"], ranked["cost"]))
     weak = [{"unit": u, "reason": "weak", "cost": cost[u], "seen": seen[u]} for u in ranked["unit"]]

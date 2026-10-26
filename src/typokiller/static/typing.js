@@ -1,3 +1,8 @@
+// Text for innerHTML, with &, < and > escaped.
+export const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Typed characters as the page shows them outside the Passage text: a space as ·, a newline as ↵.
+export const showChars = text => text.replaceAll(' ', '·').replaceAll('\n', '↵');
+
 // The spaces at the start of the line that begins at position i of the Passage.
 const indentAt = (passage, i) => passage.slice(i).match(/^ */)[0];
 

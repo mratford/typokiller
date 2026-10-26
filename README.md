@@ -22,4 +22,6 @@ Press `m` in the Escape menu to draw the Board's Keymap faintly under the Passag
 layers = ["Base", "Sym", "Nav", "Stack", "Num"]
 ```
 
+Press `p` in the Escape menu for the progress page of the Session's Board and Letter layout. `h` and `l` show the previous and next Board × Letter layout, a number shows that layer of the Keymap, and `j`/`k` select one of the weakest pairs, which is drawn as an arc. Esc goes back. The page loads `vega-embed` from cdn.jsdelivr.net to draw the trend chart, so the chart needs the internet; the rest of the page does not.
+
 The server tests read real `.vil` and `vial.json` files from the `sweep-layouts` repo, which must be in the same folder as this repo.

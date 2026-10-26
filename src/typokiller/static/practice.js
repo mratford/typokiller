@@ -1,4 +1,5 @@
-import { applyKey } from './typing.js';
+import { applyKey, esc, showChars } from './typing.js';
+import { openProgress, progressKey } from './progress.js';
 
 // Each menu item is [key, label, what choosing it does].
 const MENU = [
@@ -14,6 +15,7 @@ const MENU = [
     ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
   ['Session', [
+    ['p', 'progress page', () => { screen = 'progress'; openProgress(board.name, keymap.letter_layout); }],
     ['b', 'change Board', () => showBoards()],
     ['q', 'end Session', () => { screen = 'ended'; }],
     [',', 'settings', openSettings],
@@ -39,10 +41,10 @@ let sources = []; // from the server, unfinished first, the last opened first
 let query = ''; // typed into the open text field of the import panel
 let results = []; // the Gutenberg search results
 let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings', 'sources', 'import',
-                       // a key of FIELDS, 'results', 'article' or 'ended'
+                       // a key of FIELDS, 'results', 'article', 'progress' or 'ended'
 let boards = []; // from the server, each with its Keymaps, last used first
 let board = null; // the Board chosen on the start screen
-let boardLabel = ''; // the status line's "Board · Letter layout"
+let keymap = null; // the Session's Keymap, as the Board list gives it: { letter_layout, version, used }
 let drawing = { layers: [], keys: {} }; // the Session's Keymap: an SVG drawing of each layer, and
                                         // the key to press for each character, as { layer, key }
 let draft = {}; // the name and .vil of a Board being added
@@ -197,19 +199,19 @@ async function showBoards(id) {
 
 // A new Session starts again from seq 0 and Attempt 0. The old Session's events
 // are sent first; any that fail to send are lost.
-async function startSession(keymap) {
+async function startSession(chosen) {
   await flush();
   events = [];
   finished = [];
   const settings = await getSettings();
-  const started = await sendJSON('/api/sessions', { keymap_version: keymap.version });
+  const started = await sendJSON('/api/sessions', { keymap_version: chosen.version });
   session = started.session;
   drawing = await getJSON(`/api/sessions/${session}/keymap`);
   show(started);
   const resumed = resume();
   if (resumed) await openSource(resumed.id, resumed.at);
   attempts = [{ passage: passage.id, settings }];
-  boardLabel = `${board.name} · ${keymap.letter_layout}`;
+  keymap = chosen;
   seq = 0;
   ord = 0;
   typed = '';
@@ -349,6 +351,7 @@ async function menuKey(e) {
   }
   else if (FIELDS[screen]) { if (e.key === 'Enter') FIELDS[screen].enter(); else query = edit(query, e); }
   else if (screen === 'results') listKey(e, results, importBook);
+  else if (screen === 'progress') progressKey(e);
   else if (screen === 'menu' && !moveSel(e, ITEMS.length)) {
     await (e.key === 'Enter' ? ITEMS[sel] : ITEMS.find(([k]) => k === e.key))?.[2]();
   }
@@ -392,8 +395,6 @@ addEventListener('keyup', e => {
 });
 
 const percent = x => `${Math.round(x * 100)}%`;
-// Typed characters as the page shows them outside the Passage text: a space as ·, a newline as ↵.
-const showChars = text => text.replaceAll(' ', '·').replaceAll('\n', '↵');
 
 // Shows a finished Attempt's summary on the message line, after its last keyup, so that
 // the server has all its key events. Typing the next Passage goes on meanwhile.
@@ -430,7 +431,6 @@ addEventListener('pagehide', () => flush(true));
 checkNotices();
 setInterval(() => { flush(); checkNotices(); }, 1000);
 
-const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const label = k => (k === 'Escape' ? 'Esc' : k);
 
 function passageHTML() {
@@ -563,10 +563,13 @@ const drillLabel = () => (drill.endless ? 'Endless Drills' : 'Drill')
 function render() {
   const starting = START.includes(screen);
   const mode = starting ? 'start' : { typing: drill ? 'drill' : 'typing', ended: 'ended' }[screen] ?? 'paused';
+  // The progress page draws itself in its own element, so that its chart is not drawn again on each render.
+  document.getElementById('app').hidden = screen === 'progress';
+  document.getElementById('progress').hidden = screen !== 'progress';
   document.getElementById('app').innerHTML = `
     <main>${screen === 'ended' ? '<p>Session ended. Reload the page to start a new Session.</p>' : starting ? startHTML() : passageHTML()}</main>
     ${keymapHTML()}${PANELS[screen]?.() ?? ''}
-    <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(boardLabel)}</span>
+    <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(`${board.name} · ${keymap.letter_layout}`)}</span>
       <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'built-in Passage')}</span>
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;

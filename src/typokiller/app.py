@@ -23,8 +23,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from typokiller.analysis import attempts, weakness
-from typokiller.drawing import draw_keymap, drawn_layers
+from typokiller.analysis import TREND_WEEKS, attempts, progress, trend_chart, weakness
+from typokiller.drawing import draw_keymap, drawn_layers, layer_name
 from typokiller.drills import DRILL_GENERATORS
 from typokiller.keymap import keymap_letters, read_keymap
 from typokiller.sources import (
@@ -429,15 +429,24 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             "slowest_pairs": ranking.filter(pl.col("unit").is_in(pairs))["unit"].head(3).to_list(),
         }
 
-    def session_keymap(session: int) -> tuple[str | None, str | None, str | None, str | None]:
-        """The Board name, the Letter layout, the .vil and the vial.json of a Session's Keymap.
-        All are None for a Session from before Boards."""
-        board, vil, vial = db.execute(
-            "SELECT b.name, k.vil, b.vial FROM session s LEFT JOIN keymap_version k ON k.hash = s.keymap_version"
-            " LEFT JOIN board b ON b.id = k.board WHERE s.id = ?",
-            (session,),
+    def version_keymap(version: str | None) -> tuple[str | None, str | None, str | None, str | None]:
+        """The Board name, the Letter layout, the .vil and the vial.json of a Keymap version.
+        All are None for a version that is not stored, as for Sessions from before Boards."""
+        found = db.execute(
+            "SELECT b.name, k.vil, b.vial FROM keymap_version k JOIN board b ON b.id = k.board WHERE k.hash = ?",
+            (version,),
         ).fetchone()
+        board, vil, vial = found or (None, None, None)
         return board, keymap_letters(vil, vial) if vil else None, vil, vial
+
+    def session_keymap(session: int) -> tuple[str | None, str | None, str | None, str | None]:
+        """`version_keymap` of a Session's Keymap version."""
+        (version,) = db.execute("SELECT keymap_version FROM session WHERE id = ?", (session,)).fetchone()
+        return version_keymap(version)
+
+    def layer_names(settings: dict, board: str | None, letters: str | None) -> list[str]:
+        """The layer names of a Keymap in the [keymaps] settings."""
+        return settings["keymaps"].get(board, {}).get(letters, {}).get("layers", [])
 
     # Makes a Drill for the Session's Board and Letter layout, with the generator that the
     # settings name, and stores it as a Passage with no Source.
@@ -468,10 +477,34 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         board, letters, vil, vial = session_keymap(session)
         if not vil:
             return {"layers": [], "keys": {}}
-        names = read_settings(settings_path)["keymaps"].unwrap().get(board, {}).get(letters, {}).get("layers", [])
+        names = layer_names(read_settings(settings_path).unwrap(), board, letters)
         return {
             "layers": [draw_keymap(vil, vial, layer, names) for layer in range(drawn_layers(vil))],
             "keys": {char: {"layer": keys[0].layer, "key": keys[0].key} for char, keys in read_keymap(vil).keys.items()},
+        }
+
+    # The progress page of the Board and Letter layout of a Keymap version (spec §11): the
+    # trend chart as a Vega-Lite spec, with its number of days and weeks; the name and heat
+    # drawing of each layer, with an arc for each of the weakest pairs; and the 10 weakest
+    # characters and pairs. The page lists the Keymaps from GET /api/boards, which gives
+    # the newest version of each.
+    @app.get("/api/keymaps/{version}/progress")
+    async def progress_page(version: str):
+        board, letters, vil, vial = version_keymap(version)
+        assert vil  # the page asks only for versions that GET /api/boards lists
+        settings = read_settings(settings_path).unwrap()
+        found = progress(db, board, letters, settings["weakness"])
+        names = layer_names(settings, board, letters)
+        layers = range(drawn_layers(vil))
+        weakest = ["unit", "cost", "seen"]
+        return {
+            "weeks": TREND_WEEKS,
+            "days": found.trend.height,
+            "trend": trend_chart(found.trend).to_dict(),
+            "names": [layer_name(json.loads(vil), layer, names) for layer in layers],
+            "layers": [draw_keymap(vil, vial, layer, names, found.heat, found.pairs["unit"].to_list()) for layer in layers],
+            "chars": found.chars.select(weakest).to_dicts(),
+            "pairs": found.pairs.select(weakest).to_dicts(),
         }
 
     @app.get("/api/gutenberg")
