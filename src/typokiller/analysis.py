@@ -4,6 +4,7 @@ marimo notebooks (a later ticket) are to use it too, so both compute the same nu
 Polars 2 does not keep the order of rows, so every table is sorted on explicit columns.
 """
 
+import math
 import sqlite3
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -421,9 +422,11 @@ def attempt_keystrokes(
 
 
 class WeaknessModel(NamedTuple):
-    # (db, board, letter_layout, the [weakness] settings) -> one row per character and pair
-    # with at least the columns unit, cost and seen
-    rank: Callable[[sqlite3.Connection, str | None, str | None, dict[str, Any]], pl.DataFrame]
+    # (rows of `units`, the [weakness] settings) -> one row per character and pair of those
+    # rows, with at least the columns unit, cost and seen. The caller picks the rows:
+    # `weakness` gives the last `weeks` weeks on one Board with one Letter layout, and the
+    # unlock rule gives each character's last keystrokes on every Board with a Letter layout.
+    rank: Callable[[pl.DataFrame, dict[str, Any]], pl.DataFrame]
     scale: tuple[float, float, float]  # the fixed colour scale of Keymap drawings: low, high and tick costs in ms
 
 
@@ -433,6 +436,12 @@ def units(db: sqlite3.Connection, board: str | None, letter_layout: str | None, 
     pair of the character before and this one when the keystroke before was correct.
     The columns of `keystrokes`, and unit. Only correct keystrokes and Errors of the
     "typed" event count: misfires and off-track keys do not."""
+    return layout_units(db, letter_layout, since).filter(pl.col("board").eq_missing(board))
+
+
+def layout_units(db: sqlite3.Connection, letter_layout: str | None, since: datetime) -> pl.DataFrame:
+    """The rows of `units` on every Board with the Letter layout. The unlock rule counts
+    the keystrokes of every Board together (spec §8)."""
 
     def before(column: str) -> pl.Expr:
         """The column's value in the keystroke before, in the same Attempt."""
@@ -440,7 +449,7 @@ def units(db: sqlite3.Connection, board: str | None, letter_layout: str | None, 
 
     return (
         keystrokes(db, since)
-        .filter(pl.col("board").eq_missing(board), pl.col("letter_layout").eq_missing(letter_layout))
+        .filter(pl.col("letter_layout").eq_missing(letter_layout))
         .with_columns(pair=pl.when(before("status") == "correct").then(before("char") + pl.col("char")))
         .filter(pl.col("event") == "typed", pl.col("status").is_in(["correct", "error"]))
         .with_columns(unit=pl.concat_list("char", "pair"))
@@ -449,12 +458,9 @@ def units(db: sqlite3.Connection, board: str | None, letter_layout: str | None, 
     )
 
 
-def recent_cost_v1(
-    db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
-) -> pl.DataFrame:
-    """The cost of each character and pair typed on the Board with the Letter layout in
-    the Sessions of the last settings["weeks"] weeks, abandoned Attempts too. Characters and
-    pairs seen fewer than settings["min_seen"] times, or never timed, are left out.
+def recent_cost_v1(units: pl.DataFrame, settings: dict[str, Any]) -> pl.DataFrame:
+    """The cost of each character and pair in rows of `units`, abandoned Attempts too.
+    Characters and pairs seen fewer than settings["min_seen"] times, or never timed, are left out.
 
     - unit: as `units` gives it.
     - time: the median `time` of the unit's correct keystrokes.
@@ -464,8 +470,7 @@ def recent_cost_v1(
     - seen: its number of first keystrokes at a position.
     """
     return (
-        units(db, board, letter_layout, datetime.now(UTC) - timedelta(weeks=settings["weeks"]))
-        .group_by("unit")
+        units.group_by("unit")
         .agg(
             time=pl.col("time").filter(pl.col("status") == "correct").median(),
             error_rate=pl.col("first_time_correct").not_().mean(),
@@ -485,14 +490,16 @@ WEAKNESS_MODELS = {"recent-cost-v1": WeaknessModel(recent_cost_v1, (150, 600, 40
 def weakness(
     db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
 ) -> pl.DataFrame:
-    """The ranking of the characters and pairs typed on the Board with the Letter layout,
-    by the Weakness model named settings["model"]. `settings` is the [weakness] table of the
-    settings file. Columns: unit, cost (ms), seen, the model's own columns, and model (its
-    name). Sorted on cost, the highest first, then on unit."""
+    """The ranking of the characters and pairs typed on the Board with the Letter layout in
+    the Sessions of the last settings["weeks"] weeks, by the Weakness model named
+    settings["model"]. `settings` is the [weakness] table of the settings file. Columns:
+    unit, cost (ms), seen, the model's own columns, and model (its name). Sorted on cost,
+    the highest first, then on unit."""
     name = settings["model"]
+    since = datetime.now(UTC) - timedelta(weeks=settings["weeks"])
     return (
         WEAKNESS_MODELS[name]
-        .rank(db, board, letter_layout, settings)
+        .rank(units(db, board, letter_layout, since), settings)
         .with_columns(model=pl.lit(name))
         .sort(["cost", "unit"], descending=[True, False])
     )
@@ -508,6 +515,64 @@ def seen_counts(db: sqlite3.Connection, board: str | None, letter_layout: str | 
         .agg(seen=pl.col("first_time_correct").count())
         .sort("unit")
     )
+
+
+class Unlocking(NamedTuple):
+    """The state of a Letter layout being learned, such as free-range (spec §8). Each key is
+    written as the character it types without Shift."""
+
+    unlocked: str  # the Unlocked keys, in unlock order: the starting set, then the unlock log
+    locked: str  # the other main keys, in unlock order: the first is the next to unlock
+    introducing: str | None  # the newest key of the unlock log, while Introduction Drills are due for it
+
+
+def unlocking(db: sqlite3.Connection, letter_layout: str | None, settings: dict[str, Any]) -> Unlocking | None:
+    """The unlock state of the Letter layout, or None when it is not the one being learned.
+    `settings` is the [unlocking] table of the settings file.
+
+    Introduction Drills are due for the newest key of the unlock log until it has been seen
+    settings["min_seen"] times since its unlock, on every Board with the Letter layout. Seen
+    counts the first keystrokes at a position, as `recent_cost_v1` does. A keystroke's time is
+    its Session's start plus its `t`, which is a little late (see the ADR)."""
+    if letter_layout != settings["letter_layout"]:
+        return None
+    log = db.execute("SELECT key, time FROM unlock WHERE letter_layout = ? ORDER BY rowid", (letter_layout,)).fetchall()
+    start = "".join(settings["start"].split())
+    unlocked = start + "".join(key for key, _ in log if key not in start)
+    locked = "".join(key for key in settings["order"].split() if key not in unlocked)
+    introducing = None
+    if log:
+        key, time = log[-1]
+        at = datetime.fromisoformat(time)
+        # From the start of the Session that was open at the unlock, if there was one.
+        (since,) = db.execute("SELECT max(started) FROM session WHERE started <= ?", (time,)).fetchone()
+        since = datetime.fromisoformat(since) if since else at
+        started = {id: datetime.fromisoformat(s) for id, s in db.execute("SELECT id, started FROM session")}
+        typed = (
+            layout_units(db, letter_layout, since)
+            .filter(pl.col("unit") == key, pl.col("first_time_correct").is_not_null())
+            .select("session", "t")
+        )
+        seen = sum(started[s] + timedelta(milliseconds=t) >= at for s, t in typed.iter_rows())
+        introducing = key if seen < settings["min_seen"] else None
+    return Unlocking(unlocked, locked, introducing)
+
+
+def unlock_due(db: sqlite3.Connection, letter_layout: str | None, unlocked: str, settings: dict[str, Any]) -> bool:
+    """Whether the next key of the Letter layout being learned unlocks (spec §8): each Unlocked
+    key's character costs less than `threshold` ms by the Weakness model in use, over its
+    last `last` keystrokes on every Board with the Letter layout, and was seen at least
+    `min_seen` times in them. These are settings of the [unlocking] table; `settings` holds
+    every table of the settings file."""
+    rule, model = settings["unlocking"], settings["weakness"]
+    last = (
+        layout_units(db, letter_layout, datetime.min)
+        .filter(pl.col("unit").is_in(list(unlocked)))
+        .filter(pl.int_range(pl.len()).over("unit", order_by=["session", "seq"], descending=True) < rule["last"])
+    )
+    ranked = WEAKNESS_MODELS[model["model"]].rank(last, model | {"min_seen": rule["min_seen"]})
+    cost = dict(zip(ranked["unit"], ranked["cost"]))
+    return all(cost.get(key, math.inf) < rule["threshold"] for key in unlocked)
 
 
 TREND_WEEKS = 13  # the progress page's trend covers about 3 months

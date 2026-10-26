@@ -17,7 +17,7 @@ const loadVega = () => vegaLoading ??= VEGA.reduce((loaded, path) => loaded.then
 
 let keymaps = []; // every Board × Letter layout, as { board, letter_layout, version }
 let at = 0; // the index in keymaps of the one shown
-let page = null; // from the server: { weeks, days, trend, names, layers, chars, pairs }; null while it loads
+let page = null; // from the server: { weeks, days, trend, names, layers, chars, pairs, unlocking }; null while it loads
 let layer = 0;
 let pair = 0; // the index of the selected pair, drawn as an arc
 
@@ -67,7 +67,10 @@ function draw() {
   const count = keymaps.length > 1 ? ` (${at + 1} of ${keymaps.length})` : '';
   const hint = '<kbd>h</kbd>/<kbd>l</kbd> Board · Letter layout, a number picks the layer, '
     + '<kbd>j</kbd>/<kbd>k</kbd> select a pair, <kbd>Esc</kbd> goes back.';
-  const body = page ? '<div id="trend"></div><div id="weakness"></div>' : '<p>Loading…</p>';
+  const u = page?.unlocking;
+  const unlock = u ? `<p class="hint">${u.unlocked} of ${u.total} keys unlocked.`
+    + (u.next ? ` Locked keys are dashed and faint; the ringed key, ${esc(showChars(u.next))}, unlocks next.` : '') + '</p>' : '';
+  const body = page ? `${unlock}<div id="trend"></div><div id="weakness"></div>` : '<p>Loading…</p>';
   el().innerHTML = `<h4>Progress · ${esc(k.board)} · ${esc(k.letter_layout)}${count}</h4>${body}<div class="hint">${hint}</div>`;
   if (!page) return;
   const trend = document.getElementById('trend');

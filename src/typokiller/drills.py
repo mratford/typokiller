@@ -15,7 +15,7 @@ import polars as pl
 from typokiller.analysis import seen_counts, weakness
 
 # Common English words. They join the pool while the Sources give fewer than SMALL_POOL
-# different words, so the first Drills have enough words to choose from.
+# different words that can be used, so the first Drills have enough words to choose from.
 WORDS = """
 the of and to a in is it you that he was for on are with as I his they be at one have this
 from or had by not word but what some we can out other were all there when up use your how
@@ -58,15 +58,19 @@ class Drill(NamedTuple):
     text: str
 
 
-def pool(db: sqlite3.Connection, unlocked: set[str] | None) -> Counter[str]:
+def pool(db: sqlite3.Connection, unlocked: str | None) -> Counter[str]:
     """The words a Drill can use, with how often each is in the Sources: the text of every
     Source's Passages split at whitespace, plus WORDS while there are fewer than SMALL_POOL
     different words. With `unlocked`, only words made of those characters."""
-    words = Counter(w for (text,) in db.execute("SELECT text FROM passage WHERE source IS NOT NULL") for w in text.split())
+    allowed = unlocked and set(unlocked)
+
+    def usable(words: Counter[str]) -> Counter[str]:
+        return Counter({w: n for w, n in words.items() if set(w) <= allowed}) if allowed else words
+
+    passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL")
+    words = usable(Counter(w for (text,) in passages for w in text.split()))
     if len(words) < SMALL_POOL:
-        words.update(WORDS)
-    if unlocked is not None:
-        words = Counter({w: n for w, n in words.items() if set(w) <= unlocked})
+        words.update(usable(Counter(WORDS)))
     return words
 
 
@@ -85,7 +89,7 @@ def density_v1(
     board: str | None,
     letter_layout: str | None,
     settings: dict[str, Any],
-    unlocked: set[str] | None,
+    unlocked: str | None,
 ) -> Drill:
     """The Targets and text of a Drill. `settings` holds every table of the settings file.
 
@@ -94,18 +98,12 @@ def density_v1(
     times on this Board and Letter layout, in the Weakness model's `weeks`. These are the
     under-measured units, and there are `under_measured` of them. With no ranking yet, all
     the Targets are under-measured. With too few under-measured units, more weak units fill
-    in. A Target must be a unit that the pool's words hold.
-
-    Text: `words` words of the pool. Word i holds Target i modulo the number of Targets. It
-    is picked at random, with a weight of its number of Targets per character. So short
-    words with many Targets come up most."""
+    in. A Target must be a unit that the pool's words hold. The text is `drill_text`."""
     drills = settings["drills"]
     words = pool(db, unlocked)
     counts = unit_counts(words)
-    since = datetime.now(UTC) - timedelta(weeks=settings["weakness"]["weeks"])
-    counted = seen_counts(db, board, letter_layout, since)
-    seen = dict(zip(counted["unit"], counted["seen"]))
-    ranked = weakness(db, board, letter_layout, settings["weakness"]).filter(pl.col("unit").is_in(list(counts)))
+    ranking, seen = ranking_and_seen(db, board, letter_layout, settings)
+    ranked = ranking.filter(pl.col("unit").is_in(list(counts)))
     cost = dict(zip(ranked["unit"], ranked["cost"]))
     weak = [{"unit": u, "reason": "weak", "cost": cost[u], "seen": seen[u]} for u in ranked["unit"]]
     under_measured = [
@@ -118,21 +116,63 @@ def density_v1(
     chosen = {t["unit"] for t in targets}
     rest = [t for t in under_measured + weak[n:] if t["unit"] not in chosen]
     targets += rest[: n + drills["under_measured"] - len(targets)]
-    target_units = [t["unit"] for t in targets]
+    return Drill(targets, drill_text(words, [t["unit"] for t in targets], drills["words"]))
+
+
+def introduction(
+    db: sqlite3.Connection,
+    board: str | None,
+    letter_layout: str | None,
+    settings: dict[str, Any],
+    unlocked: str | None,
+) -> Drill:
+    """An Introduction Drill (spec §8) for the newest Unlocked key, the last of `unlocked`.
+    Its Targets are that key and the two pairs of it with Unlocked keys that are most common
+    in the pool, such as o, on and to. Each Target's reason is "introduction". The text is
+    `drill_text`. When no word of the pool holds the key, the key alone is a word, so the
+    Drill still has it."""
+    assert unlocked  # app.py gives the Unlocked keys while Introduction Drills are due
+    new = unlocked[-1]
+    words = pool(db, unlocked)
+    if not any(new in w for w in words):
+        words[new] = 1
+    counts = unit_counts(words)
+    pairs = sorted((u for u in counts if len(u) == 2 and new in u and " " not in u), key=lambda u: (-counts[u], u))
+    ranking, seen = ranking_and_seen(db, board, letter_layout, settings)
+    cost = dict(zip(ranking["unit"], ranking["cost"]))
+    units = [new, *pairs[:2]]
+    targets = [{"unit": u, "reason": "introduction", "cost": cost.get(u), "seen": seen.get(u, 0)} for u in units]
+    return Drill(targets, drill_text(words, units, settings["drills"]["words"]))
+
+
+def ranking_and_seen(
+    db: sqlite3.Connection, board: str | None, letter_layout: str | None, settings: dict[str, Any]
+) -> tuple[pl.DataFrame, dict[str, int]]:
+    """The Weakness ranking on the Board with the Letter layout, and how many times each unit
+    was seen there in the Weakness model's `weeks`."""
+    since = datetime.now(UTC) - timedelta(weeks=settings["weakness"]["weeks"])
+    counted = seen_counts(db, board, letter_layout, since)
+    return weakness(db, board, letter_layout, settings["weakness"]), dict(zip(counted["unit"], counted["seen"]))
+
+
+def drill_text(words: Counter[str], targets: list[str], n: int) -> str:
+    """n words of the pool. Word i holds Target i modulo the number of Targets. It is picked
+    at random, with a weight of its number of Targets per character. So short words with
+    many Targets come up most. Each Target must be a unit that the pool's words hold."""
 
     def density(word: str) -> float:
-        return sum(f" {word} ".count(u) for u in target_units) / len(word)
+        return sum(f" {word} ".count(u) for u in targets) / len(word)
 
     weights = {w: density(w) for w in words}
-    holding = {u: [w for w in words if u in f" {w} "] for u in target_units}  # the pool's words that hold each Target
+    holding = {u: [w for w in words if u in f" {w} "] for u in targets}  # the pool's words that hold each Target
     text = []
-    for i in range(drills["words"]):
-        candidates = holding[target_units[i % len(target_units)]]
+    for i in range(n):
+        candidates = holding[targets[i % len(targets)]]
         text += random.choices(candidates, [weights[w] for w in candidates])
-    return Drill(targets, " ".join(text))
+    return " ".join(text)
 
 
-# The Drill generators, by name (spec §12). The settings file names the one in use. Each
-# takes (db, board, letter_layout, the settings, the Unlocked keys or None for every key).
-# #30 adds "introduction", for the Drills that follow an unlock.
-DRILL_GENERATORS = {"density-v1": density_v1}
+# The Drill generators, by name (spec §12). The settings file names the one in use for
+# usual Drills; "introduction" makes the Drills that follow an unlock. Each takes (db,
+# board, letter_layout, the settings, the Unlocked keys in unlock order or None for every key).
+DRILL_GENERATORS = {"density-v1": density_v1, "introduction": introduction}

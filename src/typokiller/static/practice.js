@@ -14,6 +14,9 @@ const MENU = [
     ['o', 'open a Source or endless Drills', async () => { await showSources(); screen = 'sources'; }],
     ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
+  ['Learning', [
+    ['u', 'unlock the next key (free-range only)', unlockNext],
+  ]],
   ['Session', [
     ['p', 'progress page', () => { screen = 'progress'; openProgress(board.name, keymap.letter_layout); }],
     ['b', 'change Board', () => showBoards()],
@@ -35,8 +38,11 @@ let session;
 let passage, nextPassage; // each { id, text }; nextPassage is shown faint below
 let source = null; // the open Source: { id, title, at, total }, where `at` is its bookmark;
                    // null while the built-in Passage is typed
-let drill = null; // while Drills are typed: { endless, targets, back }, where `back` is
-                  // [passage, nextPassage] to come back to after one Drill
+let drill = null; // while Drills are typed: { endless, generator, targets, back, done }, where `back`
+                  // is [passage, nextPassage] to come back to after the Drills, and `done` says
+                  // that passage was finished or skipped, so the Source then moves on from it
+let unlocking = null; // the unlock state of a Letter layout being learned, from the server:
+                      // { unlocked, total, next, introducing }; null for other Letter layouts
 let sources = []; // from the server, unfinished first, the last opened first
 let query = ''; // typed into the open text field of the import panel
 let results = []; // the Gutenberg search results
@@ -115,28 +121,59 @@ function advance() {
 
 // One Drill, or endless Drills with the Targets ranked again before each one. The
 // server makes a Drill from the key events it has stored, so they are sent first.
+// While Introduction Drills are due, the server makes one. With `introduction`, the page
+// asks only for an Introduction Drill: if none is due any more, the Passage comes back.
 // The Passage is null until the Drill comes, and keys typed meanwhile do nothing, not even Esc.
-async function showDrill(endless) {
-  drill = { endless, targets: [], back: drill?.back ?? [passage, nextPassage] };
+async function showDrill(endless, introduction = false) {
+  drill = { endless, generator: null, targets: [], back: drill?.back ?? [passage, nextPassage], done: drill?.done ?? false };
   passage = null;
   screen = 'typing';
   render();
   await flush();
-  const made = await sendJSON(`/api/sessions/${session}/drills`, {});
+  const made = await sendJSON(`/api/sessions/${session}/drills`, { introduction });
+  await setUnlocking(made.unlocking);
+  if (!made.id) return moveOn();
   passage = { id: made.id, text: made.text };
-  nextPassage = endless ? null : drill.back[0];
+  nextPassage = endless ? null : drill.back[drill.done ? 1 : 0];
+  drill.generator = made.generator;
   drill.targets = made.targets;
   nextAttempt();
   render();
 }
 
 // After a finished or skipped Passage: the next Passage, and an Attempt at it. After
-// one Drill, the Passage it interrupted comes back from its start.
+// one Drill, the Passage it interrupted comes back from its start. After an unlock,
+// Introduction Drills come first until the new key has been seen often enough; a
+// finished or skipped Passage moves the Source on after them.
 function moveOn() {
   if (drill?.endless) return showDrill(true);
-  if (drill) { [passage, nextPassage] = drill.back; drill = null; }
-  else advance();
+  if (unlocking?.introducing) {
+    drill ??= { back: [passage, nextPassage], done: true };
+    return showDrill(false, true);
+  }
+  if (drill) {
+    [passage, nextPassage] = drill.back;
+    if (drill.done) advance();
+    drill = null;
+  } else advance();
   nextAttempt();
+}
+
+// Keeps the unlock state from the server. The Keymap drawings show the locked keys, so
+// they are fetched again after an unlock.
+async function setUnlocking(state) {
+  if (state?.unlocked !== unlocking?.unlocked) drawing = await getJSON(`/api/sessions/${session}/keymap`);
+  unlocking = state;
+}
+
+// u unlocks the next key at once. A notice from the server says which key, and
+// Introduction Drills of it come after this Attempt.
+async function unlockNext() {
+  const r = await send(`/api/sessions/${session}/unlocks`, {});
+  const answer = await r.json();
+  if (r.ok) await setUnlocking(answer);
+  else message = answer.detail;
+  screen = 'typing';
 }
 
 async function chooseSource(s) {
@@ -207,6 +244,7 @@ async function startSession(chosen) {
   const started = await sendJSON('/api/sessions', { keymap_version: chosen.version });
   session = started.session;
   drawing = await getJSON(`/api/sessions/${session}/keymap`);
+  unlocking = drawing.unlocking;
   show(started);
   const resumed = resume();
   if (resumed) await openSource(resumed.id, resumed.at);
@@ -406,6 +444,7 @@ async function showSummary() {
   summary = `✓ ${Math.round(s.wpm)} wpm (median ${Math.round(s.median_wpm)})`
     + ` · ${percent(s.accuracy)} first time (median ${percent(s.median_accuracy)})`
     + (s.slowest_pairs.length ? ` · slowest pairs: ${s.slowest_pairs.map(showChars).join(' ')}` : '');
+  await setUnlocking(s.unlocking);
   render();
 }
 
@@ -557,8 +596,12 @@ function keymapHTML() {
 }
 
 // The status line's Drill part: the Targets, a space shown as ·.
-const drillLabel = () => (drill.endless ? 'Endless Drills' : 'Drill')
+const drillLabel = () => (drill.generator === 'introduction' ? 'Introduction Drill' : drill.endless ? 'Endless Drills' : 'Drill')
   + (drill.targets.length ? ` · Targets: ${drill.targets.map(t => showChars(t.unit)).join(' ')}` : '');
+
+// The status line's unlock progress on a Letter layout being learned, such as "10/30 keys · next o".
+const unlockLabel = () => `${unlocking.unlocked}/${unlocking.total} keys`
+  + (unlocking.next ? ` · next ${showChars(unlocking.next)}` : '');
 
 function render() {
   const starting = START.includes(screen);
@@ -571,6 +614,7 @@ function render() {
     ${keymapHTML()}${PANELS[screen]?.() ?? ''}
     <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(`${board.name} · ${keymap.letter_layout}`)}</span>
       <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'built-in Passage')}</span>
+      ${!starting && unlocking ? `<span>${esc(unlockLabel())}</span>` : ''}
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;
   document.getElementById(`k${nextKey()?.key}`)?.classList.add('next');

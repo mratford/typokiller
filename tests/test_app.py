@@ -35,11 +35,20 @@ def client(db_path, settings_path):
 
 
 WEAKNESS = {"model": "recent-cost-v1", "weeks": 4, "min_seen": 20}
+UNLOCKING = {
+    "letter_layout": "free-range",
+    "start": "u n t s m , r e a _",
+    "order": "o i l h d c w f g y p b v . k ' j x q z",
+    "threshold": 400,
+    "last": 50,
+    "min_seen": 20,
+}
 SETTINGS = {
     "typing": {"wrong_key_mode": "keep typing", "show_keymap": False},
     "passages": {"max_dropped": 0.05, "min_length": 20},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
+    "unlocking": UNLOCKING,
     "keymaps": {},
 }
 ATTEMPT = {"passage": 1, "settings": SETTINGS}  # the built-in Passage
@@ -131,6 +140,8 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
+    rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
+    rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
     rest += '\n[keymaps.Sweep.QWERTY]\nlayers = ["Base", "Sym"]\n'
     rest = 'show_keymap = false\n' + rest
     settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + rest)
@@ -520,11 +531,11 @@ def test_the_send_page_that_the_bookmarklet_opens_is_served_at_send(client):
     assert "/api/articles" in response.text
 
 
-def key_presses(keys, attempt, seq):
-    """A keydown every second for each key, each with its keyup 100 ms later."""
+def key_presses(keys, attempt, seq, gap=1000):
+    """A keydown every `gap` ms for each key, each with its keyup 100 ms later."""
     events = []
     for i, k in enumerate(keys):
-        for type, t in [("keydown", 1000 * i), ("keyup", 1000 * i + 100)]:
+        for type, t in [("keydown", gap * i), ("keyup", gap * i + 100)]:
             events.append(key_event(seq + len(events), attempt, type) | {"t": t, "key": k, "code": f"Key{k}"})
     return events
 
@@ -543,12 +554,12 @@ def sweep_versions(client, db_path):
     return [k["version"] for k in keymaps]
 
 
-def typed_session(client, version, *attempts, finished):
-    """A Session on `version` with one Attempt at the code Passage for each list of keys.
-    `finished` holds the ords of the Attempts that finished."""
+def typed_session(client, version, *attempts, finished, attempt=CODE, gap=1000):
+    """A Session on `version` with one Attempt at the code Passage (or `attempt`) for each list
+    of keys, a key every `gap` ms. `finished` holds the ords of the Attempts that finished."""
     session = start_session(client, version)
-    events = [e for ord, keys in enumerate(attempts) for e in key_presses(keys, ord, seq=100 * ord)]
-    batch = {"events": events, "attempts": {ord: CODE for ord in range(len(attempts))}, "finished": finished}
+    events = [e for ord, keys in enumerate(attempts) for e in key_presses(keys, ord, 100 * ord, gap)]
+    batch = {"events": events, "attempts": {ord: attempt for ord in range(len(attempts))}, "finished": finished}
     client.post(f"/api/sessions/{session}/batch", json=batch)
     return session
 
@@ -582,6 +593,7 @@ def test_the_summary_of_an_attempt_has_the_medians_of_this_keymaps_finished_atte
 
     summary = client.get(f"/api/sessions/{session}/attempts/1/summary").json()
 
+    assert summary.pop("unlocking") is None  # QWERTY has no locked keys
     # Of this Passage's pairs, only ab has a cost: the others follow the Enter combo or the c mod-tap.
     assert summary.pop("slowest_pairs") == ["ab"]
     assert summary == pytest.approx(
@@ -892,3 +904,126 @@ def test_the_progress_page_has_the_trend_chart_the_heat_drawing_and_the_weakest_
     assert len(layers) == 5
     assert drawn(layers[0], "2,4") == ("key", ["B", "n=0", "b", "2000"])
     assert [a.get("data-pair") for a in layers[0].findall(".//*[@class='arc']")] == ["ab"]
+
+
+REA = {"passage": 3, "settings": SETTINGS}  # "rea": plain keys on both free-range Boards
+
+
+def free_range_boards(client, db_path):
+    """The Keymap versions of the Sweep with QWERTY, the Sweep with free-range and the Sofle,
+    which has free-range. Also adds the Passage "rea" as Passage 3."""
+    qwerty, sweep = sweep_versions(client, db_path)
+    add_board(client, "Sofle", "sofle.vil", "sofle")
+    with sqlite3.connect(db_path) as db:
+        db.execute("INSERT INTO passage VALUES (3, NULL, 0, 'rea', 'ascii-v1')")
+    sofle = client.get("/api/boards").json()["boards"][1]["keymaps"][0]["version"]
+    return qwerty, sweep, sofle
+
+
+def unlock_log(db_path):
+    return rows(db_path, "SELECT letter_layout, key, how, model FROM unlock ORDER BY rowid")
+
+
+def test_after_a_finished_attempt_the_next_key_unlocks_when_each_unlocked_character_is_fast_over_its_last_keystrokes_on_every_board_with_the_letter_layout(
+    client, db_path
+):
+    qwerty, sweep, sofle = free_range_boards(client, db_path)
+    rule = {"start": "e", "order": "a t", "threshold": 1500, "min_seen": 2}
+    client.put("/api/settings", json={"unlocking": rule})
+    rea = [["r", "e", "a"]] * 2
+    typed_session(client, qwerty, *rea, finished=[0, 1], attempt=REA)  # QWERTY has no locked keys
+    typed_session(client, sweep, *rea, finished=[0, 1], attempt=REA, gap=3000)  # e takes 3000 ms
+    session = typed_session(client, sofle, *rea, finished=[0, 1], attempt=REA)  # and 1000 ms
+
+    # Over both free-range Boards, the median time of e is 2000 ms.
+    assert unlock_log(db_path) == []
+
+    client.put("/api/settings", json={"unlocking": {"last": 2}})
+    client.post(f"/api/sessions/{session}/batch", json={"finished": [1]})  # checks again
+
+    # Over its last 2 keystrokes, on the Sofle, e takes 1000 ms.
+    assert unlock_log(db_path) == [("free-range", "a", "rule", "recent-cost-v1")]
+    [(settings,)] = rows(db_path, "SELECT settings FROM unlock")
+    assert json.loads(settings) == UNLOCKING | rule | {"last": 2}
+    state = client.get(f"/api/sessions/{session}/attempts/1/summary").json()["unlocking"]
+    assert (state["unlocked"], state["total"], state["next"]) == (2, 3, "t")
+
+
+def test_u_unlocks_the_next_key_by_hand_and_drawings_show_the_locked_keys_and_ring_the_next(client, db_path):
+    qwerty, sweep, _ = free_range_boards(client, db_path)
+    session = start_session(client, sweep)
+
+    keymap = client.get(f"/api/sessions/{session}/keymap").json()
+
+    assert keymap["unlocking"] == {"unlocked": 10, "total": 30, "next": "o", "introducing": None}
+    base = ET.fromstring(keymap["layers"][0])
+    assert drawn(base, "1,0") == ("key", ["u"])
+    assert drawn(base, "0,0") == ("key locked", ["x"])
+    assert drawn(base, "4,3") == ("key locked unlock", ["o"])
+
+    unlocked = client.post(f"/api/sessions/{session}/unlocks").json()
+
+    assert unlocked == {"unlocked": 11, "total": 30, "next": "i", "introducing": "o"}
+    assert unlock_log(db_path) == [("free-range", "o", "manual", "recent-cost-v1")]
+    assert client.get("/api/notices").json() == ["Unlocked o. Introduction Drills come after this Attempt."]
+    page = client.get(f"/api/keymaps/{sweep}/progress").json()
+    heat = ET.fromstring(page["layers"][0])
+    assert drawn(heat, "4,2") == ("key locked unlock", ["I", "n=0", "i", "n=0"])
+
+    for _ in range(19):
+        client.post(f"/api/sessions/{session}/unlocks")
+
+    assert client.get(f"/api/sessions/{session}/keymap").json()["unlocking"]["next"] is None
+    assert client.post(f"/api/sessions/{session}/unlocks").status_code == 409
+    assert client.post(f"/api/sessions/{start_session(client, qwerty)}/unlocks").status_code == 409
+
+
+def test_drills_use_only_the_unlocked_keys_until_all_30_are_unlocked_and_record_them(client, db_path):
+    _, sweep, _ = free_range_boards(client, db_path)
+    session = start_session(client, sweep)
+
+    made = drill(client, session)
+
+    assert set(made["text"]) <= set("untsm,rea_ ")  # no capitals either
+
+    client.put("/api/settings", json={"unlocking": {"min_seen": 0}})  # so no Introduction Drills
+    for _ in range(20):
+        client.post(f"/api/sessions/{session}/unlocks")
+    drill(client, session)
+
+    assert rows(db_path, "SELECT generator, unlocked FROM drill ORDER BY passage")[1] == ("density-v1", None)
+
+
+def test_each_unlock_queues_introduction_drills_of_the_new_key_and_its_two_commonest_pairs_until_it_is_seen_enough(
+    client, db_path, monkeypatch
+):
+    monkeypatch.setattr("typokiller.drills.WORDS", [])  # so the pool is only the article's words
+    _, sweep, _ = free_range_boards(client, db_path)
+    client.post("/api/articles", json={"title": "Ears", "text": "ear ear ear era era are re at"})
+    client.put("/api/settings", json={"unlocking": {"start": "r e", "order": "a t", "min_seen": 2}})
+    before = typed_session(client, sweep, ["r", "e", "a"], ["r", "e", "a"], finished=[0, 1], attempt=REA)
+    with sqlite3.connect(db_path) as db:
+        an_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        db.execute("UPDATE session SET started = ? WHERE id = ?", (an_hour_ago, before))
+    session = start_session(client, sweep)
+    client.post(f"/api/sessions/{session}/unlocks")  # a
+
+    made = drill(client, session)
+
+    # In the pool's words of r, e and a, ar is in 4 and ea in 3. a was seen twice before its unlock.
+    assert made["generator"] == "introduction"
+    assert [(t["unit"], t["reason"], t["seen"]) for t in made["targets"]] == [
+        ("a", "introduction", 2), ("ar", "introduction", 0), ("ea", "introduction", 2)
+    ]  # fmt: skip
+    assert set(made["text"].split(" ")) <= {"ear", "era", "are"}
+    assert rows(db_path, "SELECT generator, unlocked FROM drill") == [("introduction", '["r", "e", "a"]')]
+
+    later = typed_session(client, sweep, ["r", "e", "a"], finished=[0], attempt=REA)  # a seen once since its unlock
+
+    assert drill(client, later)["generator"] == "introduction"
+
+    typed_session(client, sweep, ["r", "e", "a"], finished=[0], attempt=REA)  # and twice
+
+    asked = client.post(f"/api/sessions/{later}/drills", json={"introduction": True}).json()
+    assert asked == {"unlocking": {"unlocked": 3, "total": 4, "next": "t", "introducing": None}}
+    assert drill(client, later)["generator"] == "density-v1"

@@ -24,4 +24,6 @@ layers = ["Base", "Sym", "Nav", "Stack", "Num"]
 
 Press `p` in the Escape menu for the progress page of the Session's Board and Letter layout. `h` and `l` show the previous and next Board × Letter layout, a number shows that layer of the Keymap, and `j`/`k` select one of the weakest pairs, which is drawn as an arc. Esc goes back. The page loads `vega-embed` from cdn.jsdelivr.net to draw the trend chart, so the chart needs the internet; the rest of the page does not.
 
+On free-range (the `[unlocking]` settings name the Letter layout being learned), Drills use only the Unlocked keys. The status line shows the progress, such as `10/30 keys · next o`. After each finished Attempt, the next key unlocks when each Unlocked key is fast enough; `u` in the Escape menu unlocks it at once. After an unlock, the next Drills are Introduction Drills of the new key. Keymap drawings show locked keys dashed and faint, with a ring on the next one.
+
 The server tests read real `.vil` and `vial.json` files from the `sweep-layouts` repo, which must be in the same folder as this repo.

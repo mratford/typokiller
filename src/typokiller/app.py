@@ -23,7 +23,16 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from typokiller.analysis import TREND_WEEKS, attempts, progress, trend_chart, weakness
+from typokiller.analysis import (
+    TREND_WEEKS,
+    Unlocking,
+    attempts,
+    progress,
+    trend_chart,
+    unlock_due,
+    unlocking,
+    weakness,
+)
 from typokiller.drawing import draw_keymap, drawn_layers, layer_name
 from typokiller.drills import DRILL_GENERATORS
 from typokiller.keymap import keymap_letters, read_keymap
@@ -69,6 +78,14 @@ CREATE TABLE IF NOT EXISTS drill (
     generator TEXT NOT NULL,  -- the Drill generator
     targets TEXT NOT NULL,  -- JSON: a list of {unit, reason, cost, seen}, as the generator chose them
     unlocked TEXT  -- JSON: the Unlocked keys it was built from; NULL when it could use every key
+);
+CREATE TABLE IF NOT EXISTS unlock (  -- the unlock log of the Letter layout being learned
+    letter_layout TEXT NOT NULL,
+    key TEXT NOT NULL,  -- the character it types without Shift
+    time TEXT NOT NULL,
+    how TEXT NOT NULL,  -- "rule" or "manual"
+    settings TEXT NOT NULL,  -- JSON: the [unlocking] settings then
+    model TEXT NOT NULL  -- the Weakness model then
 );
 CREATE INDEX IF NOT EXISTS passage_source ON passage (source, ord);
 CREATE TABLE IF NOT EXISTS attempt (
@@ -140,6 +157,24 @@ under_measured = 1
 min_seen = 20
 # The number of words in a Drill.
 words = 40
+
+[unlocking]
+# The Letter layout being learned. Drills use only its Unlocked keys until all 30 of its main
+# keys are unlocked, so no capitals, digits or symbols of other layers either. Reading and
+# Lessons use every key. Other Letter layouts have no locked keys.
+letter_layout = "free-range"
+# The keys unlocked at the start, and the order in which the others unlock. Each key is
+# written as the character it types without Shift, with a space between keys.
+start = "u n t s m , r e a _"
+order = "o i l h d c w f g y p b v . k ' j x q z"
+# After each finished Attempt, the next key unlocks when each Unlocked key costs less than
+# threshold ms by the Weakness model, over its last `last` keystrokes on every Board with
+# this Letter layout, and was seen at least min_seen times in them. u in the Escape menu
+# unlocks the next key at once. After an unlock, Drills are Introduction Drills of the new
+# key until it has been seen min_seen times.
+threshold = 400
+last = 50
+min_seen = 20
 
 [keymaps]
 # The layer names in Keymap drawings, for each Board and Letter layout. A layer with no
@@ -264,6 +299,11 @@ class Article(BaseModel):
     text: str  # the page's selected text, or else the text of its `article` or `body`
 
 
+class DrillRequest(BaseModel):
+    # True when the page wants an Introduction Drill. If none is due, no Drill is made.
+    introduction: bool = False
+
+
 class NewBoard(BaseModel):
     name: str
     vil: str  # the text of the .vil file
@@ -308,7 +348,18 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         return source
 
     notices: list[str] = []  # every open practice page shows each new one on its message line
+
     tasks: set[asyncio.Task] = set()  # background work, kept here until it is done so Python does not delete it
+
+    def add_unlock(letters: str | None, key: str, settings: dict, how: str):
+        """Writes the next key of the Letter layout being learned to the unlock log, by the
+        rule or by hand ("rule" or "manual"), with the settings then, and says so in a notice."""
+        with db:
+            db.execute(
+                "INSERT INTO unlock VALUES (?, ?, ?, ?, ?, ?)",
+                (letters, key, now(), how, json.dumps(settings["unlocking"]), settings["weakness"]["model"]),
+            )
+        notices.append(f"Unlocked {key}. Introduction Drills come after this Attempt.")
 
     async def import_repo(url: str):
         title = Path(url).name.removesuffix(".git")
@@ -403,19 +454,27 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
                 "INSERT INTO attempt (session, ord, finished) VALUES (?, ?, 1) ON CONFLICT DO UPDATE SET finished = 1",
                 [(session, attempt) for attempt in batch.finished],
             )
+        # After each finished Attempt, the next key of a Letter layout being learned may unlock.
+        if batch.finished:
+            settings = read_settings(settings_path).unwrap()
+            _, letters, _, _ = session_keymap(session)
+            state = unlocking(db, letters, settings["unlocking"])
+            if state and state.locked and unlock_due(db, letters, state.unlocked, settings):
+                add_unlock(letters, state.locked[0], settings, "rule")
 
     # The page shows this on the message line after each finished Attempt. The medians are
     # over the finished Attempts on the same Board and Letter layout in the last `weeks` weeks
     # (of the [weakness] settings). The slowest pairs are the 3 pairs of the Passage that the
     # Weakness model in use ranks highest.
+    # It also has the unlock state, which the rule may have changed after the Attempt.
     @app.get("/api/sessions/{session}/attempts/{ord}/summary")
     async def attempt_summary(session: int, ord: int):
-        settings = read_settings(settings_path)["weakness"].unwrap()
-        table = attempts(db, since=datetime.now(UTC) - timedelta(weeks=settings["weeks"]))
+        settings = read_settings(settings_path).unwrap()
+        table = attempts(db, since=datetime.now(UTC) - timedelta(weeks=settings["weakness"]["weeks"]))
         attempt = table.filter(session=session, ord=ord).row(0, named=True)
         (text,) = db.execute("SELECT text FROM passage WHERE id = ?", (attempt["passage"],)).fetchone()
         pairs = {text[i : i + 2] for i in range(len(text) - 1)}
-        ranking = weakness(db, attempt["board"], attempt["letter_layout"], settings)
+        ranking = weakness(db, attempt["board"], attempt["letter_layout"], settings["weakness"])
         same_keymap = table.filter(
             pl.col("finished"),
             pl.col("board").eq_missing(attempt["board"]),
@@ -427,6 +486,7 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             "median_wpm": same_keymap["wpm"].median(),
             "median_accuracy": same_keymap["accuracy"].median(),
             "slowest_pairs": ranking.filter(pl.col("unit").is_in(pairs))["unit"].head(3).to_list(),
+            "unlocking": unlock_progress(unlocking(db, attempt["letter_layout"], settings["unlocking"])),
         }
 
     def version_keymap(version: str | None) -> tuple[str | None, str | None, str | None, str | None]:
@@ -444,43 +504,84 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         (version,) = db.execute("SELECT keymap_version FROM session WHERE id = ?", (session,)).fetchone()
         return version_keymap(version)
 
+    def unlock_progress(state: Unlocking | None) -> dict | None:
+        """The unlock state as the page shows it, as in "10/30 keys · next o"; None for a
+        Letter layout that is not being learned."""
+        if not state:
+            return None
+        return {
+            "unlocked": len(state.unlocked),
+            "total": len(state.unlocked) + len(state.locked),
+            "next": state.locked[:1] or None,
+            "introducing": state.introducing,
+        }
+
     def layer_names(settings: dict, board: str | None, letters: str | None) -> list[str]:
         """The layer names of a Keymap in the [keymaps] settings."""
         return settings["keymaps"].get(board, {}).get(letters, {}).get("layers", [])
 
-    # Makes a Drill for the Session's Board and Letter layout, with the generator that the
-    # settings name, and stores it as a Passage with no Source.
+    # Makes a Drill for the Session's Board and Letter layout, and stores it as a Passage with
+    # no Source. While Introduction Drills are due, it is one; else the settings name the
+    # generator. On a Letter layout being learned, it uses only the Unlocked keys until all
+    # are unlocked. The Introduction Drills of the last key to unlock use them too.
     @app.post("/api/sessions/{session}/drills")
-    async def make_drill(session: int):
+    async def make_drill(session: int, request: DrillRequest = DrillRequest()):
         settings = read_settings(settings_path).unwrap()
         board, letters, _, _ = session_keymap(session)
-        generator = settings["drills"]["generator"]
-        # #30: the Unlocked keys of a free-range Letter layout go here, and into the drill row.
-        drill = DRILL_GENERATORS[generator](db, board, letters, settings, None)
+        state = unlocking(db, letters, settings["unlocking"])
+        introducing = bool(state and state.introducing)
+        if request.introduction and not introducing:
+            return {"unlocking": unlock_progress(state)}
+        generator = "introduction" if introducing else settings["drills"]["generator"]
+        unlocked = state.unlocked if state and (state.locked or introducing) else None
+        drill = DRILL_GENERATORS[generator](db, board, letters, settings, unlocked)
         with db:
             (passage,) = db.execute(
                 "INSERT INTO passage (source, ord, text, normaliser) VALUES (NULL, 0, ?, 'ascii-v1') RETURNING id",
                 (drill.text,),
             ).fetchone()
             db.execute(
-                "INSERT INTO drill VALUES (?, ?, ?, ?, ?, ?, NULL)",
-                (passage, now(), session, settings["weakness"]["model"], generator, json.dumps(drill.targets)),
+                "INSERT INTO drill VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    passage, now(), session, settings["weakness"]["model"], generator, json.dumps(drill.targets),
+                    unlocked and json.dumps(list(unlocked)),
+                ),
             )
-        return {"id": passage, "text": drill.text, "targets": drill.targets}
+        return {
+            "id": passage, "text": drill.text, "targets": drill.targets, "generator": generator,
+            "unlocking": unlock_progress(state),
+        }
 
-    # The practice screen fetches this once per Session: a drawing of each layer of the
-    # Keymap, with the layer names of the [keymaps] settings, and the key to press for each
-    # character. That key is the character's first candidate, which key attribution picks
-    # for a correct keystroke.
+    # u in the Escape menu: unlocks the next key of the Letter layout being learned at once.
+    @app.post("/api/sessions/{session}/unlocks")
+    async def unlock_by_hand(session: int):
+        settings = read_settings(settings_path).unwrap()
+        _, letters, _, _ = session_keymap(session)
+        state = unlocking(db, letters, settings["unlocking"])
+        if not state:
+            raise HTTPException(409, f"Only {settings['unlocking']['letter_layout']} has locked keys.")
+        if not state.locked:
+            raise HTTPException(409, "Every key is unlocked.")
+        add_unlock(letters, state.locked[0], settings, "manual")
+        return unlock_progress(unlocking(db, letters, settings["unlocking"]))
+
+    # The practice screen fetches this when a Session starts and after an unlock: a drawing
+    # of each layer of the Keymap, with the layer names of the [keymaps] settings and the
+    # locked keys; the key to press for each character; and the unlock state. That key is the
+    # character's first candidate, which key attribution picks for a correct keystroke.
     @app.get("/api/sessions/{session}/keymap")
     async def keymap_drawing(session: int):
         board, letters, vil, vial = session_keymap(session)
         if not vil:
-            return {"layers": [], "keys": {}}
-        names = layer_names(read_settings(settings_path).unwrap(), board, letters)
+            return {"layers": [], "keys": {}, "unlocking": None}
+        settings = read_settings(settings_path).unwrap()
+        names = layer_names(settings, board, letters)
+        state = unlocking(db, letters, settings["unlocking"])
+        locked = state.locked if state else ""
         return {
-            "layers": [draw_keymap(vil, vial, layer, names) for layer in range(drawn_layers(vil))],
+            "layers": [draw_keymap(vil, vial, layer, names, locked=locked) for layer in range(drawn_layers(vil))],
             "keys": {char: {"layer": keys[0].layer, "key": keys[0].key} for char, keys in read_keymap(vil).keys.items()},
+            "unlocking": unlock_progress(state),
         }
 
     # The progress page of the Board and Letter layout of a Keymap version (spec §11): the
@@ -496,13 +597,18 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         found = progress(db, board, letters, settings["weakness"])
         names = layer_names(settings, board, letters)
         layers = range(drawn_layers(vil))
+        state = unlocking(db, letters, settings["unlocking"])
+        locked = state.locked if state else ""
         weakest = ["unit", "cost", "seen"]
         return {
             "weeks": TREND_WEEKS,
             "days": found.trend.height,
             "trend": trend_chart(found.trend).to_dict(),
             "names": [layer_name(json.loads(vil), layer, names) for layer in layers],
-            "layers": [draw_keymap(vil, vial, layer, names, found.heat, found.pairs["unit"].to_list()) for layer in layers],
+            "layers": [
+                draw_keymap(vil, vial, layer, names, found.heat, found.pairs["unit"].to_list(), locked) for layer in layers
+            ],
+            "unlocking": unlock_progress(state),
             "chars": found.chars.select(weakest).to_dicts(),
             "pairs": found.pairs.select(weakest).to_dicts(),
         }

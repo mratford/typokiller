@@ -2,7 +2,7 @@
 so the practice screen, the progress page and the notebooks draw a Keymap the same way.
 
 Sizes are in key widths, as in the vial.json. Colours come from the page's CSS variables
-(--bg, --fg, --dim, --faint, --line, --panel, --next), with defaults for a notebook, which has none.
+(--bg, --fg, --dim, --faint, --line, --panel, --next, --ring), with defaults for a notebook, which has none.
 """
 
 import json
@@ -44,6 +44,9 @@ STYLE = """
 .keymap .arc { opacity: 0.85; }
 .keymap .arc path, .keymap .arc .loop { fill: none; stroke: var(--next, #2456a6); stroke-width: 0.07; stroke-linecap: round; }
 .keymap .arc .end, .keymap .arc text { fill: var(--next, #2456a6); font-weight: 700; }
+.keymap .locked > :not(.ring) { opacity: 0.35; }
+.keymap .locked > rect:not(.ring) { stroke-dasharray: 0.08 0.06; }
+.keymap .key rect.ring { fill: none; stroke: var(--ring, #2f8a4c); stroke-width: 0.08; }
 .keymap .scale text { fill: var(--dim, #a29e94); }
 .keymap .scale .note { text-anchor: start; }
 .keymap .scale line { stroke: var(--fg, #23221f); stroke-width: 0.03; }
@@ -293,6 +296,7 @@ def draw_keymap(
     names: Sequence[str] = (),
     heat: Heat | None = None,
     pairs: Sequence[str] = (),
+    locked: str = "",
 ) -> str:
     """An SVG drawing of one layer of a Keymap, from the text of its .vil and of its Board's
     vial.json. Without a vial.json, the matrix is drawn as a plain grid.
@@ -315,6 +319,10 @@ def draw_keymap(
     - Each of `pairs` is an arc (see `arc`), a <g> of class "arc" with the pair in
       data-pair. Its ends are the keys that key attribution picks for a correct keystroke
       (each character's first candidate), so an end on another layer is where its key is.
+    - `locked` are the locked keys of a Letter layout being learned, in unlock order, each
+      written as the character it types without Shift (see `analysis.unlocking`). Their keys
+      are dashed and faint (class "locked"), and the first one, the next to unlock, is also
+      ringed (class "unlock").
     """
     vil = json.loads(vil_text)
     keycodes = vil["layout"]
@@ -341,11 +349,19 @@ def draw_keymap(
         kind = {"KC_TRNS": " trns", "KC_NO": " none"}.get(str(keycode), "")
         if (r, c) == held:
             kind, tap, hold = " held", "held", ""
-        # #30: on a free-range Letter layout, locked keys (dashed and faint) and the ring on
-        # the next key to unlock are added here, as classes like "held".
+        chars = key_chars(keycode, overrides)
+        lock = ring = ""
+        if not kind and chars and chars[-1] in locked:
+            lock = " locked"
+            if chars[-1] == locked[0]:
+                lock += " unlock"
+                ring = (
+                    f'<rect class="ring" x="{num(p.x - 0.03)}" y="{num(p.y - 0.03)}"'
+                    f' width="{num(p.w + 0.06)}" height="{num(p.h + 0.06)}" rx="0.2"/>'
+                )
         halves = texts = ""
         if heat and not kind:
-            if chars := key_chars(keycode, overrides):
+            if chars:
                 halves, texts = heat_key(p, chars, escape(tap), heat)
             else:
                 kind = " grey"
@@ -360,8 +376,8 @@ def draw_keymap(
         turn = f' transform="rotate({num(p.r)} {num(p.rx)} {num(p.ry)})"' if p.r else ""
         outline = ' style="fill:none"' if halves else ""  # drawn over the halves
         parts.append(
-            f'<g id="k{r},{c}" class="key{kind}"{turn}>{halves}<rect x="{num(p.x + 0.05)}" y="{num(p.y + 0.05)}"'
-            f' width="{num(p.w - 0.1)}" height="{num(p.h - 0.1)}" rx="0.12"{outline}/>{texts}</g>'
+            f'<g id="k{r},{c}" class="key{kind}{lock}"{turn}>{halves}<rect x="{num(p.x + 0.05)}" y="{num(p.y + 0.05)}"'
+            f' width="{num(p.w - 0.1)}" height="{num(p.h - 0.1)}" rx="0.12"{outline}/>{texts}{ring}</g>'
         )
     for inputs, output, at, key in combo_keys(vil):
         drawn = all(a in places and keycodes[layer][a[0]][a[1]] in (i, "KC_TRNS") for i, a in zip(inputs, at))
