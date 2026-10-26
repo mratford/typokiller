@@ -1021,7 +1021,7 @@ def test_after_a_finished_attempt_the_next_key_unlocks_when_each_unlocked_charac
     assert unlock_log(db_path) == []
 
     client.put("/api/settings", json={"unlocking": {"last": 2}})
-    client.post(f"/api/sessions/{session}/batch", json={"finished": [1]})  # checks again
+    typed_session(client, sofle, ["r", "e", "a"], finished=[0], attempt=REA)  # finishing another Attempt runs the rule again
 
     # Over its last 2 keystrokes, on the Sofle, e takes 1000 ms.
     assert unlock_log(db_path) == [("free-range", "a", "rule", "recent-cost-v1")]
@@ -1029,6 +1029,16 @@ def test_after_a_finished_attempt_the_next_key_unlocks_when_each_unlocked_charac
     assert json.loads(settings) == UNLOCKING | rule | {"last": 2}
     state = client.get(f"/api/sessions/{session}/attempts/1/summary").json()["unlocking"]
     assert (state["unlocked"], state["total"], state["next"]) == (2, 3, "t")
+
+
+def test_a_finished_attempt_sent_again_does_not_unlock_another_key(client, db_path):
+    _, sweep, _ = free_range_boards(client, db_path)
+    client.put("/api/settings", json={"unlocking": {"start": "e", "order": "a t", "threshold": 1500, "min_seen": 1}})
+    session = typed_session(client, sweep, ["r", "e", "a"], finished=[0], attempt=REA)
+
+    client.post(f"/api/sessions/{session}/batch", json={"finished": [0]})  # the page sends the batch again until the server answers
+
+    assert unlock_log(db_path) == [("free-range", "a", "rule", "recent-cost-v1")]
 
 
 def test_u_unlocks_the_next_key_by_hand_and_drawings_show_the_locked_keys_and_ring_the_next(client, db_path):

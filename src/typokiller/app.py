@@ -656,12 +656,14 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                     for a in {e.attempt for e in batch.events}
                 ],
             )
-            db.executemany(
-                "INSERT INTO attempt (session, ord, finished) VALUES (?, ?, 1) ON CONFLICT DO UPDATE SET finished = 1",
+            newly_finished = db.executemany(
+                "INSERT INTO attempt (session, ord, finished) VALUES (?, ?, 1)"
+                " ON CONFLICT DO UPDATE SET finished = 1 WHERE finished = 0",
                 [(session, attempt) for attempt in batch.finished],
-            )
-        # After each finished Attempt, the next key of a Letter layout being learned may unlock.
-        if batch.finished:
+            ).rowcount
+        # After a batch that finishes an Attempt for the first time, the next key of a Letter
+        # layout being learned may unlock.
+        if newly_finished:
             settings = read_settings(settings_path).unwrap()
             _, letters, _, _ = session_keymap(session)
             state = unlocking(db, letters, settings["unlocking"])
