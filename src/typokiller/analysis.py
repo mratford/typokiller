@@ -11,7 +11,7 @@ from typing import Any, NamedTuple
 
 import polars as pl
 
-from typokiller.keymap import keymap_letters
+from typokiller.keymap import Key, Keymap, keymap_letters, read_keymap
 
 # The name of the alignment step (spec §12), given in the tables made with it.
 ALIGNMENT = "first-error-v1"
@@ -64,6 +64,7 @@ def apply_key(passage: str, typed: str, k: Keydown, mode: str | None) -> str:
 def first_error_v1(passage: str, mode: str | None, keydowns: list[Keydown]) -> list[dict[str, Any]]:
     """Lines up an Attempt's keydowns with its Passage. Returns one row per keydown:
 
+    - cursor: the number of characters typed before the key.
     - position: the position in the Passage of the character the key was meant to type,
       or None for a key that types nothing (Backspace, Shift, Enter where there is no newline).
     - status: "correct", "error", "off-track" or "ignored". With no Error open, a key that
@@ -83,7 +84,7 @@ def first_error_v1(passage: str, mode: str | None, keydowns: list[Keydown]) -> l
     for k in keydowns:
         cursor = len(typed)
         char = typed_char(passage, typed, k)
-        row = {"position": None, "status": "ignored", "first": False, "fix_ms": None}
+        row = {"cursor": cursor, "position": None, "status": "ignored", "first": False, "fix_ms": None}
         if char is not None:
             row |= {"position": cursor, "first": cursor not in seen}
             seen.add(cursor)
@@ -106,7 +107,7 @@ def first_error_v1(passage: str, mode: str | None, keydowns: list[Keydown]) -> l
 def keydowns(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataFrame:
     """One row per keydown in the Sessions started at `since` or later, lined up with its
     Passage by `first_error_v1`. Columns: session, ord (of the Attempt), seq, t, key, and
-    position, status, first and fix_ms as `first_error_v1` gives them, and alignment.
+    cursor, position, status, first and fix_ms as `first_error_v1` gives them, and alignment.
     Sorted on session and seq."""
     passage_and_mode = {
         (session, ord): (text, mode)
@@ -129,7 +130,9 @@ def keydowns(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataF
         events += [e[:5] for e in group]
         aligned += first_error_v1(*passage_and_mode[attempt], [Keydown(*e[3:]) for e in group])
     columns = {"session": pl.Int64, "ord": pl.Int64, "seq": pl.Int64, "t": pl.Float64, "key": pl.String}
-    alignment = {"position": pl.Int64, "status": pl.String, "first": pl.Boolean, "fix_ms": pl.Float64}
+    alignment = {
+        "cursor": pl.Int64, "position": pl.Int64, "status": pl.String, "first": pl.Boolean, "fix_ms": pl.Float64,
+    }  # fmt: skip
     return (
         pl.DataFrame(events, schema=columns, orient="row")
         .hstack(pl.DataFrame(aligned, schema=alignment))
@@ -188,3 +191,195 @@ def attempts(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataF
         .with_columns(alignment=pl.lit(ALIGNMENT))
         .sort("session", "ord")
     )
+
+
+MODIFIERS = {"Shift", "Control", "Alt", "Meta", "CapsLock"}  # the `key` of modifier keys
+MACRO_GAP_MS = 5  # a macro types its characters about 1 ms apart, faster than any finger
+KEY_SCHEMA = pl.Struct({"layer": pl.Int64, "key": pl.String, "kind": pl.String})
+NO_KEYMAP = Keymap({}, {}, {}, [])  # for Sessions from before Boards
+
+
+class Event(NamedTuple):
+    seq: int
+    t: float
+    type: str
+    code: str
+    key: str
+    repeat: bool
+
+
+def keystrokes(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.DataFrame:
+    """One row per intended character in the Sessions started at `since` or later: each
+    keydown that `keydowns` gives a position, and each combo misfire. Sorted on session and seq.
+
+    - session, ord (of the Attempt), seq, t: the keydown's.
+    - board, letter_layout: of the Session's Keymap; None for Sessions from before Boards.
+    - position, status, fix_ms: as `keydowns` gives them. char: the Passage's character at
+      the position. typed: the keydown's `key`.
+    - event: "typed", or "mod-tap misfire", "combo misfire" or "macro misfire". A misfire is
+      a firmware result that the typist did not want, so it has no first_time_correct.
+      - A mod-tap misfire is a key at a position whose character is the tap of a mod-tap,
+        after that mod-tap's modifier went down: the mod-tap was held too long. With Shift
+        this is a wrong capital. Ctrl and GUI make the next key do nothing, so the key
+        marked is usually the mod-tap's own character, typed again.
+      - A combo misfire is the key a combo sends where the Passage has the combo's
+        characters next: they were pressed too close together. Its position is the cursor's.
+      - A macro misfire is a macro's text whose first character is an Error.
+    - candidates: the keys that type the typed character (see `read_keymap`). The picked
+      key is the first one on the layer of the Passage character's own first candidate,
+      or else the first one. For a correct key, this is the first one.
+      For a misfire, the candidates are the key that misfired.
+      Capitals, Caps Word, the Shift + _ key override and Shift held on a mod-tap all
+      come from the keys of plain typing; macro text from its macro key.
+    - layer, key, kind: the picked key's.
+    - dwell: from the keydown to its keyup with the same `code`. None when the keyup was
+      lost, and for mod-tap and layer-tap keys, which send both at the key's release.
+    - flight: from the previous keystroke's keyup to this keydown, when only modifier keys
+      came between them. Around a run of mod-tap or layer-tap keys, every pair gets the
+      time from the keyup before the run to the keydown after it.
+      Dwell and flight are None for keys that are not finger presses: macros, combo outputs,
+      auto-repeat, misfires and off-track keys. Shift from Caps Word or from a shifted
+      keycode is a modifier key, so it does not count either.
+    - first_time_correct: for the first keystroke at a position, whether it was correct
+      (True) or an Error (False). None for later keystrokes, off-track keys and misfires.
+    - alignment: the alignment step that gave the positions.
+    """
+    aligned: dict[int, dict[int, dict[str, Any]]] = {}  # the keydowns rows, by session and seq
+    for r in keydowns(db, since).iter_rows(named=True):
+        aligned.setdefault(r["session"], {})[r["seq"]] = r
+    found = db.execute(
+        "SELECT a.session, a.ord, p.text, b.name, k.vil, b.vial FROM attempt a JOIN passage p ON p.id = a.passage"
+        " JOIN session s ON s.id = a.session LEFT JOIN keymap_version k ON k.hash = s.keymap_version"
+        " LEFT JOIN board b ON b.id = k.board WHERE s.started >= ?",
+        (since.isoformat(),),
+    )
+    attempt_info = {
+        (session, ord): (
+            text,
+            board,
+            keymap_letters(vil, vial) if vil else None,
+            read_keymap(vil) if vil else NO_KEYMAP,
+        )
+        for session, ord, text, board, vil, vial in found
+    }
+    # A keyup belongs to the Attempt of its keydown, so it can come after the next Attempt's first keydown.
+    events = db.execute(
+        "SELECT e.session, attempt, seq, t, type, code, key, repeat FROM key_event e JOIN session s ON s.id = e.session"
+        " WHERE s.started >= ? ORDER BY e.session, attempt, seq",
+        (since.isoformat(),),
+    )
+    rows = []
+    for (session, ord), group in groupby(events, lambda e: e[:2]):
+        passage, board, letters, keymap = attempt_info[session, ord]
+        group = [Event(seq, t, type, code, key, bool(repeat)) for _, _, seq, t, type, code, key, repeat in group]
+        for row in attempt_keystrokes(passage, keymap, group, aligned[session]):
+            rows.append({"session": session, "ord": ord, "board": board, "letter_layout": letters, **row})
+    schema = {
+        "session": pl.Int64, "ord": pl.Int64, "seq": pl.Int64, "t": pl.Float64, "board": pl.String,
+        "letter_layout": pl.String, "position": pl.Int64, "char": pl.String, "typed": pl.String,
+        "status": pl.String, "event": pl.String, "layer": pl.Int64, "key": pl.String, "kind": pl.String,
+        "candidates": pl.List(KEY_SCHEMA), "dwell": pl.Float64, "flight": pl.Float64,
+        "first_time_correct": pl.Boolean, "fix_ms": pl.Float64,
+    }  # fmt: skip
+    return (
+        pl.DataFrame([{name: row[name] for name in schema} for row in rows], schema=schema)
+        .with_columns(alignment=pl.lit(ALIGNMENT))
+        .sort("session", "seq")
+    )
+
+
+def attempt_keystrokes(
+    passage: str, keymap: Keymap, events: list[Event], aligned: dict[int, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The rows of `keystrokes` for one Attempt, without its session, ord, board and Letter
+    layout. `events` are its key events in seq order; `aligned` holds the rows of `keydowns`
+    of its Session, by seq."""
+
+    def candidates(char: str) -> list[Key]:
+        return keymap.keys.get("\n" if char == "Enter" else char, [])
+
+    up_at, held = {}, {}  # the keyup time of each keydown; the keydown of each code that is still down
+    for e in events:
+        if e.type == "keydown":
+            if not e.repeat:  # the keyup ends the first press, not an auto-repeat
+                held[e.code] = e.seq
+        elif e.code in held:
+            up_at[held.pop(e.code)] = e.t
+    rows = []
+    mods = set()  # the codes of the modifier keys pressed since the last row
+    presses = 0  # the keys other than modifiers pressed so far
+    for e in (e for e in events if e.type == "keydown"):
+        if e.key in MODIFIERS:
+            mods.add(e.code)
+            continue
+        presses += 1
+        a = aligned[e.seq]
+        row = {"seq": e.seq, "t": e.t, "position": a["position"], "typed": e.key, "status": a["status"]}
+        row |= {"event": "typed", "candidates": candidates(e.key), "fix_ms": a["fix_ms"], "first": a["first"]}
+        row |= {"presses": presses, "repeat": e.repeat}
+        if a["position"] is not None:
+            char = passage[a["position"]]
+            misfired = next((keymap.holds[m, char] for m in mods if (m, char) in keymap.holds), None)
+            if misfired and a["status"] != "off-track":
+                row |= {"event": "mod-tap misfire", "candidates": [misfired]}
+        else:
+            cursor = a["cursor"]
+            misfired = next(
+                (k for sent, chars, k in keymap.combos
+                 if sent == e.key and sorted(passage[cursor : cursor + len(chars)]) == sorted(chars)),
+                None,
+            )  # fmt: skip
+            if not misfired:
+                continue
+            row |= {"position": cursor, "event": "combo misfire", "candidates": [misfired]}
+        row["char"] = passage[row["position"]]
+        rows.append(row)
+        mods = set()
+    # A macro's text comes as one fast burst of keys.
+    for i in range(len(rows)):
+        for text, key in keymap.macros.items():
+            burst = rows[i : i + len(text)]
+            if "".join(r["typed"] for r in burst) == text and all(
+                b["t"] - a["t"] <= MACRO_GAP_MS for a, b in zip(burst, burst[1:])
+            ):
+                event = "macro misfire" if burst[0]["status"] == "error" else "typed"
+                for r in burst:
+                    r |= {"event": event, "candidates": [key]}
+    for r in rows:
+        own = candidates(r["char"])
+        pick = next((k for k in r["candidates"] if own and k.layer == own[0].layer), None)
+        pick = pick or next(iter(r["candidates"]), None)
+        r |= {"layer": pick and pick.layer, "key": pick and pick.key, "kind": pick and pick.kind}
+        r["timed"] = (
+            r["event"] == "typed"
+            and r["kind"] not in ("macro", "combo")
+            and not r["repeat"]
+            and r["status"] != "off-track"
+        )
+        r["tap_hold"] = r["kind"] in ("mod-tap", "layer-tap")
+        counted = r["first"] and r["event"] == "typed" and r["status"] in ("correct", "error")
+        r["first_time_correct"] = r["status"] == "correct" if counted else None
+        up = up_at.get(r["seq"])
+        r["dwell"] = up - r["t"] if r["timed"] and not r["tap_hold"] and up is not None else None
+        r["candidates"] = [k._asdict() for k in r["candidates"]]
+
+    def linked(i: int) -> bool:
+        """Whether rows i - 1 and i are finger presses with only modifier keys between them."""
+        return (
+            0 < i < len(rows)
+            and rows[i - 1]["timed"]
+            and rows[i]["timed"]
+            and (rows[i]["presses"] == rows[i - 1]["presses"] + 1)
+        )
+
+    for i, r in enumerate(rows):
+        start, end = i - 1, i  # the pair, made longer over tap-hold keys at either end
+        while start >= 0 and rows[start]["tap_hold"] and linked(start):
+            start -= 1
+        while rows[end]["tap_hold"] and linked(end + 1):
+            end += 1
+        if linked(i) and not (rows[start]["tap_hold"] or rows[end]["tap_hold"]) and rows[start]["seq"] in up_at:
+            r["flight"] = rows[end]["t"] - up_at[rows[start]["seq"]]
+        else:
+            r["flight"] = None
+    return rows

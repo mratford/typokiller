@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from typokiller.analysis import attempts
+from typokiller.analysis import attempts, keystrokes
 from typokiller.app import create_app
-from typokiller.keymap import qmk_settings
+from typokiller.keymap import qmk_settings, read_keymap
 from typokiller.sources import ascii_v1, code_passages
 
 
@@ -137,6 +137,26 @@ def test_qmk_settings_come_from_the_vil_with_qmk_defaults_when_absent():
     assert qmk_settings(vil) == {"tapping_term": 200, "combo_term": 40}
     del vil["settings"]
     assert qmk_settings(vil) == {"tapping_term": 200, "combo_term": 50}
+
+
+def keys_for(vil, char):
+    """(layer, key, kind) of each candidate key for a character, best first."""
+    return [tuple(k) for k in read_keymap((SWEEP_LAYOUTS / "vil" / vil).read_text()).keys[char]]
+
+
+def test_each_character_has_its_candidate_keys_from_the_keymap_best_first():
+    sweep, cheapino = "ferris_sweep_qwerty.vil", "cheapino.vil"
+    # A symbol with several recipes: on Sym, on Num, and Shift with 9 on Num.
+    assert keys_for(sweep, "(") == [(1, "5,2", "plain"), (4, "1,2", "plain"), (4, "4,3", "plain")]
+    assert keys_for(cheapino, "(") == [(1, "1,2", "plain"), (4, "5,8", "plain"), (4, "0,3", "plain")]
+    # Capitals are Shift with the letter's key, which can be a mod-tap.
+    assert keys_for(sweep, "A") == [(0, "1,0", "plain")]
+    assert keys_for(cheapino, "V") == [(0, "6,7", "mod-tap")]
+    assert keys_for(sweep, " ") == [(0, "7,0", "layer-tap")]
+    # Shift with the _ key gives - by the key override.
+    assert keys_for(sweep, "-") == [(1, "4,3", "plain"), (4, "5,0", "plain"), (0, "5,4", "plain")]
+    # Enter is the J+L combo or the key on Nav.
+    assert keys_for(sweep, "\n") == [(0, "5,1+5,3", "combo"), (2, "7,1", "plain")]
 
 
 def test_each_keymap_has_its_letter_layout_and_a_session_puts_it_first(client, db_path):
@@ -440,3 +460,119 @@ def test_the_summary_of_an_attempt_has_the_medians_of_this_keymaps_finished_atte
     assert summary == pytest.approx(
         {"wpm": 60 / 6.1, "accuracy": 0.8, "median_wpm": (60 / 4.1 + 60 / 6.1) / 2, "median_accuracy": 0.9}
     )
+
+
+def down(t, key, code=None, repeat=False):
+    return {"t": t, "type": "keydown", "key": key, "code": code or f"Key{key}", "repeat": repeat}
+
+
+def up(t, key, code=None):
+    return {"t": t, "type": "keyup", "key": key, "code": code or f"Key{key}"}
+
+
+def tap(t, key, code=None, dwell=80.0):
+    return [down(t, key, code), up(t + dwell, key, code)]
+
+
+def typed_keystrokes(client, db_path, board, passage, *events):
+    """The keystrokes table of one Attempt at `passage` on the Sweep with QWERTY or on the
+    Cheapino. Each item of `events` is an event or a list of them, in any order."""
+    vil = {"sweep": "ferris_sweep_qwerty.vil", "cheapino": "cheapino.vil"}[board]
+    add_board(client, board, vil, board)
+    with sqlite3.connect(db_path) as db:
+        db.execute("INSERT INTO passage VALUES (2, NULL, 0, ?, 'ascii-v1')", (passage,))
+    session = start_session(client, client.get("/api/boards").json()["boards"][0]["keymaps"][0]["version"])
+    flat = [e for item in events for e in (item if isinstance(item, list) else [item])]
+    batch = [key_event(seq) | e for seq, e in enumerate(sorted(flat, key=lambda e: e["t"]))]
+    client.post(f"/api/sessions/{session}/batch", json={"events": batch, "attempts": {0: CODE}})
+    return keystrokes(sqlite3.connect(db_path))
+
+
+def test_each_keystroke_is_attributed_to_its_candidate_keys_and_one_pick_guided_by_the_passage(client, db_path):
+    table = typed_keystrokes(
+        client, db_path, "sweep", "A(78",
+        down(0, "Shift", "ShiftRight"), tap(10, "A"), up(100, "Shift", "ShiftRight"),
+        down(200, "Shift", "ShiftLeft"), tap(201, "(", "Digit9"), up(290, "Shift", "ShiftLeft"),
+        tap(400, "7"),
+        tap(600, "*"),  # an Error: the * on Num is picked, as 8 is on Num
+        tap(800, "Backspace"),
+        tap(1000, "8"),
+    )  # fmt: skip
+
+    columns = ["position", "char", "typed", "status", "layer", "key", "kind", "first_time_correct", "fix_ms", "event"]
+    assert table.select(columns).rows() == [
+        (0, "A", "A", "correct", 0, "1,0", "plain", True, None, "typed"),
+        (1, "(", "(", "correct", 1, "5,2", "plain", True, None, "typed"),
+        (2, "7", "7", "correct", 4, "4,1", "plain", True, None, "typed"),
+        (3, "8", "*", "error", 4, "4,4", "plain", False, 400.0, "typed"),
+        (3, "8", "8", "correct", 4, "4,2", "plain", None, None, "typed"),
+    ]
+    # Shift between two keys does not stop their flight; Backspace does.
+    assert table["flight"].to_list() == [None, 111.0, 119.0, 120.0, None]
+    assert table["candidates"][1].to_list() == [
+        {"layer": 1, "key": "5,2", "kind": "plain"},
+        {"layer": 4, "key": "1,2", "kind": "plain"},
+        {"layer": 4, "key": "4,3", "kind": "plain"},
+    ]
+    assert table.select("session", "ord", "seq", "t", "board", "letter_layout", "dwell", "flight", "alignment").row(
+        0
+    ) == (1, 0, 1, 10.0, "sweep", "QWERTY", 80.0, None, "first-error-v1")
+
+
+def test_mod_tap_combo_and_macro_misfires_are_their_own_event_types(client, db_path):
+    table = typed_keystrokes(
+        client, db_path, "cheapino", "ve kl->xy",
+        down(0, "Shift", "ShiftLeft"), tap(250, "E"), up(300, "Shift", "ShiftLeft"),  # v held too long
+        tap(400, "Backspace"), tap(500, "v"), tap(600, "e"), tap(700, " ", "Space"),
+        tap(800, "Backspace"),  # K+L together send Backspace
+        tap(900, " ", "Space"), tap(1000, "k"), tap(1100, "l"),
+        tap(1200, "-", "Minus", 0.2), tap(1201, ">", "Period", 0.2),  # the -> macro
+        tap(1400, "|", "Backslash", 0.2), tap(1401, ">", "Period", 0.2),  # the |> macro, where x was wanted
+    )  # fmt: skip
+
+    assert table.select("position", "typed", "status", "event", "layer", "key", "kind").rows() == [
+        (0, "E", "error", "mod-tap misfire", 0, "6,7", "mod-tap"),
+        (0, "v", "correct", "typed", 0, "6,7", "mod-tap"),
+        (1, "e", "correct", "typed", 0, "4,8", "plain"),
+        (2, " ", "correct", "typed", 0, "1,5", "layer-tap"),
+        (3, "Backspace", "ignored", "combo misfire", 0, "1,2+1,3", "combo"),
+        (2, " ", "correct", "typed", 0, "1,5", "layer-tap"),
+        (3, "k", "correct", "typed", 0, "1,2", "plain"),
+        (4, "l", "correct", "typed", 0, "1,3", "plain"),
+        (5, "-", "correct", "typed", 1, "6,7", "macro"),
+        (6, ">", "correct", "typed", 1, "6,7", "macro"),
+        (7, "|", "error", "macro misfire", 1, "6,10", "macro"),
+        (8, ">", "off-track", "macro misfire", 1, "6,10", "macro"),
+    ]
+    # Misfires are not counted as Errors.
+    assert table["first_time_correct"].to_list()[:5] == [None, None, True, True, None]
+
+
+def test_dwell_and_flight_come_from_finger_events_with_summed_time_around_tap_hold_keys(client, db_path):
+    table = typed_keystrokes(
+        client, db_path, "sweep", "ab e-d->ff\ng",
+        tap(0, "a"), tap(200, "b"),
+        tap(500, " ", "Space", 0.3),  # a tapped layer-tap arrives at its release
+        tap(600, "e"),
+        down(800, "-", "Minus"), up(880, "_", "Minus"),  # a keyup's key can differ from its keydown's
+        down(1000, "d"),  # its keyup was lost
+        tap(1200, "-", "Minus", 0.2), tap(1201, ">", "Period", 0.2),  # the -> macro
+        down(1400, "f"), down(1900, "f", repeat=True), up(1950, "f"),
+        tap(2100, "Enter", "Enter"),  # the J+L combo
+        tap(2300, "g"),
+    )  # fmt: skip
+
+    assert table.select("char", "kind", "dwell", "flight").rows() == [
+        ("a", "plain", 80.0, None),
+        ("b", "plain", 80.0, 120.0),
+        (" ", "layer-tap", None, 320.0),  # from b's keyup to e's keydown, for both pairs
+        ("e", "plain", 80.0, 320.0),
+        ("-", "plain", 80.0, 120.0),
+        ("d", "plain", None, 120.0),
+        ("-", "macro", None, None),
+        (">", "macro", None, None),
+        ("f", "plain", 550.0, None),  # its keyup came after the auto-repeat
+        ("f", "plain", None, None),  # auto-repeat
+        ("\n", "combo", None, None),
+        ("g", "plain", 80.0, None),
+    ]
