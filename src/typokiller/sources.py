@@ -82,7 +82,12 @@ def tidy_code(text: str) -> str:
     return "\n".join(re.sub(r"(?<=\S)\s+", " ", line).rstrip() for line in text.expandtabs(4).splitlines())
 
 
-FENCE = re.compile(r"\s*(```|~~~)")
+# The start of a line that opens or closes a fenced code block. The text after it is ignored.
+FENCE_MARK = r"[ \t]*(?:```|~~~)"
+FENCE = re.compile(FENCE_MARK)
+# A whole fenced code block, by the same rule as `lesson_passages`; group 1 is its code, with a
+# newline after each line. A block with no closing fence is not one: `lesson_passages` drops it.
+CODE_BLOCK = re.compile(rf"^{FENCE_MARK}.*\n((?:.*\n)*?){FENCE_MARK}.*$", re.M)
 
 
 def lesson_passages(

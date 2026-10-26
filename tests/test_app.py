@@ -1,8 +1,10 @@
 import hashlib
 import json
 import re
+import socket
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -18,7 +20,7 @@ from typokiller.app import create_app
 from typokiller.drawing import Heat, draw_keymap
 from typokiller.drills import WORDS, pool
 from typokiller.keymap import qmk_settings, read_keymap
-from typokiller.lessons import Reply
+from typokiller.lessons import Reply, run_code
 from typokiller.sources import ascii_v1, code_passages, lesson_passages
 
 
@@ -33,12 +35,13 @@ def settings_path(tmp_path):
 
 
 class FakeProvider:
-    """Answers each Lesson request with `text`, or raises `error`, and records each call. It
-    answers only while `going` is set. Its prices are Haiku 5.5's on OpenRouter: $0.10 and
-    $0.50 per million tokens."""
+    """Answers each call with the next of `texts`, and with `text` when none are left, or
+    raises `error`, and records each call. It answers only while `going` is set. Its prices are
+    Haiku 5.5's on OpenRouter: $0.10 and $0.50 per million tokens."""
 
     def __init__(self):
         self.text = LESSON
+        self.texts: list[str] = []
         self.error: Exception | None = None
         self.calls = []
         self.going = threading.Event()
@@ -52,7 +55,8 @@ class FakeProvider:
         self.going.wait(5)
         if self.error:
             raise self.error
-        return Reply(self.text, {"prompt_tokens": 200, "completion_tokens": 3000}, 0.0015)
+        text = self.texts.pop(0) if self.texts else self.text
+        return Reply(text, {"prompt_tokens": 200, "completion_tokens": 3000}, 0.0015)
 
 
 @pytest.fixture
@@ -82,6 +86,10 @@ LESSONS = {
     "words": 1300,
     "level": "intermediate",
     "split_lines": 40,
+    "timeout": 10,
+    "repairs": 2,
+    "repair_tokens": 4000,
+    "drop_share": 0.34,
     "cap": 5.0,
     "dollars_per_pound": 1.337,
 }
@@ -1138,7 +1146,7 @@ def test_a_lesson_is_written_in_the_background_in_the_order_asked_and_recorded_a
     responses = [running.post("/api/lessons", json={"topic": topic}) for topic in ["pattern matching", "decorators"]]
 
     assert [r.status_code for r in responses] == [202, 202]
-    ready = "4 Passages, 1 skipped. It is first in the list of Sources (o)."
+    ready = "4 Passages, 1 skipped; 0 of 1 code examples dropped. It is first in the list of Sources (o)."
     assert wait_for_notice(running, 2) == [f"Lesson ready: pattern matching: {ready}", f"Lesson ready: decorators: {ready}"]
     [call, _] = provider.calls
     assert {k: v for k, v in call.items() if k != "messages"} == {
@@ -1178,12 +1186,15 @@ def test_a_lesson_that_fails_says_why(running, db_path, provider):
 def test_a_request_whose_worst_case_with_the_waiting_ones_could_pass_the_cap_this_uk_month_is_refused_and_not_sent(
     running, db_path, provider
 ):
-    # A request's worst case is about $0.0042: 8,000 output tokens at $0.50 per million, and the
-    # prompt. $0.006 is left this month, enough for one request but not for two.
+    # A request's worst case is about $0.072: the Lesson (8,000 output tokens at $0.50 per million,
+    # and the prompt) and 2 repair calls (4,000 output tokens and a prompt of about 6,500
+    # characters) for each of the 6 code blocks that the prompt asks for, and all of that again
+    # if the Lesson is written again. $0.1 is left this month, enough for one request but not
+    # for two. Without the repairs it would be enough for many.
     london = datetime.now(ZoneInfo("Europe/London"))
     month = london.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     with sqlite3.connect(db_path) as db:
-        db.execute(spend_row(5 * 1.337 - 0.006, month.astimezone(UTC).isoformat()))
+        db.execute(spend_row(5 * 1.337 - 0.1, month.astimezone(UTC).isoformat()))
         db.execute(spend_row(100, (month - timedelta(seconds=1)).astimezone(UTC).isoformat()))  # last month
     provider.going.clear()  # so the first Lesson is still being written when the second is asked for
 
@@ -1196,4 +1207,101 @@ def test_a_request_whose_worst_case_with_the_waiting_ones_could_pass_the_cap_thi
     assert (second.status_code, second.json()["detail"]) == (409, f"Cap reached: resets 1 {resets:%b}")
     wait_for_notice(running)
     assert [call["messages"][1]["content"] for call in provider.calls] == ["Write a Python Lesson on decorators."]
-    assert running.get("/api/lessons/spend").json()["spent"] == pytest.approx(5 - 0.0045 / 1.337)
+    assert running.get("/api/lessons/spend").json()["spent"] == pytest.approx(5 - (0.1 - 0.0015) / 1.337)
+
+
+def test_a_python_block_runs_in_a_new_folder_and_cannot_write_outside_it(tmp_path):
+    outside = tmp_path / "outside.txt"
+    inside = "import tempfile\nopen('here.txt', 'w').write('x')\ntempfile.TemporaryFile().write(b'x')\n"
+
+    assert run_code("python", inside, 10) is None
+    assert "PermissionError" in (run_code("python", f"open({str(outside)!r}, 'w')\n", 10) or "")
+    assert not outside.exists()
+
+
+def test_a_python_block_has_no_network():
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        connect = f"import socket\nsocket.create_connection(('127.0.0.1', {server.getsockname()[1]}), timeout=2)\n"
+        subprocess.run([sys.executable, "-c", connect], check=True)  # without the sandbox, it connects
+
+        assert "PermissionError" in (run_code("python", connect, 10) or "")
+
+
+def test_a_block_passes_on_exit_code_0_within_the_timeout():
+    assert run_code("python", "import json\nprint(json.dumps(1))\n", 10) is None
+    assert "No module named 'polars'" in (run_code("python", "import polars\n", 10) or "")  # the standard library only
+    assert run_code("python", "import sys\nprint('oops', file=sys.stderr)\nsys.exit(3)\n", 10) == (
+        "It ended with exit code 3.\noops\n"
+    )
+    assert run_code("python", "import time\ntime.sleep(10)\n", 0.5) == "It did not finish within 0.5 seconds.\n"
+
+
+def code_lesson(*blocks):
+    """A Lesson with a section for each code block."""
+    return "".join(f"## Part {i}\n\nA paragraph long enough to type.\n\n```python\n{b}\n```\n\n" for i, b in enumerate(blocks))
+
+
+def fenced(code):
+    return f"Here it is fixed:\n\n```python\n{code}\n```\n"
+
+
+def test_a_failing_block_gets_up_to_2_repair_calls_with_its_error_and_then_is_dropped(running, db_path, provider):
+    provider.texts = [
+        code_lesson("print('the first block')", "print(two)", "raise SystemExit(1)"),
+        fenced("print('the second block')"),  # the second block's first repair passes
+        fenced("raise SystemExit(2)"),  # the third block's repairs fail
+        fenced("raise SystemExit(3)"),
+    ]
+
+    running.post("/api/lessons", json={"topic": "checking"})
+
+    ready = "5 Passages, 0 skipped; 1 of 3 code examples dropped. It is first in the list of Sources (o)."
+    assert wait_for_notice(running) == [f"Lesson ready: checking: {ready}"]
+    repairs = provider.calls[1:]
+    assert [(c["max_tokens"], c["reasoning"]) for c in repairs] == [(4000, "low")] * 3
+    asked = [c["messages"][-1]["content"] for c in repairs]
+    assert "print(two)" in asked[0] and "NameError: name 'two' is not defined" in asked[0]
+    assert "raise SystemExit(1)" in asked[1] and "exit code 1" in asked[1]
+    assert "raise SystemExit(2)" in asked[2] and "exit code 2" in asked[2]
+    # Each repair call is in the spend ledger with the Lesson.
+    assert rows(db_path, "SELECT lesson, dollars FROM spend") == [(1, 0.0015)] * 4
+    # The check log has each block's checks, the code of each and its error, None when it passed.
+    [(checks, source)] = rows(db_path, "SELECT checks, source FROM lesson")
+    log = json.loads(checks)
+    assert [[(c["code"], c["error"] is None) for c in block] for block in log] == [
+        [("print('the first block')\n", True)],
+        [("print(two)\n", False), ("print('the second block')\n", True)],
+        [("raise SystemExit(1)\n", False), ("raise SystemExit(2)\n", False), ("raise SystemExit(3)\n", False)],
+    ]
+    assert log[2][2]["error"] == "It ended with exit code 3.\n"
+    # The Source has the repaired block and not the dropped one.
+    passages = [p for (p,) in rows(db_path, f"SELECT text FROM passage WHERE source = {source} ORDER BY ord")]
+    paragraph = "A paragraph long enough to type."
+    assert passages == [paragraph, "print('the first block')", paragraph, "print('the second block')", paragraph]
+    assert "SystemExit" not in rows(db_path, f"SELECT text FROM source WHERE id = {source}")[0][0]
+
+
+def test_a_lesson_with_more_than_a_third_of_its_blocks_dropped_is_written_again_once(running, db_path, provider):
+    provider.texts = [code_lesson("print('one')", "raise SystemExit(1)", "raise SystemExit(1)")] + [fenced("1/0")] * 4
+
+    running.post("/api/lessons", json={"topic": "checking"})
+
+    assert wait_for_notice(running)[0].startswith("Lesson ready: checking: 4 Passages")
+    assert len(provider.calls) == 1 + 4 + 1
+    assert provider.calls[5]["messages"] == provider.calls[0]["messages"]
+    # Each time it was written has its own row, with its check log. The first has no Source.
+    [first, second] = rows(db_path, "SELECT checks, source FROM lesson ORDER BY id")
+    assert len(json.loads(first[0])) == 3 and first[1] is None
+    assert len(json.loads(second[0])) == 1 and second[1] is not None
+    assert rows(db_path, "SELECT lesson FROM spend ORDER BY rowid") == [(1,)] * 5 + [(2,)]
+
+
+def test_a_lesson_with_no_code_left_after_it_is_written_again_is_rejected(running, db_path, provider):
+    provider.text = "## Prose\n\nOnly prose here, and long enough to type.\n"
+
+    running.post("/api/lessons", json={"topic": "prose"})
+
+    assert wait_for_notice(running) == ["Lesson prose failed: it was written 2 times; the last time, it had no code example."]
+    assert len(provider.calls) == 2
+    assert rows(db_path, "SELECT checks, source FROM lesson") == [("[]", None), ("[]", None)]
+    assert rows(db_path, "SELECT * FROM source") == []

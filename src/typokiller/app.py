@@ -38,8 +38,20 @@ from typokiller.analysis import (
 from typokiller.drawing import draw_keymap, drawn_layers, layer_name
 from typokiller.drills import DRILL_GENERATORS
 from typokiller.keymap import keymap_letters, read_keymap
-from typokiller.lessons import LESSON_PROMPTS, Provider, Reply, cap_refusal, spent, worst_case
+from typokiller.lessons import (
+    LESSON_PROMPTS,
+    WRITES,
+    Provider,
+    Reply,
+    cap_refusal,
+    code_in,
+    run_code,
+    spent,
+    with_codes,
+    worst_case,
+)
 from typokiller.sources import (
+    CODE_BLOCK,
     article_paragraphs,
     code_passages,
     gutenberg_paragraphs,
@@ -101,7 +113,8 @@ CREATE TABLE IF NOT EXISTS lesson (  -- one row per Lesson that the model wrote
     prompt TEXT NOT NULL,  -- the Lesson prompt
     settings TEXT NOT NULL,  -- JSON: the [lessons] settings then
     output TEXT NOT NULL,  -- the model's raw output
-    source INTEGER  -- the Source made from it; NULL when it had no Passage to type
+    source INTEGER,  -- the Source made from it; NULL when it failed the check or had no Passage to type
+    checks TEXT  -- JSON: the check log, a list of checks for each code block (see check_code)
 );
 CREATE TABLE IF NOT EXISTS spend (  -- the spend ledger: one row per call to a model
     lesson INTEGER NOT NULL,
@@ -213,8 +226,20 @@ level = "intermediate"
 # A code block longer than this many lines is split into Passages at blank lines before
 # unindented lines.
 split_lines = 40
+# Each code block is run on its own in a new folder under sandbox-exec, with no network and no
+# writes outside that folder. It passes when it ends with exit code 0 within `timeout` seconds.
+# One that fails is sent back to the model with its error, up to `repairs` times, and each
+# answer has at most repair_tokens tokens; then it is dropped. When more than drop_share of the
+# blocks are dropped (0.34: more than a third), or no code is left, the Lesson is written once
+# again, and then rejected.
+timeout = 10
+repairs = 2
+repair_tokens = 4000
+drop_share = 0.34
 # The most that calls to models may cost in a calendar month (UK time), in pounds. A request
-# that could make the cost more than this is refused. The dollars charged become pounds at this fixed rate.
+# that could make the cost more than this is refused: it counts the Lesson written twice, each
+# time with every repair call that the prompt's code blocks could have. The dollars charged
+# become pounds at this fixed rate.
 cap = 5.0
 dollars_per_pound = 1.337
 
@@ -398,7 +423,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     db = sqlite3.connect(db_path, check_same_thread=False)
     db.executescript(SCHEMA)
     # Databases made before these columns existed get them here. Their old rows keep NULL.
-    for table, column in [("session", "keymap_version"), ("attempt", "settings"), ("passage", "heading")]:
+    for table, column in [("session", "keymap_version"), ("attempt", "settings"), ("passage", "heading"), ("lesson", "checks")]:
         with suppress(sqlite3.OperationalError):  # fails when the column is there already
             db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
     with db:
@@ -465,35 +490,74 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
 
     def lesson_call(request: LessonRequest, lessons: dict) -> tuple[str, list[dict[str, str]]]:
         """The model and the prompt messages of a Lesson, by the [lessons] settings."""
-        return lessons[f"{request.language}_model"], LESSON_PROMPTS[lessons["prompt"]](request.language, request.topic, lessons)
+        prompt = LESSON_PROMPTS[lessons["prompt"]]
+        return lessons[f"{request.language}_model"], prompt.write(request.language, request.topic, lessons)
 
-    async def write_lesson(request: LessonRequest) -> str:
-        """Has the model write a Lesson, stores it as a Source, and returns the notice."""
-        topic, language = request.topic, request.language
-        settings = read_settings(settings_path).unwrap()
-        lessons = settings["lessons"]
-        model, messages = lesson_call(request, lessons)
-        reply = await asyncio.to_thread(provider.write, model, messages, lessons["max_tokens"], lessons["reasoning"])
+    def add_spend(lesson: int, reply: Reply):
         with db:
-            (lesson,) = db.execute(
-                "INSERT INTO lesson (made, topic, language, model, prompt, settings, output)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
-                (now(), topic, language, model, lessons["prompt"], json.dumps(lessons), reply.text),
-            ).fetchone()
             db.execute(
                 "INSERT INTO spend (lesson, time, usage, dollars) VALUES (?, ?, ?, ?)",
                 (lesson, now(), json.dumps(reply.usage), reply.dollars),
             )
-        # #32 checks the code blocks here: it runs each one, repairs or drops those that fail,
-        # and has the Lesson written again when too many are dropped.
+
+    async def check_code(lesson: int, language: str, model: str, markdown: str, lessons: dict) -> tuple[str, list]:
+        """Runs each code block of a Lesson with `run_code`. A block that fails is sent to the
+        model with its error for a repair, up to `repairs` times, and is dropped if it still
+        fails. Each repair call is in the spend ledger with the Lesson. Gives the Markdown with
+        the repaired blocks and without the dropped ones, and the check log: for each block, a
+        list of its checks, each {code, error}, where error is None when it passed."""
+        repair = LESSON_PROMPTS[lessons["prompt"]].repair
+        log = []
+        for block in CODE_BLOCK.finditer(markdown):
+            checks = [{"code": block[1], "error": await asyncio.to_thread(run_code, language, block[1], lessons["timeout"])}]
+            while checks[-1]["error"] and len(checks) <= lessons["repairs"]:
+                messages = repair(language, checks[-1]["code"], checks[-1]["error"])
+                reply = await asyncio.to_thread(provider.write, model, messages, lessons["repair_tokens"], lessons["reasoning"])
+                add_spend(lesson, reply)
+                code = code_in(reply.text)
+                checks.append({"code": code, "error": await asyncio.to_thread(run_code, language, code, lessons["timeout"])})
+            log.append(checks)
+        return with_codes(markdown, [None if checks[-1]["error"] else checks[-1]["code"] for checks in log]), log
+
+    async def write_lesson(request: LessonRequest) -> str:
+        """Has the model write a Lesson, checks its code, stores it as a Source, and returns the
+        notice. When too many code blocks are dropped, the Lesson is written again, up to WRITES
+        times in all, and then rejected. Each time it is written has its own lesson row."""
+        topic, language = request.topic, request.language
+        settings = read_settings(settings_path).unwrap()
+        lessons = settings["lessons"]
+        model, messages = lesson_call(request, lessons)
+        writes = 0
+        while True:
+            writes += 1
+            reply = await asyncio.to_thread(provider.write, model, messages, lessons["max_tokens"], lessons["reasoning"])
+            with db:
+                (lesson,) = db.execute(
+                    "INSERT INTO lesson (made, topic, language, model, prompt, settings, output)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id",
+                    (now(), topic, language, model, lessons["prompt"], json.dumps(lessons), reply.text),
+                ).fetchone()
+            add_spend(lesson, reply)
+            text, log = await check_code(lesson, language, model, reply.text, lessons)
+            with db:
+                db.execute("UPDATE lesson SET checks = ? WHERE id = ?", (json.dumps(log), lesson))
+            dropped = sum(bool(checks[-1]["error"]) for checks in log)
+            if log and dropped < len(log) and dropped <= lessons["drop_share"] * len(log):
+                break
+            if writes == WRITES:
+                why = f"{dropped} of {len(log)} code examples failed after repairs" if log else "it had no code example"
+                return f"Lesson {topic} failed: it was written {writes} times; the last time, {why}."
         rule = settings["passages"]
-        parts, skipped = lesson_passages(reply.text, lessons["split_lines"], rule["max_dropped"], rule["min_length"])
+        parts, skipped = lesson_passages(text, lessons["split_lines"], rule["max_dropped"], rule["min_length"])
         if not parts:
             return f"Lesson {topic} failed: it has nothing long enough to type."
-        source = add_source(topic, reply.text, [text for _, text in parts], [heading for heading, _ in parts])
+        source = add_source(topic, text, [passage for _, passage in parts], [heading for heading, _ in parts])
         with db:
             db.execute("UPDATE lesson SET source = ? WHERE id = ?", (source, lesson))
-        return f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped. It is first in the list of Sources (o)."
+        return (
+            f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped; {dropped} of {len(log)} code examples"
+            " dropped. It is first in the list of Sources (o)."
+        )
 
     # The Lessons asked for and not written yet, in the order asked for, each with its worst
     # case in dollars. `waiting` is the sum of those worst cases, which the cap counts.
@@ -771,16 +835,15 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
 
     # l in the Escape menu. The Lesson is written in the background after the ones asked for
     # before it. A request is refused, and nothing is sent, when the month-to-date spend plus the
-    # worst cases of the Lessons still waiting and of this one (one call with the most output)
-    # could be more than the cap (spec §9).
-    # #32: add the most that the repair calls can cost to the worst case.
+    # worst cases of the Lessons still waiting and of this one (`worst_case`: written twice, with
+    # every repair call) could be more than the cap (spec §9).
     @app.post("/api/lessons", status_code=202)
     async def request_lesson(request: LessonRequest):
         nonlocal waiting
         lessons = read_settings(settings_path).unwrap()["lessons"]
         model, messages = lesson_call(request, lessons)
         try:
-            worst = await asyncio.to_thread(worst_case, provider, model, messages, lessons["max_tokens"])
+            worst = await asyncio.to_thread(worst_case, provider, model, request.language, messages, lessons)
         except (OSError, ValueError, KeyError) as e:  # the price list could not be read, or has no such model
             raise HTTPException(502, f"No price for {model}: {e!r}")
         if refused := cap_refusal(db, waiting + worst, lessons):
