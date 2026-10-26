@@ -112,12 +112,26 @@ const resume = () => sources.find(s => s.at < s.total);
 // last Passage comes the built-in one, and a finished Source is closed.
 const show = served => ({ source, passages: [passage, nextPassage] } = served);
 
-const openSource = async (id, at) => show(await sendJSON(`/api/sources/${id}/bookmark`, { at }, { method: 'PUT' }));
+let bookmarkRequest = null; // the last request that moves a bookmark, until the server answers it
+
+// Moves a Source's bookmark. Only the answer to the last request is shown, so a slow
+// answer cannot reopen a Source after another one was chosen.
+async function openSource(id, at) {
+  const request = sendJSON(`/api/sources/${id}/bookmark`, { at }, { method: 'PUT' });
+  bookmarkRequest = request;
+  try {
+    const served = await request;
+    if (request === bookmarkRequest) show(served);
+  } finally {
+    if (request === bookmarkRequest) bookmarkRequest = null;
+  }
+}
 
 // Finishing or skipping a Passage moves the bookmark on. The next Passage is
-// shown at once, and the server then sends the one after it.
+// shown at once, and the server then sends the one after it. While a bookmark request
+// has no answer, `source` still holds the old bookmark, so the bookmark does not move.
 function advance() {
-  if (!source) return;
+  if (!source || bookmarkRequest) return;
   const { id, at, title } = source;
   passage = nextPassage;
   openSource(id, at + 1).then(() => { if (!source) message = `Finished ${title}.`; render(); });
