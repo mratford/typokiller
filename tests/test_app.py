@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from typokiller.analysis import attempts
 from typokiller.app import create_app
 from typokiller.keymap import qmk_settings
 from typokiller.sources import ascii_v1, code_passages
@@ -373,3 +374,69 @@ def test_the_send_page_that_the_bookmarklet_opens_is_served_at_send(client):
 
     assert response.status_code == 200
     assert "/api/articles" in response.text
+
+
+def key_presses(keys, attempt, seq):
+    """A keydown every second for each key, each with its keyup 100 ms later."""
+    events = []
+    for i, k in enumerate(keys):
+        for type, t in [("keydown", 1000 * i), ("keyup", 1000 * i + 100)]:
+            events.append(key_event(seq + len(events), attempt, type) | {"t": t, "key": k, "code": f"Key{k}"})
+    return events
+
+
+CODE = {"passage": 2, "settings": SETTINGS}  # "ab\n  cd": its 2 spaces of indentation are not typed
+TYPE_CODE = ["a", "b", "Enter", "c", "d"]  # 5 characters in 4.1 s, all right first time
+
+
+def sweep_versions(client, db_path):
+    """The QWERTY and the free-range Keymap versions of a Sweep. Also adds the code Passage."""
+    add_board(client, "Sweep", "ferris_sweep_qwerty.vil", "sweep")
+    add_board(client, "Sweep", "ferris_sweep_freerange.vil", "sweep")
+    with sqlite3.connect(db_path) as db:
+        db.execute("INSERT INTO passage VALUES (2, NULL, 0, ?, 'ascii-v1')", ("ab\n  cd",))
+    keymaps = client.get("/api/boards").json()["boards"][0]["keymaps"]
+    return [k["version"] for k in keymaps]
+
+
+def typed_session(client, version, *attempts, finished):
+    """A Session on `version` with one Attempt at the code Passage for each list of keys.
+    `finished` holds the ords of the Attempts that finished."""
+    session = start_session(client, version)
+    events = [e for ord, keys in enumerate(attempts) for e in key_presses(keys, ord, seq=100 * ord)]
+    batch = {"events": events, "attempts": {ord: CODE for ord in range(len(attempts))}, "finished": finished}
+    client.post(f"/api/sessions/{session}/batch", json=batch)
+    return session
+
+
+def test_the_attempts_table_has_wpm_from_typed_characters_and_first_time_accuracy(client, db_path):
+    qwerty, _ = sweep_versions(client, db_path)
+    session = typed_session(client, qwerty, TYPE_CODE, ["a", "x"], finished=[0])
+
+    table = attempts(sqlite3.connect(db_path))
+
+    assert table.drop("started").to_dicts() == [
+        {"session": session, "ord": 0, "board": "Sweep", "letter_layout": "QWERTY", "passage": 2, "finished": True,
+         "wpm": 60 / 4.1, "accuracy": 1.0, "alignment": "first-error-v1"},
+        {"session": session, "ord": 1, "board": "Sweep", "letter_layout": "QWERTY", "passage": 2, "finished": False,
+         "wpm": None, "accuracy": 0.5, "alignment": "first-error-v1"},
+    ]  # fmt: skip
+
+
+def test_the_summary_of_an_attempt_has_the_medians_of_this_keymaps_finished_attempts_in_the_last_4_weeks(
+    client, db_path
+):
+    qwerty, free_range = sweep_versions(client, db_path)
+    typed_session(client, qwerty, TYPE_CODE, finished=[0])
+    old = typed_session(client, qwerty, TYPE_CODE, finished=[0])
+    with sqlite3.connect(db_path) as db:
+        db.execute(f"UPDATE session SET started = '2026-01-01T00:00:00+00:00' WHERE id = {old}")
+    typed_session(client, free_range, TYPE_CODE, finished=[0])
+    one_error = ["a", "x", "Backspace", "b", "Enter", "c", "d"]  # in 6.1 s, 4 of 5 right first time
+    session = typed_session(client, qwerty, ["a"], one_error, finished=[1])
+
+    summary = client.get(f"/api/sessions/{session}/attempts/1/summary").json()
+
+    assert summary == pytest.approx(
+        {"wpm": 60 / 6.1, "accuracy": 0.8, "median_wpm": (60 / 4.1 + 60 / 6.1) / 2, "median_accuracy": 0.9}
+    )

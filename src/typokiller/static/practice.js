@@ -51,6 +51,8 @@ let editing = null; // the text typed for the selected number setting while it i
 let message = '';
 let noticesSeen = null; // how many notices the server had at the last check; null before the first
 const heldIn = new Map(); // code -> the Attempt that recorded its keydown
+let summary = ''; // the last finished Attempt's numbers, shown on the message line before `message`
+let summaryFor = null; // the ord of the finished Attempt whose numbers have not been asked for yet
 let events = []; // not yet stored by the server
 let finished = []; // ords of finished Attempts, not yet stored by the server
 
@@ -178,6 +180,8 @@ async function startSession(keymap) {
   ord = 0;
   typed = '';
   message = '';
+  summary = '';
+  summaryFor = null;
   heldIn.clear();
   screen = 'typing';
   render();
@@ -314,7 +318,11 @@ addEventListener('keydown', e => {
     typed = applyKey(passage.text, typed, e, wrongKeyMode());
     if (typed === passage.text) {
       finished.push(ord);
-      message = '✓ finished';
+      summaryFor = ord;
+      // Firefox loses some keyups, so the summary is asked for after a second at the latest.
+      setTimeout(finishedOrd => { if (summaryFor === finishedOrd) showSummary(); }, 1000, ord);
+      summary = '✓ finished';
+      message = '';
       advance();
       nextAttempt();
     }
@@ -327,7 +335,22 @@ addEventListener('keyup', e => {
   if (!heldIn.has(e.code)) return;
   record(e, heldIn.get(e.code));
   heldIn.delete(e.code);
+  if (summaryFor !== null && ![...heldIn.values()].includes(summaryFor)) showSummary();
 });
+
+const percent = x => `${Math.round(x * 100)}%`;
+
+// Shows a finished Attempt's summary on the message line, after its last keyup, so that
+// the server has all its key events. Typing the next Passage goes on meanwhile.
+async function showSummary() {
+  const attempt = summaryFor;
+  summaryFor = null;
+  await flush();
+  const s = await getJSON(`/api/sessions/${session}/attempts/${attempt}/summary`);
+  summary = `✓ ${Math.round(s.wpm)} wpm (median ${Math.round(s.median_wpm)})`
+    + ` · ${percent(s.accuracy)} first time (median ${percent(s.median_accuracy)})`;
+  render();
+}
 
 // Pasting into a text field of the import panel.
 addEventListener('paste', e => {
@@ -470,7 +493,7 @@ function render() {
     <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(boardLabel)}</span>
       <span class="grow">${starting ? '' : source ? esc(sourceLabel(source)) : 'built-in Passage'}</span>
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
-    <div class="msg">${esc(message)}</div>`;
+    <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;
   scrollToCursor();
 }
 

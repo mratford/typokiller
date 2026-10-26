@@ -10,10 +10,11 @@ import tempfile
 import time
 import urllib.request
 from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+import polars as pl
 import tomlkit
 import truststore
 import uvicorn
@@ -22,7 +23,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from typokiller.keymap import letter_layout
+from typokiller.analysis import attempts
+from typokiller.keymap import keymap_letters
 from typokiller.sources import (
     article_paragraphs,
     code_passages,
@@ -314,7 +316,7 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             " ORDER BY board.id, keymap_version.rowid"  # oldest version first
         ):
             keymaps = found.setdefault(board, {"id": board, "name": name, "keymaps": {}})["keymaps"]
-            letters = letter_layout(json.loads(vil), json.loads(vial))
+            letters = keymap_letters(vil, vial)
             used = max(used or 0, keymaps.get(letters, {"used": 0})["used"])  # the last Session's id, or 0
             keymaps[letters] = {"letter_layout": letters, "version": version, "used": used}
         for b in found.values():
@@ -351,6 +353,24 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
                 "INSERT INTO attempt (session, ord, finished) VALUES (?, ?, 1) ON CONFLICT DO UPDATE SET finished = 1",
                 [(session, attempt) for attempt in batch.finished],
             )
+
+    # The page shows this on the message line after each finished Attempt. The medians are
+    # over the finished Attempts of the last 4 weeks on the same Board and Letter layout.
+    @app.get("/api/sessions/{session}/attempts/{ord}/summary")
+    async def attempt_summary(session: int, ord: int):
+        table = attempts(db, since=datetime.now(UTC) - timedelta(weeks=4))
+        attempt = table.filter(session=session, ord=ord).row(0, named=True)
+        same_keymap = table.filter(
+            pl.col("finished"),
+            pl.col("board").eq_missing(attempt["board"]),
+            pl.col("letter_layout").eq_missing(attempt["letter_layout"]),
+        )
+        return {
+            "wpm": attempt["wpm"],
+            "accuracy": attempt["accuracy"],
+            "median_wpm": same_keymap["wpm"].median(),
+            "median_accuracy": same_keymap["accuracy"].median(),
+        }
 
     @app.get("/api/gutenberg")
     async def search_books(q: str):

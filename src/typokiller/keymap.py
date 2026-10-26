@@ -1,4 +1,6 @@
+import json
 import re
+from functools import cache
 from typing import Any
 
 # Letter layouts with a name, written as the 30 main keys row by row, left to right.
@@ -67,3 +69,9 @@ def letter_layout(vil: dict[str, Any], vial: dict[str, Any]) -> str:
         first = next(i for i, char in enumerate(chars) if char.isalpha())
         text += "".join(chars[first : first + 10])
     return LETTER_LAYOUTS.get(text, text)
+
+
+@cache
+def keymap_letters(vil: str, vial: str) -> str:
+    """The name of the Letter layout of a stored .vil, from the texts of it and its vial.json."""
+    return letter_layout(json.loads(vil), json.loads(vial))

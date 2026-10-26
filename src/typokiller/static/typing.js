@@ -5,6 +5,8 @@ const indentAt = (passage, i) => passage.slice(i).match(/^ */)[0];
 // a wrong character goes in like a right one; in "locked until fixed" mode it does not
 // go in. Only Backspace removes characters. Enter goes in only where the Passage has a
 // newline, and the next line's indentation is then filled in without typing it.
+// `apply_key` in analysis.py replays these rules on the stored key events, so the
+// two must change together.
 export function applyKey(passage, typed, e, mode) {
   if (e.ctrlKey || e.metaKey) return typed;
   if (e.key === 'Backspace') {
