@@ -329,3 +329,47 @@ def test_a_clone_that_fails_is_reported(running, tmp_path):
 
     [notice] = wait_for_notice(running)
     assert notice.startswith(f"Could not clone {tmp_path / 'missing'}:")
+
+
+# What `innerText` gives for a news page: each block on its own line, menu text at the top and the bottom.
+ARTICLE = (
+    "Sign up for the morning newsletter to get our best stories\n"
+    "Share\n\n"
+    "Ministers met on Monday to discuss the “new” rules for the city’s harbour.\n"
+    "\n   The plan, they said, would take three years — and cost more than expected.  \n"
+    "Ἐν ἀρχῇ ἦν ὁ λόγος, said the vicar of the harbour church.\n"
+    "Subscribe\n"
+    "Sign up for the morning newsletter to get our best stories\n"
+)
+
+
+def test_each_kept_line_of_an_article_is_a_passage_and_the_article_is_first_in_the_sources(client, db_path, gutenberg):
+    book = import_book(client)["source"]
+
+    response = client.post("/api/articles", json={"title": "Harbour rules", "text": ARTICLE})
+
+    assert response.status_code == 200
+    article = response.json()["source"]
+    assert rows(db_path, f"SELECT title, text FROM source WHERE id = {article}") == [("Harbour rules", ARTICLE)]
+    assert rows(db_path, f"SELECT text, normaliser FROM passage WHERE source = {article} ORDER BY ord") == [
+        ('Ministers met on Monday to discuss the "new" rules for the city\'s harbour.', "ascii-v1"),
+        ("The plan, they said, would take three years - and cost more than expected.", "ascii-v1"),
+    ]
+    assert client.get("/api/notices").json() == [
+        "Imported article Harbour rules: 2 Passages, 3 paragraphs skipped. It is first in the list of Sources (o)."
+    ]
+    assert [s["id"] for s in client.get("/api/sources").json()] == [article, book]
+
+
+def test_an_article_with_nothing_long_enough_to_type_is_not_saved(client, db_path):
+    response = client.post("/api/articles", json={"title": "Menu", "text": "Share\nSubscribe\n"})
+
+    assert response.status_code == 422
+    assert rows(db_path, "SELECT * FROM source") == []
+
+
+def test_the_send_page_that_the_bookmarklet_opens_is_served_at_send(client):
+    response = client.get("/send")
+
+    assert response.status_code == 200
+    assert "/api/articles" in response.text

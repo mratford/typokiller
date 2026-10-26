@@ -1,6 +1,7 @@
 import csv
 import re
 import unicodedata
+from collections import Counter
 from pathlib import Path
 
 # Characters that NFKD does not turn into ASCII, and the ASCII to type instead.
@@ -23,6 +24,15 @@ def gutenberg_paragraphs(text: str) -> list[str]:
     """The paragraphs between the START and END lines of a Project Gutenberg plain text book."""
     body = re.split(r"^\*\*\* *(?:START|END) OF .*$", text, flags=re.M)[1]
     return [p for p in re.split(r"\n\s*\n", body) if p.strip()]
+
+
+def article_paragraphs(text: str) -> list[str]:
+    """The paragraphs of a web page's text as the browser's `innerText` gives it: each block of the
+    page is on its own line, so each line is a paragraph. A line that is there more than once, such
+    as a menu at the top and the bottom of the page, is dropped."""
+    lines = [line.strip() for line in text.splitlines()]
+    counts = Counter(lines)
+    return [line for line in lines if line and counts[line] == 1]
 
 
 def keep_passages(normalised: list[tuple[str, int]], max_dropped: float, min_length: int) -> tuple[list[str], int]:

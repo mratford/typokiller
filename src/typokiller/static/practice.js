@@ -35,7 +35,7 @@ let sources = []; // from the server, unfinished first, the last opened first
 let query = ''; // typed into the open text field of the import panel
 let results = []; // the Gutenberg search results
 let screen = 'boards'; // one of START, or 'typing', 'menu', 'help', 'settings', 'sources', 'import',
-                       // a key of FIELDS, 'results' or 'ended'
+                       // a key of FIELDS, 'results', 'article' or 'ended'
 let boards = []; // from the server, each with its Keymaps, last used first
 let board = null; // the Board chosen on the start screen
 let boardLabel = ''; // the status line's "Board · Letter layout"
@@ -136,13 +136,19 @@ function importCode() {
   screen = 'typing';
 }
 
-// The text fields of the import panel, by screen: the key that opens each one in the
-// panel, its label there, its title, and what Enter does. Text can be pasted into them.
+// The import panel's choices: [key, label, the screen it opens].
+const IMPORTS = [
+  ['g', 'Project Gutenberg book', 'gutenberg'],
+  ['c', 'Code from a git repo', 'code'],
+  ['a', 'Article from the browser', 'article'],
+];
+
+// The text fields of the import panel, by screen: the title and what Enter does.
+// Text can be pasted into them.
 const FIELDS = {
-  gutenberg: { key: 'g', label: 'Project Gutenberg book', enter: search, enterHint: 'searches',
+  gutenberg: { enter: search, enterHint: 'searches',
     title: 'Gutenberg: search title and author, or paste a book number or URL' },
-  code: { key: 'c', label: 'Code from a git repo', enter: importCode, enterHint: 'clones it in the background',
-    title: 'Code: type or paste a git URL' },
+  code: { enter: importCode, enterHint: 'clones it in the background', title: 'Code: type or paste a git URL' },
 };
 
 async function showBoards(id) {
@@ -281,8 +287,8 @@ async function menuKey(e) {
   else if (screen === 'settings') settingsKey(e);
   else if (screen === 'sources') listKey(e, sources, chooseSource);
   else if (screen === 'import') {
-    const field = Object.keys(FIELDS).find(f => FIELDS[f].key === e.key);
-    if (field) { screen = field; query = ''; }
+    const choice = IMPORTS.find(([k]) => k === e.key);
+    if (choice) { screen = choice[2]; query = ''; }
   }
   else if (FIELDS[screen]) { if (e.key === 'Enter') FIELDS[screen].enter(); else query = edit(query, e); }
   else if (screen === 'results') listKey(e, results, importBook);
@@ -388,7 +394,7 @@ function sourcesHTML() {
 
 function importHTML() {
   if (screen === 'import') {
-    const items = Object.values(FIELDS).map(f => `<div class="item"><kbd>${f.key}</kbd> ${f.label}</div>`).join('');
+    const items = IMPORTS.map(([k, l]) => `<div class="item"><kbd>${k}</kbd> ${l}</div>`).join('');
     return `<div class="menu"><h4>Import a Source</h4>${items}<div class="hint"><kbd>Esc</kbd> goes back.</div></div>`;
   }
   const field = FIELDS[screen];
@@ -401,9 +407,28 @@ function importHTML() {
     + `<div class="hint">${results.length ? '<kbd>Enter</kbd> imports and opens it.' : 'No books found.'} <kbd>Esc</kbd> goes back.</div></div>`;
 }
 
+// The article bookmarklet sends the selected text, or else the page's `article` or
+// `body`, to this typokiller's /send page. It opens that page in a new window with
+// the text after `#`, so it needs no request from the article's page to this server.
+// The browser percent-decodes the URL before it runs it, so `#` is written `%23`.
+const BOOKMARKLET = 'javascript:(() => {'
+  + " const text = getSelection().toString() || (document.querySelector('article') || document.body).innerText;"
+  + ' const article = JSON.stringify({ title: document.title || location.host, text });'
+  + ` window.open('${location.origin}/send%23' + encodeURIComponent(article)); })()`;
+
+function articleHTML() {
+  return `<div class="menu"><h4>Article: send a web page from the browser</h4>`
+    + `<p>Drag this link to the bookmarks bar of the browser that you read in: <a href="${esc(BOOKMARKLET)}">typokiller article</a></p>`
+    + '<p>On an article, select the text to type, or select nothing to send the whole article. Then click the bookmark. '
+    + 'A small typokiller window opens, saves the text, shows "Saved" and closes. The article is then first in '
+    + '<kbd>o</kbd>, and this page shows a notice.</p>'
+    + `<div class="hint">The bookmark sends to ${esc(location.origin)}. If the address of typokiller changes, drag the link again. `
+    + '<kbd>Esc</kbd> goes back.</div></div>';
+}
+
 const PANELS = {
   menu: menuHTML, help: menuHTML, settings: settingsHTML, sources: sourcesHTML,
-  import: importHTML, gutenberg: importHTML, code: importHTML, results: importHTML,
+  import: importHTML, gutenberg: importHTML, code: importHTML, results: importHTML, article: articleHTML,
 };
 
 function settingsHTML() {

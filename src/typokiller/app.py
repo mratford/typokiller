@@ -18,11 +18,18 @@ import tomlkit
 import truststore
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from typokiller.keymap import letter_layout
-from typokiller.sources import code_passages, gutenberg_paragraphs, prose_passages, search_catalogue
+from typokiller.sources import (
+    article_paragraphs,
+    code_passages,
+    gutenberg_paragraphs,
+    prose_passages,
+    search_catalogue,
+)
 
 # The Passage typed when no Source is open. It is Passage 1, which has no Source.
 PASSAGE = (
@@ -200,6 +207,11 @@ class Repo(BaseModel):
     url: str  # anything `git clone` takes
 
 
+class Article(BaseModel):
+    title: str
+    text: str  # the page's selected text, or else the text of its `article` or `body`
+
+
 class NewBoard(BaseModel):
     name: str
     vil: str  # the text of the .vil file
@@ -264,6 +276,7 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         notices.append(f"Imported {title}: {len(passages)} Passages, {skipped} functions skipped.")
 
     catalogue = db_path.with_name("pg_catalog.csv")
+    static = Path(__file__).parent / "static"
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -361,6 +374,20 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
+    # The /send page posts the text that the article bookmarklet took from a web page.
+    @app.post("/api/articles")
+    async def import_article(article: Article):
+        rule = read_settings(settings_path)["passages"]
+        passages, skipped = prose_passages(article_paragraphs(article.text), rule["max_dropped"], rule["min_length"])
+        if not passages:
+            raise HTTPException(422, "No paragraph in it is long enough to type.")
+        source = add_source(article.title, article.text, passages)
+        notices.append(
+            f"Imported article {article.title}: {len(passages)} Passages, {skipped} paragraphs skipped."
+            " It is first in the list of Sources (o)."
+        )
+        return {"source": source}
+
     @app.get("/api/notices")
     async def get_notices():
         return notices
@@ -397,7 +424,12 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             doc[table].update(values)
         settings_path.write_text(tomlkit.dumps(doc))
 
-    app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True))
+    # The page that the article bookmarklet opens. StaticFiles serves it only as /send.html.
+    @app.get("/send")
+    async def send_page():
+        return FileResponse(static / "send.html")
+
+    app.mount("/", StaticFiles(directory=static, html=True))
     return app
 
 

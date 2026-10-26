@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>typokiller: saving an article</title>
+<style>
+:root { --bg: #fbfaf7; --fg: #23221f; }
+@media (prefers-color-scheme: dark) { :root { --bg: #16171a; --fg: #e8e6e1; } }
+body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<p id="out">Saving…</p>
+<script type="module">
+// Saves the article that the bookmarklet put after `#` as JSON { title, text }, then
+// closes this window. On an error the window stays open and shows it.
+const out = document.getElementById('out');
+try {
+  const article = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+  const r = await fetch('/api/articles', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(article),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail);
+  out.textContent = `Saved: ${article.title}`;
+  setTimeout(() => window.close(), 1500);
+} catch (e) {
+  out.textContent = `Not saved: ${e.message}`;
+}
+</script>
+</body>
+</html>
