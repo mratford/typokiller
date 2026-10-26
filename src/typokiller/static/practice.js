@@ -654,7 +654,7 @@ function keymapHTML() {
   return `<div class="drawing">${drawing.layers[nextKey()?.layer ?? 0] ?? ''}</div>`;
 }
 
-// The status line's Drill part: the Targets, a space shown as ·.
+// The status line's Drill part: the Targets, as showChars shows them.
 const drillLabel = () => (drill.generator === 'introduction' ? 'Introduction Drill' : drill.endless ? 'Endless Drills' : 'Drill')
   + (drill.targets.length ? ` · Targets: ${drill.targets.map(t => showChars(t.unit)).join(' ')}` : '');
 

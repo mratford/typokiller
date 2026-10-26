@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyKey } from '../src/typokiller/static/typing.js';
+import { applyKey, showChars } from '../src/typokiller/static/typing.js';
 
 const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
 
@@ -39,4 +39,8 @@ test('Backspace after the filled-in indentation removes it with the newline', ()
   const code = 'if x:\n    y';
   assert.equal(applyKey(code, 'if x:\n    ', key('Backspace')), 'if x:');
   assert.equal(applyKey(code, 'if x:\n    y', key('Backspace')), 'if x:\n    ');
+});
+
+test('showChars shows a space as ␣ and a newline as ↵', () => {
+  assert.equal(showChars(' e\n'), '␣e↵');
 });

@@ -269,8 +269,8 @@ def scale_legend(scale: tuple[float, float, float], x: float, y: float) -> str:
 
 
 def show_chars(text: str) -> str:
-    """The text with a space shown as · and a newline as ↵, as the page shows them."""
-    return text.replace(" ", "·").replace("\n", "↵")
+    """The text with a space shown as ␣ and a newline as ↵, as the page shows them."""
+    return text.replace(" ", "␣").replace("\n", "↵")
 
 
 def arc(pair: str, start: tuple[float, float], end: tuple[float, float]) -> str:
