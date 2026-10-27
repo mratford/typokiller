@@ -36,7 +36,7 @@ from typokiller.analysis import (
     weakness,
 )
 from typokiller.drawing import draw_layers
-from typokiller.drills import DRILL_GENERATORS, NoLines
+from typokiller.drills import DRILL_GENERATORS, SYMBOLS, NoLines, line_pool
 from typokiller.keymap import keymap_letters, read_keymap
 from typokiller.lessons import (
     LESSON_PROMPTS,
@@ -46,6 +46,7 @@ from typokiller.lessons import (
     build_gleam_project,
     cap_refusal,
     code_in,
+    heading,
     run_code,
     spent,
     with_codes,
@@ -112,7 +113,7 @@ CREATE TABLE IF NOT EXISTS unlock (  -- the unlock log of the Letter layout bein
 CREATE TABLE IF NOT EXISTS lesson (  -- one row per Lesson that the model wrote
     id INTEGER PRIMARY KEY,
     made TEXT NOT NULL,
-    topic TEXT NOT NULL,  -- as typed; also the Source's title
+    topic TEXT NOT NULL,  -- as typed, or "Symbol ^: <heading>" for a Symbol Lesson; also the Source's title
     language TEXT NOT NULL,
     model TEXT NOT NULL,  -- the model ID, as the provider names it
     prompt TEXT NOT NULL,  -- the Lesson prompt
@@ -214,6 +215,10 @@ lines = 6
 # "Import the symbol docs" (the last item of o in the Escape menu) takes the Python tutorial
 # and library from this branch of python/cpython. A change applies to the next import.
 python_branch = "3.15"
+# After that import, each Symbol that fewer than min_lines lines of the line pool hold gets one
+# Symbol Lesson: a Python Lesson, written by python_model, on a topic that uses the Symbol. Each
+# is checked against the [lessons] cap when it is queued.
+min_lines = 50
 
 [unlocking]
 # The Letter layout being learned. Drills use only its Unlocked keys until all 30 of its main
@@ -236,6 +241,7 @@ min_seen = 20
 [lessons]
 # The prompt that asks the model for a Lesson. There is one so far: "lesson-prompt-v1", which
 # asks for paragraphs, ## headings and code blocks only, each example a complete program.
+# Symbol Lessons always use "symbol-lesson-v1", which asks for the same.
 prompt = "lesson-prompt-v1"
 # The model that writes Python Lessons, by its OpenRouter ID, and how hard it thinks before it
 # writes: "low", "medium" or "high". It writes at most max_tokens tokens, thinking included.
@@ -428,8 +434,9 @@ class Article(BaseModel):
 
 
 class LessonRequest(BaseModel):
-    topic: str  # free text, as typed
+    topic: str  # free text, as typed; "Symbol ^" for a Symbol Lesson until it is written
     language: Literal["python", "gleam"] = "python"  # a key of lessons.LANGUAGES
+    symbol: str | None = None  # the Symbol of a Symbol Lesson, which is in Python
 
 
 class DrillRequest(BaseModel):
@@ -552,18 +559,49 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             return
         for title, text, parts in found:
             add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts))
-        symbol_docs_imported([(title, len(parts)) for title, _, parts in found])
+        await symbol_docs_imported([(title, len(parts)) for title, _, parts in found])
 
-    def symbol_docs_imported(counts: list[tuple[str, int]]):
-        """The end of an import of the symbol docs, after its Sources are stored: a notice gives
-        each Source's number of Passages."""
+    async def symbol_docs_imported(counts: list[tuple[str, int]]):
+        """The end of an import of the symbol docs, after its Sources are stored. Each Symbol that
+        fewer than [symbols] min_lines lines of the line pool hold gets a Symbol Lesson in the
+        queue, the rarest first. A notice gives each Source's number of Passages, the size of
+        the line pool, the 5 rarest Symbols with their numbers of lines, and the Symbols queued.
+        Each Symbol Lesson that is refused gets a notice of its own with the reason."""
+        settings = read_settings(settings_path).unwrap()
+        lines = line_pool(db)
+        held = {s: sum(s in line for line in lines) for s in SYMBOLS}
+        rarest = sorted(SYMBOLS, key=held.__getitem__)
+        queued, refusals = [], []
+        for s in rarest:
+            if held[s] >= settings["symbols"]["min_lines"]:
+                break
+            try:
+                await queue_lesson(LessonRequest(topic=f"Symbol {s}", symbol=s), settings["lessons"])
+                queued.append(s)
+            except HTTPException as e:
+                refusals.append(f"No Symbol Lesson for {s}: {e.detail}")
         listed = ", ".join(f"{title} ({n} Passages)" for title, n in counts)
-        notices.append(f"Imported the symbol docs: {listed}.")
+        fewest = ", ".join(f"{s} {held[s]}" for s in rarest[:5])
+        queued_text = f"Symbol Lessons queued for {' '.join(queued)}." if queued else "No Symbol Lessons queued."
+        notices.append(
+            f"Imported the symbol docs: {listed}. The line pool has {len(lines):,} lines;"
+            f" the rarest Symbols, with their numbers of lines: {fewest}. {queued_text}"
+        )
+        notices.extend(refusals)
 
-    def lesson_call(request: LessonRequest, lessons: dict) -> tuple[str, list[dict[str, str]]]:
-        """The model and the prompt messages of a Lesson, by the [lessons] settings."""
-        prompt = LESSON_PROMPTS[lessons["prompt"]]
-        return lessons[f"{request.language}_model"], prompt.write(request.language, request.topic, lessons)
+    def lesson_call(request: LessonRequest, lessons: dict) -> tuple[dict, str, list[dict[str, str]]]:
+        """The [lessons] settings, the model and the prompt messages of a Lesson. A Symbol Lesson
+        uses the prompt symbol-lesson-v1 in place of the [lessons] prompt, and is told the topics
+        of the earlier Symbol Lessons for its Symbol: the Sources whose titles start with
+        "Symbol <s>: "."""
+        model = lessons[f"{request.language}_model"]
+        if request.symbol is None:
+            return lessons, model, LESSON_PROMPTS[lessons["prompt"]].write(request.language, request.topic, lessons)
+        lessons = lessons | {"prompt": "symbol-lesson-v1"}
+        start = f"Symbol {request.symbol}: "
+        found = db.execute("SELECT title FROM source WHERE instr(title, ?) = 1 ORDER BY id", (start,))
+        earlier = [title.removeprefix(start) for (title,) in found]
+        return lessons, model, LESSON_PROMPTS[lessons["prompt"]].write(request.language, request.symbol, lessons, earlier)
 
     def add_spend(lesson: int, reply: Reply):
         with db:
@@ -594,15 +632,17 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     async def write_lesson(request: LessonRequest) -> str:
         """Has the model write a Lesson, checks its code, stores it as a Source, and returns the
         notice. When too many code blocks are dropped, the Lesson is written again, up to WRITES
-        times in all, and then rejected. Each time it is written has its own lesson row."""
+        times in all, and then rejected. Each time it is written has its own lesson row. The topic
+        of a Symbol Lesson, and so its title, is "Symbol <s>: <the Lesson's # heading>"."""
         topic, language = request.topic, request.language
         settings = read_settings(settings_path).unwrap()
-        lessons = settings["lessons"]
-        model, messages = lesson_call(request, lessons)
+        lessons, model, messages = lesson_call(request, settings["lessons"])
         writes = 0
         while True:
             writes += 1
             reply = await asyncio.to_thread(provider.write, model, messages, lessons["max_tokens"], lessons["reasoning"])
+            if request.symbol:
+                topic = f"Symbol {request.symbol}: {heading(reply.text)}"
             with db:
                 (lesson,) = db.execute(
                     "INSERT INTO lesson (made, topic, language, model, prompt, settings, output)"
@@ -647,6 +687,25 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             except Exception as e:  # reported, so the next Lesson is still written
                 notices.append(f"Lesson {request.topic} failed: {e}")
             waiting -= worst
+
+    async def queue_lesson(request: LessonRequest, lessons: dict):
+        """Puts a Lesson request in the queue, by the [lessons] settings, or raises HTTPException
+        with why not. It is refused, and nothing is sent, when the month-to-date spend plus the
+        worst cases of the Lessons still waiting and of this one (`worst_case`: written twice, with
+        every repair call) could be more than the cap (spec §9)."""
+        nonlocal waiting
+        lessons, model, messages = lesson_call(request, lessons)
+        try:
+            worst = await asyncio.to_thread(worst_case, provider, model, request.language, messages, lessons)
+        except (OSError, ValueError, KeyError) as e:  # the price list could not be read, or has no such model
+            raise HTTPException(502, f"No price for {model}: {e!r}")
+        if refused := cap_refusal(db, waiting + worst, lessons):
+            raise HTTPException(409, refused)
+        # Gleam blocks are built in the pre-made project, so it must be built before anything is paid for.
+        if request.language == "gleam" and (error := await asyncio.to_thread(build_gleam_project)):
+            raise HTTPException(502, f"Could not build the Gleam project: {error}")
+        waiting += worst
+        lesson_requests.put_nowait((request, worst))
 
     catalogue = db_path.with_name("pg_catalog.csv")
     static = Path(__file__).parent / "static"
@@ -914,25 +973,10 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         in_background(import_symbol_docs())
 
     # l in the Escape menu. The Lesson is written in the background after the ones asked for
-    # before it. A request is refused, and nothing is sent, when the month-to-date spend plus the
-    # worst cases of the Lessons still waiting and of this one (`worst_case`: written twice, with
-    # every repair call) could be more than the cap (spec §9).
+    # before it, unless `queue_lesson` refuses it.
     @app.post("/api/lessons", status_code=202)
     async def request_lesson(request: LessonRequest):
-        nonlocal waiting
-        lessons = read_settings(settings_path).unwrap()["lessons"]
-        model, messages = lesson_call(request, lessons)
-        try:
-            worst = await asyncio.to_thread(worst_case, provider, model, request.language, messages, lessons)
-        except (OSError, ValueError, KeyError) as e:  # the price list could not be read, or has no such model
-            raise HTTPException(502, f"No price for {model}: {e!r}")
-        if refused := cap_refusal(db, waiting + worst, lessons):
-            raise HTTPException(409, refused)
-        # Gleam blocks are built in the pre-made project, so it must be built before anything is paid for.
-        if request.language == "gleam" and (error := await asyncio.to_thread(build_gleam_project)):
-            raise HTTPException(502, f"Could not build the Gleam project: {error}")
-        waiting += worst
-        lesson_requests.put_nowait((request, worst))
+        await queue_lesson(request, read_settings(settings_path).unwrap()["lessons"])
 
     # The month-to-date spend in pounds, which the Lesson form shows, and the cap. Also the
     # language of the last Lesson, which the form chooses at first.

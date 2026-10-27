@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 from zoneinfo import ZoneInfo
 
-from typokiller.sources import CODE_BLOCK
+from typokiller.sources import CODE_BLOCK, plain
 
 
 class Reply(NamedTuple):
@@ -73,14 +73,34 @@ so keep it short, accurate and idiomatic. {rules} {runs} Use plain ASCII. Answer
 fixed example in one fenced code block."""
 
 
-def lesson_prompt_v1(language: str, topic: str, settings: dict[str, Any]) -> list[dict[str, str]]:
-    """The messages that ask for a Lesson on `topic`, with the length and level of the
-    [lessons] settings. The trial's Python Lessons from Haiku 5.5 were shorter than asked
-    (751 to 1,267 words for 1,200 to 1,500), so this asks for a minimum and a structure too."""
-    name, rules = LANGUAGES[language]
+def system_v1(language: str, settings: dict[str, Any]) -> dict[str, str]:
+    """The system message of a Lesson, with the length and level of the [lessons] settings. The
+    trial's Python Lessons from Haiku 5.5 were shorter than asked (751 to 1,267 words for 1,200
+    to 1,500), so this asks for a minimum and a structure too."""
     words = settings["words"]
+    rules = LANGUAGES[language][1]
     system = SYSTEM_V1.format(level=settings["level"], words=words, least=round(words * 0.85), rules=rules, runs=RUNS)
-    return [{"role": "system", "content": system}, {"role": "user", "content": f"Write a {name} Lesson on {topic}."}]
+    return {"role": "system", "content": system}
+
+
+def lesson_prompt_v1(language: str, topic: str, settings: dict[str, Any]) -> list[dict[str, str]]:
+    """The messages that ask for a Lesson on `topic`."""
+    name = LANGUAGES[language][0]
+    return [system_v1(language, settings), {"role": "user", "content": f"Write a {name} Lesson on {topic}."}]
+
+
+SYMBOL_V1 = """\
+Choose a topic where the Symbol {symbol} has a real, common use in {name}, and write a {name} \
+Lesson on it in which most code lines use {symbol}. Start the Lesson with one # heading that \
+names the topic, in a few words.{earlier}"""
+
+
+def symbol_lesson_v1(language: str, symbol: str, settings: dict[str, Any], earlier: list[str]) -> list[dict[str, str]]:
+    """The messages that ask for a Symbol Lesson: a Lesson on a topic that the model chooses
+    because it uses `symbol`, and that is not one of the `earlier` topics of Symbol Lessons for it."""
+    others = f" Earlier Lessons for {symbol} were on: {'; '.join(earlier)}. Choose a different topic." if earlier else ""
+    asked = SYMBOL_V1.format(symbol=symbol, name=LANGUAGES[language][0], earlier=others)
+    return [system_v1(language, settings), {"role": "user", "content": asked}]
 
 
 def repair_prompt_v1(language: str, code: str, error: str) -> list[dict[str, str]]:
@@ -90,14 +110,20 @@ def repair_prompt_v1(language: str, code: str, error: str) -> list[dict[str, str
 
 
 class LessonPrompt(NamedTuple):
-    write: Callable[[str, str, dict[str, Any]], list[dict[str, str]]]  # (language, topic, [lessons] settings)
+    # (language, topic, [lessons] settings); for symbol-lesson-v1 (language, Symbol, [lessons]
+    # settings, the topics of the earlier Symbol Lessons for it)
+    write: Callable[..., list[dict[str, str]]]
     repair: Callable[[str, str, str], list[dict[str, str]]]  # (language, code, error)
     blocks: int  # the most code blocks that it asks for
 
 
 # The Lesson prompts, by name (spec §12). The [lessons] settings name the one in use. A
-# prompt asks for a Lesson and for the repair of a code block.
-LESSON_PROMPTS = {"lesson-prompt-v1": LessonPrompt(lesson_prompt_v1, repair_prompt_v1, 6)}
+# prompt asks for a Lesson and for the repair of a code block. Symbol Lessons always use
+# "symbol-lesson-v1".
+LESSON_PROMPTS = {
+    "lesson-prompt-v1": LessonPrompt(lesson_prompt_v1, repair_prompt_v1, 6),
+    "symbol-lesson-v1": LessonPrompt(symbol_lesson_v1, repair_prompt_v1, 6),
+}
 
 WRITES = 2  # a Lesson whose code fails the check is written once again (spec §9)
 ERROR_CHARS = 2000  # the end of a block's error output that the check log and repair calls get
@@ -119,6 +145,13 @@ def worst_case(provider: Provider, model: str, language: str, messages: list[dic
     repair = prompt.repair(language, "x" * lessons["repair_tokens"], "x" * ERROR_CHARS)
     repairs = prompt.blocks * lessons["repairs"] * call(repair, lessons["repair_tokens"])
     return WRITES * (call(messages, lessons["max_tokens"]) + repairs)
+
+
+def heading(markdown: str) -> str:
+    """The text of the first # heading of a Lesson outside its code blocks, without inline
+    markup as in `lesson_passages`, or "untitled" when it has none."""
+    found = re.search(r"^#\s+(.*)", CODE_BLOCK.sub("", markdown), re.M)
+    return plain(found[1].strip()) if found else "untitled"
 
 
 def code_in(reply: str) -> str:

@@ -19,9 +19,9 @@ from fastapi.testclient import TestClient
 from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, progress, weakness
 from typokiller.app import create_app
 from typokiller.drawing import Heat, draw_keymap
-from typokiller.drills import WORDS, line_pool, line_text, pool, symbol_unit
+from typokiller.drills import SYMBOLS, WORDS, line_pool, line_text, pool, symbol_unit
 from typokiller.keymap import qmk_settings, read_keymap
-from typokiller.lessons import GLEAM_PROJECT, Reply, run_code
+from typokiller.lessons import GLEAM_PROJECT, Reply, month_start, run_code
 from typokiller.sources import ascii_v1, code_passages, lesson_passages
 
 
@@ -100,7 +100,7 @@ SETTINGS = {
     "passages": {"max_dropped": 0.05, "min_length": 20, "code_extensions": [".py", ".gleam"]},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
-    "symbols": {"weak": 2, "under_measured": 2, "lines": 6, "python_branch": "3.15"},
+    "symbols": {"weak": 2, "under_measured": 2, "lines": 6, "python_branch": "3.15", "min_lines": 50},
     "unlocking": UNLOCKING,
     "lessons": LESSONS,
     "keymaps": {},
@@ -194,7 +194,7 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
-    rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\npython_branch = "3.15"\n'
+    rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\npython_branch = "3.15"\nmin_lines = 50\n'
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
     rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
     rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
@@ -645,13 +645,15 @@ def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_wit
     running, db_path, docs, monkeypatch
 ):
     monkeypatch.setattr("random.shuffle", lambda files: files.reverse())
+    running.put("/api/settings", json={"symbols": {"min_lines": 0}})  # no Symbol Lessons
 
     response = running.post("/api/symbol-docs")
 
     assert response.status_code == 202
     assert wait_for_notice(running) == [
         "Imported the symbol docs: Python 3.15 tutorial (3 Passages), Python 3.15 library (2 Passages),"
-        " Gleam tour (3 Passages), Gleam stdlib (3 Passages)."
+        " Gleam tour (3 Passages), Gleam stdlib (3 Passages). The line pool has 17 lines;"
+        " the rarest Symbols, with their numbers of lines: 0 0, 4 0, 6 0, 7 0, 8 0. No Symbol Lessons queued."
     ]
     assert docs == ["3.15"]
     assert doc_passages(db_path) == {
@@ -684,7 +686,7 @@ def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_wit
 
 
 def test_a_symbol_doc_block_longer_than_split_lines_is_split_like_lesson_code(running, db_path, docs):
-    running.put("/api/settings", json={"lessons": {"split_lines": 4}, "symbols": {"python_branch": "3.14"}})
+    running.put("/api/settings", json={"lessons": {"split_lines": 4}, "symbols": {"python_branch": "3.14", "min_lines": 0}})
 
     running.post("/api/symbol-docs")
 
@@ -719,6 +721,98 @@ def test_symbol_docs_whose_layout_is_not_known_are_reported_and_add_no_source(ru
     [notice] = wait_for_notice(running)
     assert notice.startswith("Could not import the symbol docs: FileNotFoundError(")
     assert rows(db_path, "SELECT * FROM source") == []
+
+
+def add_symbol_lines(client, db_path, min_lines):
+    """Adds two pool lines: each holds every Symbol but ^ and ~, and only the second holds $.
+    With the doc files, ^ and ~ are then in no pool line, $ in 1 and 0 and 4 in 2. Sets
+    [symbols] min_lines."""
+    most = SYMBOLS.replace("^", "").replace("~", "").replace("$", "")
+    add_passages(db_path, (f"{most}\n${most}", True))
+    client.put("/api/settings", json={"symbols": {"min_lines": min_lines}})
+
+
+def lesson_asked(call):
+    """The text of all the messages of a call to the model."""
+    return " ".join(m["content"] for m in call["messages"])
+
+
+def source_titles(client):
+    """The titles of the Sources, as the list of Sources (o) shows them."""
+    return [s["title"] for s in client.get("/api/sources").json()]
+
+
+def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lines_gets_one_python_symbol_lesson(
+    running, db_path, provider, docs
+):
+    add_symbol_lines(running, db_path, min_lines=2)
+    provider.going.clear()  # so no Lesson is ready before the import notice
+
+    running.post("/api/symbol-docs")
+
+    wait_for_notice(running)
+    provider.going.set()
+    notices = wait_for_notice(running, 4)
+    assert notices[0].endswith(
+        " Gleam stdlib (3 Passages). The line pool has 19 lines;"
+        " the rarest Symbols, with their numbers of lines: ^ 0, ~ 0, $ 1, 0 2, 4 2."
+        " Symbol Lessons queued for ^ ~ $."
+    )
+    # In the order queued, each written by the Python model with the Symbol Lesson prompt.
+    ready = "4 Passages, 1 skipped; 0 of 1 code examples dropped. It is first in the list of Sources (o)."
+    assert notices[1:] == [f"Lesson ready: Symbol {s}: Pattern Matching in Python: {ready}" for s in "^~$"]
+    assert [call["model"] for call in provider.calls] == ["anthropic/claude-haiku-5.5"] * 3
+    assert [f"the Symbol {s} " in lesson_asked(call) for call, s in zip(provider.calls, "^~$")] == [True] * 3
+    assert rows(db_path, "SELECT topic, language, prompt FROM lesson ORDER BY id") == [
+        (f"Symbol {s}: Pattern Matching in Python", "python", "symbol-lesson-v1") for s in "^~$"
+    ]
+    assert source_titles(running)[:3] == [f"Symbol {s}: Pattern Matching in Python" for s in "$~^"]
+
+
+def test_each_symbol_lesson_is_checked_against_the_cap_and_one_that_is_refused_gets_a_notice_and_no_retry(
+    running, db_path, provider, docs
+):
+    add_symbol_lines(running, db_path, min_lines=2)
+    # $0.1 is left this month: enough for one Lesson's worst case (about $0.072), not for two.
+    with sqlite3.connect(db_path) as db:
+        db.execute(spend_row(5 * 1.337 - 0.1, month_start().astimezone(UTC).isoformat()))
+    provider.going.clear()  # so no Lesson is ready before the import notices
+
+    running.post("/api/symbol-docs")
+
+    resets = (month_start() + timedelta(days=32)).replace(day=1)
+    notices = wait_for_notice(running, 3)
+    provider.going.set()
+    assert notices[0].endswith(" Symbol Lessons queued for ^.")
+    assert notices[1:] == [f"No Symbol Lesson for {s}: Cap reached: resets 1 {resets:%b}" for s in "~$"]
+    assert wait_for_notice(running, 4)[3].startswith("Lesson ready: Symbol ^: ")
+    assert len(provider.calls) == 1
+
+
+def test_a_symbol_lesson_is_told_the_topics_of_the_earlier_symbol_lessons_for_its_symbol(
+    running, db_path, provider, docs
+):
+    add_symbol_lines(running, db_path, min_lines=1)  # ^ and ~
+    provider.texts = [
+        "# Bitwise XOR\n\n" + code_lesson("print(5 + 3)"),
+        code_lesson("# A comment, not a heading\nprint(5 + 3)"),
+        "# Sets\n\n" + code_lesson("print(5 + 3)"),
+        "# Home `~` folders\n\n" + code_lesson("print(5 + 3)"),
+    ]
+    running.post("/api/symbol-docs")
+    wait_for_notice(running, 3)
+
+    running.post("/api/symbol-docs")  # ^ and ~ are still in no pool line
+
+    wait_for_notice(running, 6)
+    # The title has the # heading without inline markup. A # line in code is not a heading.
+    assert [t for t in source_titles(running) if t.startswith("Symbol")] == [
+        "Symbol ~: Home ~ folders", "Symbol ^: Sets", "Symbol ~: untitled", "Symbol ^: Bitwise XOR"
+    ]  # fmt: skip
+    asked = [lesson_asked(call) for call in provider.calls]
+    assert "Earlier" not in asked[0] and "Earlier" not in asked[1]
+    assert "Earlier Lessons for ^ were on: Bitwise XOR. Choose a different topic." in asked[2]
+    assert "Earlier Lessons for ~ were on: untitled. Choose a different topic." in asked[3]
 
 
 # What `innerText` gives for a news page: each block on its own line, menu text at the top and the bottom.

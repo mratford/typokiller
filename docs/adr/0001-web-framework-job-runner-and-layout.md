@@ -137,3 +137,12 @@ Background work (Lesson generation, git clones, the Gutenberg catalogue refresh)
   - Each block is tidied, split by `[lessons] split_lines` and skipped like a Lesson's code block (`sources.code_parts`, then `kept`). The heading goes in `passage.heading`, and `passage.code` is 1.
   - When the Sources are stored, `symbol_docs_imported` in `create_app` adds the notice with each Source's number of Passages. Work that must run after an import (#50) goes there. Importing again adds four new Sources; older ones stay.
   - On 2026-10-27 the import took about 4 s and gave 274, 2,640, 63 and 546 Passages.
+- #50 added Symbol Lessons.
+  - `symbol_docs_imported` (now async) counts, for each Symbol, the lines of `drills.line_pool` that hold it. Each Symbol in fewer than `[symbols] min_lines` (new, 50) lines gets one Symbol Lesson, the rarest first.
+  - Each one goes through `queue_lesson(request, lessons)`. `POST /api/lessons` uses it too. It does the cap check and raises `HTTPException` when it refuses. A refused Symbol Lesson gets its own notice, such as "No Symbol Lesson for ~: Cap reached: resets 1 Nov". It is not tried again.
+  - The import notice now also gives the size of the line pool, the 5 rarest Symbols with their numbers of lines, and the Symbols queued.
+  - `LessonRequest` has `symbol`, set only for a Symbol Lesson. Its language is Python, so `python_model` writes it. The API does not stop a request with `symbol` and Gleam; the page never sends `symbol`.
+  - `lesson_call` now also gives the `[lessons]` settings to use. For a Symbol Lesson, `prompt` is `"symbol-lesson-v1"`. So the worst case, the repair calls and the `lesson` row all use that prompt. Its `write` takes the Symbol and the earlier topics in place of a topic, so `LessonPrompt.write` is now typed `Callable[..., ...]`. The earlier topics come from the Sources whose titles start with "Symbol <s>: ".
+  - The topic of a Symbol Lesson, and so its Source title and `lesson.topic`, is "Symbol <s>: " and the Lesson's first `#` heading outside code blocks, without inline markup (`lessons.heading`). It is "untitled" when there is no such heading. Before the Lesson is written, its notices call it "Symbol <s>".
+  - Written Symbol Lessons add their code to the line pool. So a later import counts them, and queues Lessons only for the Symbols that are still rare.
+  - With a fast fake provider, a Lesson can be ready before the import notice. Tests hold the provider until that notice comes.
