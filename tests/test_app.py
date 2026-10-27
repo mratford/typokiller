@@ -100,7 +100,7 @@ SETTINGS = {
     "passages": {"max_dropped": 0.05, "min_length": 20, "code_extensions": [".py", ".gleam"]},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
-    "symbols": {"weak": 2, "under_measured": 2, "lines": 6, "python_branch": "3.15", "min_lines": 50},
+    "symbols": {"weak": 2, "under_measured": 2, "lines": 6, "python_branch": "3.15", "min_lines": 50, "max_lessons": 3},
     "unlocking": UNLOCKING,
     "lessons": LESSONS,
     "keymaps": {},
@@ -194,7 +194,7 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
-    rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\npython_branch = "3.15"\nmin_lines = 50\n'
+    rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\npython_branch = "3.15"\nmin_lines = 50\nmax_lessons = 3\n'
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
     rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
     rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
@@ -723,13 +723,13 @@ def test_symbol_docs_whose_layout_is_not_known_are_reported_and_add_no_source(ru
     assert rows(db_path, "SELECT * FROM source") == []
 
 
-def add_symbol_lines(client, db_path, min_lines):
+def add_symbol_lines(client, db_path, min_lines, max_lessons):
     """Adds two pool lines: each holds every Symbol but ^ and ~, and only the second holds $.
     With the doc files, ^ and ~ are then in no pool line, $ in 1 and 0 and 4 in 2. Sets
-    [symbols] min_lines."""
+    [symbols] min_lines and max_lessons."""
     most = SYMBOLS.replace("^", "").replace("~", "").replace("$", "")
     add_passages(db_path, (f"{most}\n${most}", True))
-    client.put("/api/settings", json={"symbols": {"min_lines": min_lines}})
+    client.put("/api/settings", json={"symbols": {"min_lines": min_lines, "max_lessons": max_lessons}})
 
 
 def lesson_asked(call):
@@ -745,7 +745,7 @@ def source_titles(client):
 def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lines_gets_one_python_symbol_lesson(
     running, db_path, provider, docs
 ):
-    add_symbol_lines(running, db_path, min_lines=2)
+    add_symbol_lines(running, db_path, min_lines=2, max_lessons=1)
     provider.going.clear()  # so no Lesson is ready before the import notice
 
     running.post("/api/symbol-docs")
@@ -760,7 +760,9 @@ def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lin
     )
     # In the order queued, each written by the Python model with the Symbol Lesson prompt.
     ready = "4 Passages, 1 skipped; 0 of 1 code examples dropped. It is first in the list of Sources (o)."
-    assert notices[1:] == [f"Lesson ready: Symbol {s}: Pattern Matching in Python: {ready}" for s in "^~$"]
+    assert notices[1:] == [
+        f"Lesson ready: Symbol {s}: Pattern Matching in Python: {ready} Symbol {s}: {n} lines." for s, n in zip("^~$", [0, 0, 1])
+    ]
     assert [call["model"] for call in provider.calls] == ["anthropic/claude-haiku-5.5"] * 3
     assert [f"the Symbol {s} " in lesson_asked(call) for call, s in zip(provider.calls, "^~$")] == [True] * 3
     assert rows(db_path, "SELECT topic, language, prompt FROM lesson ORDER BY id") == [
@@ -772,7 +774,7 @@ def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lin
 def test_each_symbol_lesson_is_checked_against_the_cap_and_one_that_is_refused_gets_a_notice_and_no_retry(
     running, db_path, provider, docs
 ):
-    add_symbol_lines(running, db_path, min_lines=2)
+    add_symbol_lines(running, db_path, min_lines=2, max_lessons=2)
     # $0.1 is left this month: enough for one Lesson's worst case (about $0.072), not for two.
     with sqlite3.connect(db_path) as db:
         db.execute(spend_row(5 * 1.337 - 0.1, month_start().astimezone(UTC).isoformat()))
@@ -782,29 +784,58 @@ def test_each_symbol_lesson_is_checked_against_the_cap_and_one_that_is_refused_g
 
     resets = (month_start() + timedelta(days=32)).replace(day=1)
     notices = wait_for_notice(running, 3)
+    with sqlite3.connect(db_path) as db:  # $0.05 more is spent while the ^ Lesson is written
+        db.execute(spend_row(0.05, month_start().astimezone(UTC).isoformat()))
     provider.going.set()
     assert notices[0].endswith(" Symbol Lessons queued for ^.")
     assert notices[1:] == [f"No Symbol Lesson for {s}: Cap reached: resets 1 {resets:%b}" for s in "~$"]
-    assert wait_for_notice(running, 4)[3].startswith("Lesson ready: Symbol ^: ")
+    # ^ is still rare, but one more Lesson for it is refused too, and not tried again.
+    assert wait_for_notice(running, 4)[3].endswith(
+        f" (o). Symbol ^: 0 lines. No Symbol Lesson for ^: Cap reached: resets 1 {resets:%b}"
+    )
     assert len(provider.calls) == 1
+
+
+def test_an_import_queues_no_symbol_lesson_for_a_symbol_that_has_max_lessons_of_them(running, db_path, provider, docs):
+    add_symbol_lines(running, db_path, min_lines=1, max_lessons=1)  # ^ and ~
+    running.post("/api/symbol-docs")
+    wait_for_notice(running, 3)
+
+    running.post("/api/symbol-docs")  # ^ and ~ are still in no pool line
+
+    assert wait_for_notice(running, 4)[3].endswith(" ^ 0, ~ 0, $ 1, 4 2, 6 2. No Symbol Lessons queued.")
+    assert len(provider.calls) == 2
+
+
+def test_a_failed_symbol_lesson_queues_no_other(running, db_path, provider, docs):
+    add_symbol_lines(running, db_path, min_lines=1, max_lessons=3)  # ^ and ~
+    provider.text = code_lesson("raise SystemExit(1)")  # each write fails its code check
+
+    running.post("/api/symbol-docs")
+
+    notices = wait_for_notice(running, 3)
+    assert notices[1:] == [
+        f"Lesson Symbol {s}: untitled failed: it was written 2 times; the last time, 1 of 1 code examples failed after repairs."
+        for s in "^~"
+    ]
+    time.sleep(0.2)
+    assert len(notices) == len(wait_for_notice(running))
 
 
 def test_a_symbol_lesson_is_told_the_topics_of_the_earlier_symbol_lessons_for_its_symbol(
     running, db_path, provider, docs
 ):
-    add_symbol_lines(running, db_path, min_lines=1)  # ^ and ~
+    add_symbol_lines(running, db_path, min_lines=1, max_lessons=2)  # ^ and ~, which their Lessons do not hold
     provider.texts = [
         "# Bitwise XOR\n\n" + code_lesson("print(5 + 3)"),
         code_lesson("# A comment, not a heading\nprint(5 + 3)"),
         "# Sets\n\n" + code_lesson("print(5 + 3)"),
         "# Home `~` folders\n\n" + code_lesson("print(5 + 3)"),
     ]
+
     running.post("/api/symbol-docs")
-    wait_for_notice(running, 3)
 
-    running.post("/api/symbol-docs")  # ^ and ~ are still in no pool line
-
-    wait_for_notice(running, 6)
+    wait_for_notice(running, 5)
     # The title has the # heading without inline markup. A # line in code is not a heading.
     assert [t for t in source_titles(running) if t.startswith("Symbol")] == [
         "Symbol ~: Home ~ folders", "Symbol ^: Sets", "Symbol ~: untitled", "Symbol ^: Bitwise XOR"
@@ -813,6 +844,28 @@ def test_a_symbol_lesson_is_told_the_topics_of_the_earlier_symbol_lessons_for_it
     assert "Earlier" not in asked[0] and "Earlier" not in asked[1]
     assert "Earlier Lessons for ^ were on: Bitwise XOR. Choose a different topic." in asked[2]
     assert "Earlier Lessons for ~ were on: untitled. Choose a different topic." in asked[3]
+
+
+def test_a_written_symbol_lesson_queues_one_more_while_its_symbol_is_in_fewer_than_min_lines_pool_lines(
+    running, db_path, provider, docs
+):
+    add_symbol_lines(running, db_path, min_lines=1, max_lessons=2)  # ^ and ~
+    # The first Lesson, for ^, puts ^ in 2 pool lines. The others hold no ^ or ~.
+    provider.texts = [code_lesson("x = 6 ^ 3\nprint(x ^ 1, x ^ 2)")]
+    provider.going.clear()  # so no Lesson is ready before the import notice
+
+    running.post("/api/symbol-docs")
+
+    wait_for_notice(running)
+    provider.going.set()
+    notices = wait_for_notice(running, 4)
+    assert notices[0].endswith(" Symbol Lessons queued for ^ ~.")
+    assert [n.split(" (o). ")[1] for n in notices[1:]] == [
+        "Symbol ^: 2 lines.",
+        "Symbol ~: 0 lines; another Symbol Lesson queued.",
+        "Symbol ~: 0 lines.",  # it has max_lessons Symbol Lessons
+    ]
+    assert len(provider.calls) == 3
 
 
 # What `innerText` gives for a news page: each block on its own line, menu text at the top and the bottom.

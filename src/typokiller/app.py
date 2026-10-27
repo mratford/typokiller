@@ -219,6 +219,10 @@ python_branch = "3.15"
 # Symbol Lesson: a Python Lesson, written by python_model, on a topic that uses the Symbol. Each
 # is checked against the [lessons] cap when it is queued.
 min_lines = 50
+# When a Symbol Lesson is written, the lines that hold its Symbol are counted again, and the
+# Symbol gets one more Symbol Lesson while it is still in fewer than min_lines lines. A Symbol gets at most max_lessons
+# Symbol Lessons in all, also over several imports.
+max_lessons = 3
 
 [unlocking]
 # The Letter layout being learned. Drills use only its Unlocked keys until all 30 of its main
@@ -562,24 +566,24 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         await symbol_docs_imported([(title, len(parts)) for title, _, parts in found])
 
     async def symbol_docs_imported(counts: list[tuple[str, int]]):
-        """The end of an import of the symbol docs, after its Sources are stored. Each Symbol that
-        fewer than [symbols] min_lines lines of the line pool hold gets a Symbol Lesson in the
-        queue, the rarest first. A notice gives each Source's number of Passages, the size of
-        the line pool, the 5 rarest Symbols with their numbers of lines, and the Symbols queued.
-        Each Symbol Lesson that is refused gets a notice of its own with the reason."""
+        """The end of an import of the symbol docs, after its Sources are stored. Each Symbol in
+        fewer than [symbols] min_lines lines of the line pool, and with fewer than max_lessons
+        Symbol Lessons, gets a Symbol Lesson in the queue, the rarest first. A notice gives
+        each Source's number of Passages, the size of the line pool, the 5 rarest Symbols with
+        their numbers of lines, and the Symbols queued. Each Symbol Lesson that is refused gets a
+        notice of its own with the reason."""
         settings = read_settings(settings_path).unwrap()
         lines = line_pool(db)
-        held = {s: sum(s in line for line in lines) for s in SYMBOLS}
+        held = {s: lines_holding(s, lines) for s in SYMBOLS}
         rarest = sorted(SYMBOLS, key=held.__getitem__)
         queued, refusals = [], []
         for s in rarest:
-            if held[s] >= settings["symbols"]["min_lines"]:
-                break
-            try:
-                await queue_lesson(LessonRequest(topic=f"Symbol {s}", symbol=s), settings["lessons"])
+            if not wants_symbol_lesson(s, held[s], settings["symbols"]):
+                continue
+            if refused := await queue_symbol_lesson(s, settings["lessons"]):
+                refusals.append(refused)
+            else:
                 queued.append(s)
-            except HTTPException as e:
-                refusals.append(f"No Symbol Lesson for {s}: {e.detail}")
         listed = ", ".join(f"{title} ({n} Passages)" for title, n in counts)
         fewest = ", ".join(f"{s} {held[s]}" for s in rarest[:5])
         queued_text = f"Symbol Lessons queued for {' '.join(queued)}." if queued else "No Symbol Lessons queued."
@@ -589,18 +593,39 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         )
         notices.extend(refusals)
 
+    def lines_holding(symbol: str, lines: list[str]) -> int:
+        """The number of `lines` (of the line pool) that hold `symbol`."""
+        return sum(symbol in line for line in lines)
+
+    def symbol_lesson_topics(symbol: str) -> list[str]:
+        """The topics of the Symbol Lessons for `symbol` written so far: the Sources whose titles
+        start with "Symbol <s>: ", without that start."""
+        start = f"Symbol {symbol}: "
+        found = db.execute("SELECT title FROM source WHERE instr(title, ?) = 1 ORDER BY id", (start,))
+        return [title.removeprefix(start) for (title,) in found]
+
+    def wants_symbol_lesson(symbol: str, held: int, symbols: dict) -> bool:
+        """Whether `symbol` gets one more Symbol Lesson: when `held`, its number of lines in the
+        line pool, is fewer than [symbols] min_lines, and it has fewer than max_lessons Symbol
+        Lessons."""
+        return held < symbols["min_lines"] and len(symbol_lesson_topics(symbol)) < symbols["max_lessons"]
+
+    async def queue_symbol_lesson(symbol: str, lessons: dict) -> str | None:
+        """Puts a Symbol Lesson for `symbol` in the queue, or returns the notice of why not."""
+        try:
+            await queue_lesson(LessonRequest(topic=f"Symbol {symbol}", symbol=symbol), lessons)
+        except HTTPException as e:
+            return f"No Symbol Lesson for {symbol}: {e.detail}"
+
     def lesson_call(request: LessonRequest, lessons: dict) -> tuple[dict, str, list[dict[str, str]]]:
         """The [lessons] settings, the model and the prompt messages of a Lesson. A Symbol Lesson
         uses the prompt symbol-lesson-v1 in place of the [lessons] prompt, and is told the topics
-        of the earlier Symbol Lessons for its Symbol: the Sources whose titles start with
-        "Symbol <s>: "."""
+        of the earlier Symbol Lessons for its Symbol."""
         model = lessons[f"{request.language}_model"]
         if request.symbol is None:
             return lessons, model, LESSON_PROMPTS[lessons["prompt"]].write(request.language, request.topic, lessons)
         lessons = lessons | {"prompt": "symbol-lesson-v1"}
-        start = f"Symbol {request.symbol}: "
-        found = db.execute("SELECT title FROM source WHERE instr(title, ?) = 1 ORDER BY id", (start,))
-        earlier = [title.removeprefix(start) for (title,) in found]
+        earlier = symbol_lesson_topics(request.symbol)
         return lessons, model, LESSON_PROMPTS[lessons["prompt"]].write(request.language, request.symbol, lessons, earlier)
 
     def add_spend(lesson: int, reply: Reply):
@@ -629,11 +654,12 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             log.append(checks)
         return with_codes(markdown, [None if checks[-1]["error"] else checks[-1]["code"] for checks in log]), log
 
-    async def write_lesson(request: LessonRequest) -> str:
+    async def write_lesson(request: LessonRequest) -> tuple[str, bool]:
         """Has the model write a Lesson, checks its code, stores it as a Source, and returns the
-        notice. When too many code blocks are dropped, the Lesson is written again, up to WRITES
-        times in all, and then rejected. Each time it is written has its own lesson row. The topic
-        of a Symbol Lesson, and so its title, is "Symbol <s>: <the Lesson's # heading>"."""
+        notice and whether it was stored. When too many code blocks are dropped, the Lesson is
+        written again, up to WRITES times in all, and then rejected. Each time it is written has
+        its own lesson row. The topic of a Symbol Lesson, and so its title, is
+        "Symbol <s>: <the Lesson's # heading>"."""
         topic, language = request.topic, request.language
         settings = read_settings(settings_path).unwrap()
         lessons, model, messages = lesson_call(request, settings["lessons"])
@@ -658,19 +684,31 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 break
             if writes == WRITES:
                 why = f"{dropped} of {len(log)} code examples failed after repairs" if log else "it had no code example"
-                return f"Lesson {topic} failed: it was written {writes} times; the last time, {why}."
+                return f"Lesson {topic} failed: it was written {writes} times; the last time, {why}.", False
         rule = settings["passages"]
         parts, skipped = lesson_passages(text, lessons["split_lines"], rule["max_dropped"], rule["min_length"])
         if not parts:
-            return f"Lesson {topic} failed: it has nothing long enough to type."
+            return f"Lesson {topic} failed: it has nothing long enough to type.", False
         headings, passages, codes = zip(*parts)
         source = add_source(topic, text, list(passages), headings, codes)
         with db:
             db.execute("UPDATE lesson SET source = ? WHERE id = ?", (source, lesson))
         return (
             f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped; {dropped} of {len(log)} code examples"
-            " dropped. It is first in the list of Sources (o)."
+            " dropped. It is first in the list of Sources (o).",
+            True,
         )
+
+    async def symbol_lesson_written(symbol: str, settings: dict) -> str:
+        """After a Symbol Lesson for `symbol` is stored: counts again the lines of the line pool
+        that hold `symbol`, and queues one more Symbol Lesson for it if `wants_symbol_lesson`.
+        Returns the end of the Lesson's notice, with the count and whether one more was queued."""
+        held = lines_holding(symbol, line_pool(db))
+        if not wants_symbol_lesson(symbol, held, settings["symbols"]):
+            return f" Symbol {symbol}: {held} lines."
+        if refused := await queue_symbol_lesson(symbol, settings["lessons"]):
+            return f" Symbol {symbol}: {held} lines. {refused}"
+        return f" Symbol {symbol}: {held} lines; another Symbol Lesson queued."
 
     # The Lessons asked for and not written yet, in the order asked for, each with its worst
     # case in dollars. `waiting` is the sum of those worst cases, which the cap counts.
@@ -678,15 +716,20 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     waiting = 0.0
 
     async def write_lessons():
-        """Writes the Lessons asked for, one at a time. A notice says when each is ready, or why not."""
+        """Writes the Lessons asked for, one at a time. A notice says when each is ready, or why not.
+        The notice of a stored Symbol Lesson ends with `symbol_lesson_written`. It runs after the
+        Lesson's worst case leaves `waiting`, so its cap check counts only what the Lesson cost."""
         nonlocal waiting
         while True:
             request, worst = await lesson_requests.get()
             try:
-                notices.append(await write_lesson(request))
+                notice, stored = await write_lesson(request)
             except Exception as e:  # reported, so the next Lesson is still written
-                notices.append(f"Lesson {request.topic} failed: {e}")
+                notice, stored = f"Lesson {request.topic} failed: {e}", False
             waiting -= worst
+            if stored and request.symbol:
+                notice += await symbol_lesson_written(request.symbol, read_settings(settings_path).unwrap())
+            notices.append(notice)
 
     async def queue_lesson(request: LessonRequest, lessons: dict):
         """Puts a Lesson request in the queue, by the [lessons] settings, or raises HTTPException
