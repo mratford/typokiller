@@ -36,7 +36,7 @@ from typokiller.analysis import (
     weakness,
 )
 from typokiller.drawing import draw_layers
-from typokiller.drills import DRILL_GENERATORS
+from typokiller.drills import DRILL_GENERATORS, NoLines
 from typokiller.keymap import keymap_letters, read_keymap
 from typokiller.lessons import (
     LESSON_PROMPTS,
@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS passage (
     ord INTEGER NOT NULL,
     text TEXT NOT NULL,
     normaliser TEXT NOT NULL,
-    heading TEXT  -- a Lesson's heading, shown above the Passage and not typed
+    heading TEXT,  -- a Lesson's heading, shown above the Passage and not typed
+    code INTEGER NOT NULL DEFAULT 0  -- 1 for code: from a code Source or a Lesson's code block
 );
 CREATE TABLE IF NOT EXISTS drill (
     passage INTEGER PRIMARY KEY,  -- a Drill is a Passage with no Source
@@ -196,6 +197,17 @@ under_measured = 1
 min_seen = 20
 # The number of words in a Drill.
 words = 40
+
+[symbols]
+# Symbol Drills (o in the Escape menu) are made of lines of code from the Sources. Their
+# Targets are only Symbols (the digits and !"#$%&()*+-/:;<=>?@[\\]^`{|}~) and symbol pairs
+# (pairs with a Symbol and no space or newline). They are chosen like those of usual Drills:
+# `weak` that the Weakness model ranks highest, then `under_measured` that are common in the
+# lines of code and seen fewer than the [drills] min_seen times. A Symbol Drill has `lines`
+# lines, each with at most 80 characters and at least 2 Symbols.
+weak = 2
+under_measured = 2
+lines = 6
 
 [unlocking]
 # The Letter layout being learned. Drills use only its Unlocked keys until all 30 of its main
@@ -422,6 +434,8 @@ class LessonRequest(BaseModel):
 class DrillRequest(BaseModel):
     # True when the page wants an Introduction Drill. If none is due, no Drill is made.
     introduction: bool = False
+    # True when the page wants a Symbol Drill. It is one even while Introduction Drills are due.
+    symbols: bool = False
 
 
 class NewBoard(BaseModel):
@@ -442,6 +456,10 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         with suppress(sqlite3.OperationalError):
             db.execute("ALTER TABLE attempt ADD COLUMN passage INTEGER")
             db.execute("UPDATE attempt SET passage = 1")  # every Attempt before there were Sources typed it
+        with suppress(sqlite3.OperationalError):
+            db.execute("ALTER TABLE passage ADD COLUMN code INTEGER NOT NULL DEFAULT 0")
+            # Before, no column said which Passages are code. One that holds a newline is taken as code.
+            db.execute("UPDATE passage SET code = 1 WHERE instr(text, char(10))")
 
     def served(source: dict | None) -> dict:
         """The Source's Passage at its bookmark and the one after it. After the Source's
@@ -455,16 +473,19 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         passages = [{"id": id, "text": text, "heading": heading} for id, text, heading in rows] + [BUILT_IN]
         return {"source": source if rows else None, "passages": passages[:2]}
 
-    def add_source(title: str, text: str, passages: list[str], headings: Sequence[str | None] = ()) -> int:
-        """Stores a Source with its Passages, and with the heading above each Passage of a Lesson."""
+    def add_source(
+        title: str, text: str, passages: list[str], headings: Sequence[str | None] = (), codes: Sequence[bool] = ()
+    ) -> int:
+        """Stores a Source with its Passages, with the heading above each Passage of a Lesson,
+        and with whether each Passage is code. Passages with no flag in `codes` are not code."""
         with db:
             (source,) = db.execute(
                 "INSERT INTO source (title, text, total, opened) VALUES (?, ?, ?, ?) RETURNING id",
                 (title, text, len(passages), now()),
             ).fetchone()
             db.executemany(
-                "INSERT INTO passage (source, ord, text, normaliser, heading) VALUES (?, ?, ?, 'ascii-v1', ?)",
-                [(source, i, p, h) for i, (p, h) in enumerate(zip_longest(passages, headings))],
+                "INSERT INTO passage (source, ord, text, normaliser, heading, code) VALUES (?, ?, ?, 'ascii-v1', ?, ?)",
+                [(source, i, p, h, bool(c)) for i, (p, h, c) in enumerate(zip_longest(passages, headings, codes))],
             )
         return source
 
@@ -501,7 +522,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             found, n = code_passages(text, rule["max_dropped"], rule["min_length"])
             passages += found
             skipped += n
-        add_source(title, "".join(f"--- {path}\n{text}" for path, text in files), passages)
+        add_source(title, "".join(f"--- {path}\n{text}" for path, text in files), passages, codes=[True] * len(passages))
         notices.append(f"Imported {title}: {len(passages)} Passages, {skipped} functions skipped.")
 
     def lesson_call(request: LessonRequest, lessons: dict) -> tuple[str, list[dict[str, str]]]:
@@ -567,7 +588,8 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         parts, skipped = lesson_passages(text, lessons["split_lines"], rule["max_dropped"], rule["min_length"])
         if not parts:
             return f"Lesson {topic} failed: it has nothing long enough to type."
-        source = add_source(topic, text, [passage for _, passage in parts], [heading for heading, _ in parts])
+        headings, passages, codes = zip(*parts)
+        source = add_source(topic, text, list(passages), headings, codes)
         with db:
             db.execute("UPDATE lesson SET source = ? WHERE id = ?", (source, lesson))
         return (
@@ -733,9 +755,11 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         }
 
     # Makes a Drill for the Session's Board and Letter layout, and stores it as a Passage with
-    # no Source. While Introduction Drills are due, it is one; else the settings name the
-    # generator. On a Letter layout being learned, it uses only the Unlocked keys until all
-    # are unlocked. The Introduction Drills of the last key to unlock use them too.
+    # no Source. A Symbol Drill is made by symbols-v1 and may use every key. Else, while
+    # Introduction Drills are due, it is one; else the settings name the generator. On a Letter
+    # layout being learned, it uses only the Unlocked keys until all are unlocked. The
+    # Introduction Drills of the last key to unlock use them too. 409 when the line pool for
+    # a Symbol Drill is empty.
     @app.post("/api/sessions/{session}/drills")
     async def make_drill(session: int, request: DrillRequest = DrillRequest()):
         settings = read_settings(settings_path).unwrap()
@@ -744,9 +768,15 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         introducing = bool(state and state.introducing)
         if request.introduction and not introducing:
             return {"unlocking": unlock_progress(state)}
-        generator = "introduction" if introducing else settings["drills"]["generator"]
-        unlocked = state.unlocked if state and (state.locked or introducing) else None
-        drill = DRILL_GENERATORS[generator](db, board, letters, settings, unlocked)
+        if request.symbols:
+            generator, unlocked = "symbols-v1", None
+        else:
+            generator = "introduction" if introducing else settings["drills"]["generator"]
+            unlocked = state.unlocked if state and (state.locked or introducing) else None
+        try:
+            drill = DRILL_GENERATORS[generator](db, board, letters, settings, unlocked)
+        except NoLines as e:
+            raise HTTPException(409, str(e))
         with db:
             (passage,) = db.execute(
                 "INSERT INTO passage (source, ord, text, normaliser) VALUES (NULL, 0, ?, 'ascii-v1') RETURNING id",

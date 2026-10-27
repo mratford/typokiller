@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, progress, weakness
 from typokiller.app import create_app
 from typokiller.drawing import Heat, draw_keymap
-from typokiller.drills import WORDS, pool
+from typokiller.drills import WORDS, line_pool, line_text, pool, symbol_unit
 from typokiller.keymap import qmk_settings, read_keymap
 from typokiller.lessons import GLEAM_PROJECT, Reply, run_code
 from typokiller.sources import ascii_v1, code_passages, lesson_passages
@@ -100,6 +100,7 @@ SETTINGS = {
     "passages": {"max_dropped": 0.05, "min_length": 20, "code_extensions": [".py", ".gleam"]},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
+    "symbols": {"weak": 2, "under_measured": 2, "lines": 6},
     "unlocking": UNLOCKING,
     "lessons": LESSONS,
     "keymaps": {},
@@ -193,6 +194,7 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
+    rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\n'
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
     rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
     rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
@@ -542,6 +544,7 @@ def test_a_git_repo_is_cloned_in_the_background_and_each_function_of_its_tracked
     a = ["def first_function():\n    return 1", "def second_function():\n    return 2"]
     b = ["pub fn third() -> Int {\n  3\n}"]
     assert passages in (a + b, b + a)  # the files in either order, each file's functions in written order
+    assert rows(db_path, f"SELECT DISTINCT code FROM passage WHERE source = {source}") == [(1,)]
 
 
 def test_a_git_repo_with_no_code_file_adds_no_source(running, db_path, tmp_path):
@@ -820,8 +823,8 @@ def test_an_attempt_is_replayed_again_when_more_of_its_key_events_come(client, d
     assert keystrokes(sqlite3.connect(db_path))["dwell"].to_list() == [150.0, 80.0]
 
 
-def drill(client, session):
-    return client.post(f"/api/sessions/{session}/drills").json()
+def drill(client, session, **request):
+    return client.post(f"/api/sessions/{session}/drills", json=request).json()
 
 
 def test_with_no_data_a_drill_has_3_under_measured_targets_the_most_common_in_the_sources_first(
@@ -883,6 +886,124 @@ def test_a_drill_targets_the_weakest_units_and_the_most_common_under_measured_on
         ("ab", "weak"), ("c", "under-measured"), (" ", "under-measured")
     ]
     assert made["text"] == " ".join(["abcc"] * 5)
+
+
+def test_a_symbol_pair_has_a_symbol_and_no_space_or_newline():
+    assert [u for u in ["(", "7", "~", "a", "_", "'", ",", "."] if symbol_unit(u)] == ["(", "7", "~"]
+    assert [u for u in ["a(", "()", "1a", "ab", "_.", "( ", " (", "(\n", "\n("] if symbol_unit(u)] == ["a(", "()", "1a"]
+
+
+def add_passages(db_path, *passages):
+    """Adds Passages to Source 9: each (text, code)."""
+    with sqlite3.connect(db_path) as db:
+        db.executemany(
+            "INSERT INTO passage (source, ord, text, normaliser, code) VALUES (9, 0, ?, 'ascii-v1', ?)", passages
+        )
+
+
+def test_the_line_pool_has_each_different_line_of_code_once_with_its_indent_trimmed_if_it_has_80_characters_at_most_and_2_symbols(
+    client, db_path
+):
+    long = "x = [" + "1, " * 25 + "]"  # 81 characters
+    add_passages(
+        db_path,
+        ("def f(a):\n    return a[0]\n\nprint(f(x))\nprint(f(x))", True),
+        (f"{long}\n  {long[:-2]}]", True),
+        ("x = y\nf(x) # one", True),  # x = y has one Symbol
+        ("print(f(x))\nprint(g[0])", False),  # prose
+    )
+
+    assert line_pool(sqlite3.connect(db_path)) == ["def f(a):", "return a[0]", "print(f(x))", long[:-2] + "]", "f(x) # one"]
+
+
+def test_with_no_data_a_symbol_drill_has_4_under_measured_symbol_targets_and_6_different_pool_lines_with_locked_keys_too(
+    client, db_path
+):
+    _, sweep, _ = free_range_boards(client, db_path)
+    pool_lines = [f"xx(({i}))" for i in range(1, 8)]  # x is locked
+    add_passages(db_path, ("\n".join(pool_lines), True))
+    session = start_session(client, sweep)
+    client.post(f"/api/sessions/{session}/unlocks")  # so Introduction Drills are due
+
+    made = drill(client, session, symbols=True)
+
+    # ( and ) are in 14 of the pool's characters, as is x, which is not a Symbol; ((, )) and x( in 7.
+    assert made["generator"] == "symbols-v1"
+    assert made["targets"] == [
+        {"unit": unit, "reason": "under-measured", "cost": None, "seen": 0} for unit in ["(", ")", "((", "))"]
+    ]
+    lines = made["text"].split("\n")
+    assert len(set(lines)) == 6
+    assert set(lines) <= set(pool_lines)
+    assert rows(db_path, "SELECT generator, unlocked FROM drill") == [("symbols-v1", None)]
+
+
+def test_a_symbol_drill_targets_the_weakest_symbol_units_and_the_most_common_under_measured_ones(client, db_path):
+    qwerty, _ = sweep_versions(client, db_path)
+    with sqlite3.connect(db_path) as db:
+        db.execute("INSERT INTO passage (id, source, ord, text, normaliser) VALUES (4, NULL, 0, 'ba(1)', 'ascii-v1')")
+    keys = [["b", "x", "Backspace", "a", "(", "1", "x", "Backspace", ")"], ["b", "a", "(", "1", ")"]]
+    session = typed_session(client, qwerty, *keys, finished=[0, 1], attempt={"passage": 4, "settings": SETTINGS})
+    client.put("/api/settings", json={"weakness": {"min_seen": 2}, "drills": {"min_seen": 2}})
+    add_passages(db_path, ("a(1) + a(2)\nb[1] + b[2]\nb[3] + b[4]", True))
+
+    made = drill(client, session, symbols=True)
+
+    # a, ba, ) and 1) cost 2000 ms; a and ba are not Symbols or symbol pairs. [ and ] are the
+    # most common in the line pool.
+    weak = {"reason": "weak", "cost": 2000.0, "seen": 2}
+    assert made["targets"] == [
+        {"unit": ")", **weak},
+        {"unit": "1)", **weak},
+        {"unit": "[", "reason": "under-measured", "cost": None, "seen": 0},
+        {"unit": "]", "reason": "under-measured", "cost": None, "seen": 0},
+    ]
+
+    client.put("/api/settings", json={"symbols": {"weak": 1, "under_measured": 1}})
+
+    assert [t["unit"] for t in drill(client, session, symbols=True)["targets"]] == [")", "["]
+
+
+def test_each_line_of_a_symbol_drill_holds_its_target_and_no_line_comes_twice():
+    lines = ["a(b", "c)d", "e(f", "g)h", "i(j", "(~)"]
+
+    for _ in range(20):
+        text = line_text(lines, ["(", ")"], 4).split("\n")
+
+        assert [line for i, line in enumerate(text) if "()"[i % 2] in line] == text
+        assert len(set(text)) == 4
+
+    # Only "(~)" holds ~, so it comes once and the line after it is left out.
+    assert line_text(lines, ["~"], 2) == "(~)"
+
+
+def test_with_no_lines_of_code_a_symbol_drill_is_refused(client, db_path):
+    add_passages(db_path, ("print(f(x))", False))
+
+    response = client.post(f"/api/sessions/{start_session(client)}/drills", json={"symbols": True})
+
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith("No lines of code for Symbol Drills yet.")
+    assert rows(db_path, "SELECT * FROM drill") == []
+
+
+def test_passages_stored_before_the_code_flag_are_code_when_they_hold_a_newline(db_path, settings_path, provider):
+    with sqlite3.connect(db_path) as db:
+        db.execute("CREATE TABLE passage (id INTEGER PRIMARY KEY, source INTEGER, ord INTEGER NOT NULL,"
+                   " text TEXT NOT NULL, normaliser TEXT NOT NULL, heading TEXT)")  # fmt: skip
+        db.executemany(
+            "INSERT INTO passage (id, source, ord, text, normaliser) VALUES (? + 2, 9, ?, ?, 'ascii-v1')",
+            [(0, 0, "def f():\n    return 1"), (1, 1, "print(f(), f())"), (2, 2, "A paragraph of prose.")],
+        )
+    client = TestClient(create_app(db_path, settings_path, provider))
+
+    assert rows(db_path, "SELECT text, code FROM passage WHERE source = 9 ORDER BY ord") == [
+        ("def f():\n    return 1", 1), ("print(f(), f())", 0), ("A paragraph of prose.", 0)
+    ]  # fmt: skip
+
+    client.post("/api/articles", json={"title": "Prose", "text": "A paragraph of new prose."})
+
+    assert rows(db_path, "SELECT code FROM passage WHERE id > 4") == [(0,)]
 
 
 def test_the_trend_has_the_medians_of_each_days_finished_attempts_on_one_keymap_in_the_last_13_weeks(
@@ -1188,18 +1309,18 @@ def test_a_lesson_is_split_into_paragraphs_and_code_blocks_under_their_headings(
 
     assert lesson_passages(LESSON, 40, 0.05, 20) == (
         [
-            (heading, "Python's match statement compares a value against patterns, as the tutorial shows."),
-            ("Literal patterns", "A literal matches an equal value."),
-            ("Literal patterns", "The wildcard _ matches anything."),
-            ("Literal patterns", code + "\n\nprint(describe(sys.argv[0]))"),
+            (heading, "Python's match statement compares a value against patterns, as the tutorial shows.", False),
+            ("Literal patterns", "A literal matches an equal value.", False),
+            ("Literal patterns", "The wildcard _ matches anything.", False),
+            ("Literal patterns", code + "\n\nprint(describe(sys.argv[0]))", True),
         ],
         1,  # the table
     )
     # A block over split_lines lines (9 > 7) is split at blank lines before unindented lines,
     # with as many whole parts as fit in split_lines.
     assert lesson_passages(LESSON, 7, 0.05, 20)[0][3:] == [
-        ("Literal patterns", code),
-        ("Literal patterns", "print(describe(sys.argv[0]))"),
+        ("Literal patterns", code, True),
+        ("Literal patterns", "print(describe(sys.argv[0]))", True),
     ]
 
 
@@ -1229,6 +1350,8 @@ def test_a_lesson_is_written_in_the_background_in_the_order_asked_and_recorded_a
     # Each Passage is served with its heading.
     served = running.put(f"/api/sources/{sources[1]['id']}/bookmark", json={"at": 1}).json()
     assert [p["heading"] for p in served["passages"]] == ["Literal patterns", "Literal patterns"]
+    # Its code blocks are code Passages.
+    assert rows(db_path, f"SELECT code FROM passage WHERE source = {sources[1]['id']} ORDER BY ord") == [(0,), (0,), (0,), (1,)]
     # Each Lesson records how it was made, and each call its usage and cost.
     lessons = rows(db_path, "SELECT topic, language, model, prompt, settings, output, source FROM lesson ORDER BY id")
     assert lessons[0][:4] == ("pattern matching", "python", "anthropic/claude-haiku-5.5", "lesson-prompt-v1")

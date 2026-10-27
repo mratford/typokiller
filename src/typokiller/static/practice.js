@@ -11,7 +11,7 @@ const MENU = [
     ['m', 'Keymap on/off', toggleKeymap],
   ]],
   ['Sources', [
-    ['o', 'open a Source or endless Drills', async () => { await showSources(); screen = 'sources'; }],
+    ['o', 'open a Source, endless Drills or endless Symbol Drills', async () => { await showSources(); screen = 'sources'; }],
     ['l', 'new Lesson', openLessonForm],
     ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
@@ -40,9 +40,10 @@ let passage, nextPassage; // each { id, text, heading }; nextPassage is shown fa
                           // a Lesson's heading above its Passage
 let source = null; // the open Source: { id, title, at, total }, where `at` is its bookmark;
                    // null while the built-in Passage is typed
-let drill = null; // while Drills are typed: { endless, generator, targets, back, done }, where `back`
-                  // is [passage, nextPassage] to come back to after the Drills, and `done` says
-                  // that passage was finished or skipped, so the Source then moves on from it
+let drill = null; // while Drills are typed: { endless, generator, targets, back, done }, where `endless`
+                  // is false or the request for each endless Drill, `back` is [passage, nextPassage]
+                  // to come back to after the Drills, and `done` says that passage was finished or
+                  // skipped, so the Source then moves on from it
 let unlocking = null; // the unlock state of a Letter layout being learned, from the server:
                       // { unlocked, total, next, introducing }; null for other Letter layouts
 let sources = []; // from the server, unfinished first, the last opened first
@@ -137,10 +138,13 @@ function advance() {
   openSource(id, at + 1).then(() => { if (!source) message = `Finished ${title}.`; render(); });
 }
 
-// One Drill, or endless Drills with the Targets ranked again before each one. The
-// server makes a Drill from the key events it has stored, so they are sent first.
+// One Drill, or endless Drills with the Targets ranked again before each one. For endless Drills,
+// `endless` is what to ask the server for each time, such as { symbols: true } for Symbol Drills.
+// The server makes a Drill from the key events it has stored, so they are sent first.
 // While Introduction Drills are due, the server makes one. With `introduction`, the page
 // asks only for an Introduction Drill: if none is due any more, the Passage comes back.
+// A Symbol Drill comes even while Introduction Drills are due. When the server cannot make a
+// Drill, its message is shown and the Passage comes back.
 // The Passage is null until the Drill comes, and keys typed meanwhile do nothing, not even Esc.
 async function showDrill(endless, introduction = false) {
   drill = { endless, generator: null, targets: [], back: drill?.back ?? [passage, nextPassage], done: drill?.done ?? false };
@@ -148,7 +152,14 @@ async function showDrill(endless, introduction = false) {
   screen = 'typing';
   render();
   await flush();
-  const made = await sendJSON(`/api/sessions/${session}/drills`, { introduction });
+  const r = await send(`/api/sessions/${session}/drills`, { introduction, ...endless });
+  const made = await r.json();
+  if (!r.ok) {
+    message = made.detail;
+    leaveDrill();
+    nextAttempt();
+    return render();
+  }
   await setUnlocking(made.unlocking);
   if (!made.id) return moveOn();
   passage = { id: made.id, text: made.text };
@@ -162,19 +173,24 @@ async function showDrill(endless, introduction = false) {
 // After a finished or skipped Passage: the next Passage, and an Attempt at it. After
 // one Drill, the Passage it interrupted comes back from its start. After an unlock,
 // Introduction Drills come first until the new key has been seen often enough; a
-// finished or skipped Passage moves the Source on after them.
+// finished or skipped Passage moves the Source on after them. Endless Symbol Drills go on
+// while Introduction Drills are due.
 function moveOn() {
-  if (drill?.endless) return showDrill(true);
+  if (drill?.endless) return showDrill(drill.endless);
   if (unlocking?.introducing) {
     drill ??= { back: [passage, nextPassage], done: true };
     return showDrill(false, true);
   }
-  if (drill) {
-    [passage, nextPassage] = drill.back;
-    if (drill.done) advance();
-    drill = null;
-  } else advance();
+  if (drill) leaveDrill();
+  else advance();
   nextAttempt();
+}
+
+// Goes back to the Passage that the Drills interrupted, and moves its Source on if it was done.
+function leaveDrill() {
+  [passage, nextPassage] = drill.back;
+  if (drill.done) advance();
+  drill = null;
 }
 
 // Keeps the unlock state from the server. The Keymap drawings show the locked keys, so
@@ -433,7 +449,7 @@ function settingsKey(e) {
 async function menuKey(e) {
   if (e.key === 'Escape' && screen !== 'menu') { screen = 'menu'; sel = 0; editing = null; }
   else if (screen === 'settings') settingsKey(e);
-  else if (screen === 'sources') listKey(e, openItems(), s => s === ENDLESS ? showDrill(true) : chooseSource(s));
+  else if (screen === 'sources') listKey(e, openItems(), s => s.ask ? showDrill(s.ask) : chooseSource(s));
   else if (screen === 'import') {
     const choice = IMPORTS.find(([k]) => k === e.key);
     if (choice) { screen = choice[2]; query = ''; }
@@ -557,14 +573,18 @@ function menuHTML() {
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
-// The `o` list: the Sources, then endless Drills.
-const ENDLESS = {};
-const openItems = () => [...sources, ENDLESS];
+// The `o` list: the Sources, then endless Drills and endless Symbol Drills, each with what
+// to ask the server for each Drill.
+const ENDLESS = [
+  { label: 'Endless Drills, with the Targets ranked again after each one', ask: {} },
+  { label: 'Endless Symbol Drills: lines of code, with the Targets ranked again after each one', ask: { symbols: true } },
+];
+const openItems = () => [...sources, ...ENDLESS];
 
 const sourceLabel = s => `${s.title} · ${s.at < s.total ? `§${s.at + 1} of ${s.total}` : 'finished, opens from the start'}`;
 
 function sourcesHTML() {
-  const labels = openItems().map(s => s === ENDLESS ? 'Endless Drills, with the Targets ranked again after each one' : sourceLabel(s));
+  const labels = openItems().map(s => s.label ?? sourceLabel(s));
   return `<div class="menu">${listHTML('Open a Source', labels)}`
     + `<div class="hint">${chooseHint}${sources.length ? '' : ' No Sources yet: <kbd>i</kbd> in the menu imports one.'} <kbd>Esc</kbd> goes back.</div></div>`;
 }
@@ -655,7 +675,8 @@ function keymapHTML() {
 }
 
 // The status line's Drill part: the Targets, as showChars shows them.
-const drillLabel = () => (drill.generator === 'introduction' ? 'Introduction Drill' : drill.endless ? 'Endless Drills' : 'Drill')
+const drillLabel = () => ({ introduction: 'Introduction Drill', 'symbols-v1': 'Symbol Drill' }[drill.generator]
+  ?? (drill.endless ? 'Endless Drills' : 'Drill'))
   + (drill.targets.length ? ` · Targets: ${drill.targets.map(t => showChars(t.unit)).join(' ')}` : '');
 
 // The status line's unlock progress on a Letter layout being learned, such as "10/30 keys · next o".

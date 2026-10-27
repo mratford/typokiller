@@ -92,9 +92,9 @@ CODE_BLOCK = re.compile(rf"^{FENCE_MARK}.*\n((?:.*\n)*?){FENCE_MARK}.*$", re.M)
 
 def lesson_passages(
     markdown: str, split_lines: int, max_dropped: float, min_length: int
-) -> tuple[list[tuple[str | None, str]], int]:
-    """The Passages of a Lesson written in Markdown, each with the heading above it, and how
-    many paragraphs and code blocks were skipped (spec §9).
+) -> tuple[list[tuple[str | None, str, bool]], int]:
+    """The Passages of a Lesson written in Markdown, each with the heading above it and whether
+    it is code, and how many paragraphs and code blocks were skipped (spec §9).
 
     Headings are not typed. Each paragraph and each list item is a prose Passage, with inline
     markup removed: code spans keep their text without the backticks, and bold, italics and
@@ -105,21 +105,21 @@ def lesson_passages(
     `ascii-v1` and skipped by the rule of `keep_passages`.
     """
     heading = None
-    normalised: list[tuple[str | None, str, int]] = []  # (heading, text, characters dropped)
+    normalised: list[tuple[str | None, str, int, bool]] = []  # (heading, text, characters dropped, code)
     paragraph: list[str] = []
     code: list[str] | None = None  # the lines of the open code block
 
     def end_paragraph():
         if paragraph and paragraph[0].lstrip().startswith("|"):
-            normalised.append((heading, "", 0))  # a table: never long enough to keep
+            normalised.append((heading, "", 0, False))  # a table: never long enough to keep
         elif paragraph:
-            normalised.append((heading, *prose(plain(" ".join(paragraph)))))
+            normalised.append((heading, *prose(plain(" ".join(paragraph))), False))
         paragraph.clear()
 
     for line in markdown.splitlines():
         if code is not None:
             if FENCE.match(line):
-                normalised += [(heading, *ascii_v1(c)) for c in split_code(tidy_code("\n".join(code)), split_lines)]
+                normalised += [(heading, *ascii_v1(c), True) for c in split_code(tidy_code("\n".join(code)), split_lines)]
                 code = None
             else:
                 code.append(line)
@@ -138,7 +138,7 @@ def lesson_passages(
         else:
             paragraph.append(line)
     end_paragraph()
-    parts = [(h, text) for h, text, dropped in normalised if kept(text, dropped, max_dropped, min_length)]
+    parts = [(h, text, code) for h, text, dropped, code in normalised if kept(text, dropped, max_dropped, min_length)]
     return parts, len(normalised) - len(parts)
 
 

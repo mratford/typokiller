@@ -50,6 +50,24 @@ bring yes distant fill east paint language among
 """.split()
 SMALL_POOL = 1000
 
+# The Symbols, as CONTEXT.md defines them. ' , . and _ are not Symbols.
+SYMBOLS = "0123456789" + "!\"#$%&()*+-/:;<=>?@[\\]^`{|}~"
+
+
+def symbol_unit(unit: str) -> bool:
+    """Whether a character or pair is a Symbol or a symbol pair: a pair with at least one
+    Symbol and no space or newline."""
+    return any(c in SYMBOLS for c in unit) and not any(c in " \n" for c in unit)
+
+
+def line_pool(db: sqlite3.Connection) -> list[str]:
+    """The lines that Symbol Drills are made of: each line of the code Passages of every Source,
+    with its indent trimmed, that has at most 80 characters and at least 2 Symbols. Each
+    different line is in it once, in the order first found."""
+    passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL AND code ORDER BY id")
+    lines = (line.strip() for (text,) in passages for line in text.split("\n"))
+    return list(dict.fromkeys(line for line in lines if len(line) <= 80 and sum(c in SYMBOLS for c in line) >= 2))
+
 
 class Drill(NamedTuple):
     # Each Target: unit (a character or pair), reason ("weak" or "under-measured"), cost
@@ -101,22 +119,35 @@ def density_v1(
     in. A Target must be a unit that the pool's words hold. The text is `drill_text`."""
     drills = settings["drills"]
     words = pool(db, unlocked)
-    counts = unit_counts(words)
+    targets = choose_targets(db, board, letter_layout, settings, unit_counts(words), drills)
+    return Drill(targets, drill_text(words, [t["unit"] for t in targets], drills["words"]))
+
+
+def choose_targets(
+    db: sqlite3.Connection,
+    board: str | None,
+    letter_layout: str | None,
+    settings: dict[str, Any],
+    counts: Counter[str],
+    table: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """The Targets by the rule of `density_v1`, with the numbers `weak` and `under_measured` of
+    `table`, a table of the settings such as [drills]. Only units of `counts` can be Targets, and
+    `counts` gives how common each is in the pool."""
     ranking, seen = ranking_and_seen(db, board, letter_layout, settings)
     ranked = ranking.filter(pl.col("unit").is_in(list(counts)))
     cost = dict(zip(ranked["unit"], ranked["cost"]))
-    weak = [{"unit": u, "reason": "weak", "cost": cost[u], "seen": seen[u]} for u in ranked["unit"]]
-    under_measured = [
+    weakest = [{"unit": u, "reason": "weak", "cost": cost[u], "seen": seen[u]} for u in ranked["unit"]]
+    least_seen = [
         {"unit": u, "reason": "under-measured", "cost": cost.get(u), "seen": seen.get(u, 0)}
         for u in sorted(counts, key=lambda u: (-counts[u], u))
-        if seen.get(u, 0) < drills["min_seen"]
+        if seen.get(u, 0) < settings["drills"]["min_seen"]
     ]
-    n = drills["weak"]
-    targets = weak[:n]
+    n = table["weak"]
+    targets = weakest[:n]
     chosen = {t["unit"] for t in targets}
-    rest = [t for t in under_measured + weak[n:] if t["unit"] not in chosen]
-    targets += rest[: n + drills["under_measured"] - len(targets)]
-    return Drill(targets, drill_text(words, [t["unit"] for t in targets], drills["words"]))
+    rest = [t for t in least_seen + weakest[n:] if t["unit"] not in chosen]
+    return targets + rest[: n + table["under_measured"] - len(targets)]
 
 
 def introduction(
@@ -172,7 +203,45 @@ def drill_text(words: Counter[str], targets: list[str], n: int) -> str:
     return " ".join(text)
 
 
+class NoLines(Exception):
+    """The line pool is empty, so no Symbol Drill can be made."""
+
+
+def symbols_v1(
+    db: sqlite3.Connection,
+    board: str | None,
+    letter_layout: str | None,
+    settings: dict[str, Any],
+    unlocked: str | None,
+) -> Drill:
+    """A Symbol Drill. Its Targets are chosen by the rule of `density_v1` with the [symbols]
+    settings, from the Symbols and symbol pairs of the line pool; "most common" means most
+    common in the line pool. The text is `line_text`. It ignores `unlocked`: a Symbol Drill
+    may use every key. Raises NoLines when the line pool is empty."""
+    lines = line_pool(db)
+    if not lines:
+        raise NoLines("No lines of code for Symbol Drills yet. Import a code Source (i) or ask for a Lesson (l).")
+    counts = Counter({u: n for u, n in unit_counts(Counter(lines)).items() if symbol_unit(u)})
+    symbols = settings["symbols"]
+    targets = choose_targets(db, board, letter_layout, settings, counts, symbols)
+    return Drill(targets, line_text(lines, [t["unit"] for t in targets], symbols["lines"]))
+
+
+def line_text(lines: list[str], targets: list[str], n: int) -> str:
+    """n different lines of the line pool, joined with newlines. Line i holds Target i modulo
+    the number of Targets. It is picked at random, with a weight of its number of Targets per
+    character. When every pool line that holds that Target is used already, line i is left out."""
+    holding = {u: [line for line in lines if u in line] for u in targets}  # the pool lines that hold each Target
+    text: list[str] = []
+    for i in range(n):
+        unused = [line for line in holding[targets[i % len(targets)]] if line not in text]
+        if unused:
+            text += random.choices(unused, [sum(line.count(u) for u in targets) / len(line) for line in unused])
+    return "\n".join(text)
+
+
 # The Drill generators, by name (spec §12). The settings file names the one in use for
 # usual Drills; "introduction" makes the Drills that follow an unlock. Each takes (db,
 # board, letter_layout, the settings, the Unlocked keys in unlock order or None for every key).
-DRILL_GENERATORS = {"density-v1": density_v1, "introduction": introduction}
+# "symbols-v1" makes Symbol Drills, which the page asks for.
+DRILL_GENERATORS = {"density-v1": density_v1, "introduction": introduction, "symbols-v1": symbols_v1}
