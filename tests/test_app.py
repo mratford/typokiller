@@ -868,6 +868,24 @@ def test_a_written_symbol_lesson_queues_one_more_while_its_symbol_is_in_fewer_th
     assert len(provider.calls) == 3
 
 
+def test_a_symbol_lesson_whose_count_fails_is_reported_and_the_next_lesson_is_still_written(
+    running, db_path, provider, docs, monkeypatch
+):
+    add_symbol_lines(running, db_path, min_lines=1, max_lessons=2)  # ^ and ~
+    provider.going.clear()  # so no Lesson is ready before the import notice
+    running.post("/api/symbol-docs")
+    wait_for_notice(running)
+
+    def fails(db):
+        raise RuntimeError("no pool")
+
+    monkeypatch.setattr("typokiller.app.line_pool", fails)
+    provider.going.set()
+
+    notices = wait_for_notice(running, 3)
+    assert [n.split(" (o). ")[1] for n in notices[1:]] == [f"Could not count Symbol {s} again: no pool" for s in "^~"]
+
+
 # What `innerText` gives for a news page: each block on its own line, menu text at the top and the bottom.
 ARTICLE = (
     "Sign up for the morning newsletter to get our best stories\n"

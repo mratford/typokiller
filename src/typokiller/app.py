@@ -728,7 +728,10 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 notice, stored = f"Lesson {request.topic} failed: {e}", False
             waiting -= worst
             if stored and request.symbol:
-                notice += await symbol_lesson_written(request.symbol, read_settings(settings_path).unwrap())
+                try:
+                    notice += await symbol_lesson_written(request.symbol, read_settings(settings_path).unwrap())
+                except Exception as e:  # reported, so the next Lesson is still written
+                    notice += f" Could not count Symbol {request.symbol} again: {e}"
             notices.append(notice)
 
     async def queue_lesson(request: LessonRequest, lessons: dict):
