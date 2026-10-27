@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from contextlib import asynccontextmanager, suppress
 from itertools import zip_longest
 from datetime import UTC, datetime, timedelta
@@ -55,11 +55,14 @@ from typokiller.sources import (
     CODE_BLOCK,
     article_paragraphs,
     code_passages,
+    git,
     gutenberg_paragraphs,
     lesson_passages,
     prose_passages,
+    repo_text,
     search_catalogue,
 )
+from typokiller.symbol_docs import symbol_docs
 
 # The Passage typed when no Source is open. It is Passage 1, which has no Source.
 PASSAGE = (
@@ -208,6 +211,9 @@ words = 40
 weak = 2
 under_measured = 2
 lines = 6
+# "Import the symbol docs" (the last item of o in the Escape menu) takes the Python tutorial
+# and library from this branch of python/cpython. A change applies to the next import.
+python_branch = "3.15"
 
 [unlocking]
 # The Letter layout being learned. Drills use only its Unlocked keys until all 30 of its main
@@ -358,17 +364,12 @@ async def refresh_catalogue(catalogue: Path):
 
 
 def clone(url: str) -> list[tuple[str, str]]:
-    """The path and text of each text file that git tracks in the repo at `url`.
-
-    git uses the Mac's own credentials, so private repos work. GIT_TERMINAL_PROMPT=0 stops
-    git from asking for a password that nobody would see. Symbolic links are not followed.
+    """The path and text of each text file that git tracks in the repo at `url`. Private repos
+    work (see `git`). Symbolic links are not followed.
     """
     with tempfile.TemporaryDirectory() as tmp:
-        env = os.environ | {"GIT_TERMINAL_PROMPT": "0"}
-        subprocess.run(
-            ["git", "clone", "--depth", "1", "-q", url, tmp], check=True, capture_output=True, text=True, env=env
-        )
-        listed = subprocess.run(["git", "-C", tmp, "ls-files", "-z"], check=True, capture_output=True, text=True).stdout
+        git("clone", "--depth", "1", "-q", url, tmp)
+        listed = git("-C", tmp, "ls-files", "-z")
         files = []
         for path in listed.split("\0")[:-1]:
             file = Path(tmp, path)
@@ -476,8 +477,8 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     def add_source(
         title: str, text: str, passages: list[str], headings: Sequence[str | None] = (), codes: Sequence[bool] = ()
     ) -> int:
-        """Stores a Source with its Passages, with the heading above each Passage of a Lesson,
-        and with whether each Passage is code. Passages with no flag in `codes` are not code."""
+        """Stores a Source with its Passages, with the heading above each Passage of a Lesson or
+        of the symbol docs, and with whether each Passage is code. Passages with no flag in `codes` are not code."""
         with db:
             (source,) = db.execute(
                 "INSERT INTO source (title, text, total, opened) VALUES (?, ?, ?, ?) RETURNING id",
@@ -492,6 +493,12 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     notices: list[str] = []  # every open practice page shows each new one on its message line
 
     tasks: set[asyncio.Task] = set()  # background work, kept here until it is done so Python does not delete it
+
+    def in_background(work: Coroutine):
+        """Runs the work in a task of its own, and returns at once."""
+        task = asyncio.create_task(work)
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
 
     def add_unlock(letters: str | None, key: str, settings: dict, how: str):
         """Writes the next key of the Letter layout being learned to the unlock log, by the
@@ -522,8 +529,36 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             found, n = code_passages(text, rule["max_dropped"], rule["min_length"])
             passages += found
             skipped += n
-        add_source(title, "".join(f"--- {path}\n{text}" for path, text in files), passages, codes=[True] * len(passages))
+        add_source(title, repo_text(files), passages, codes=[True] * len(passages))
         notices.append(f"Imported {title}: {len(passages)} Passages, {skipped} functions skipped.")
+
+    async def import_symbol_docs():
+        """Clones the doc repos and stores the four symbol doc Sources."""
+        settings = read_settings(settings_path).unwrap()
+        rule = settings["passages"]
+        try:
+            found = await asyncio.to_thread(
+                symbol_docs,
+                settings["symbols"]["python_branch"],
+                settings["lessons"]["split_lines"],
+                rule["max_dropped"],
+                rule["min_length"],
+            )
+        except subprocess.CalledProcessError as e:
+            notices.append(f"Could not clone the symbol docs: {e.stderr.strip()}")
+            return
+        except Exception as e:  # such as a repo whose files are no longer where they were
+            notices.append(f"Could not import the symbol docs: {e!r}")
+            return
+        for title, text, parts in found:
+            add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts))
+        symbol_docs_imported([(title, len(parts)) for title, _, parts in found])
+
+    def symbol_docs_imported(counts: list[tuple[str, int]]):
+        """The end of an import of the symbol docs, after its Sources are stored: a notice gives
+        each Source's number of Passages."""
+        listed = ", ".join(f"{title} ({n} Passages)" for title, n in counts)
+        notices.append(f"Imported the symbol docs: {listed}.")
 
     def lesson_call(request: LessonRequest, lessons: dict) -> tuple[str, list[dict[str, str]]]:
         """The model and the prompt messages of a Lesson, by the [lessons] settings."""
@@ -871,9 +906,12 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     # Clones in the background. A notice says when it is done.
     @app.post("/api/code", status_code=202)
     async def import_code(repo: Repo):
-        task = asyncio.create_task(import_repo(repo.url))
-        tasks.add(task)
-        task.add_done_callback(tasks.discard)
+        in_background(import_repo(repo.url))
+
+    # "Import the symbol docs" in the o list. Clones in the background. A notice says when it is done.
+    @app.post("/api/symbol-docs", status_code=202)
+    async def request_symbol_docs():
+        in_background(import_symbol_docs())
 
     # l in the Escape menu. The Lesson is written in the background after the ones asked for
     # before it. A request is refused, and nothing is sent, when the month-to-date spend plus the

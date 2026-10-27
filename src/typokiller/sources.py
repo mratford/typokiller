@@ -1,7 +1,10 @@
 import csv
+import os
 import re
+import subprocess
 import unicodedata
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 
 # Characters that NFKD does not turn into ASCII, and the ASCII to type instead.
@@ -119,7 +122,7 @@ def lesson_passages(
     for line in markdown.splitlines():
         if code is not None:
             if FENCE.match(line):
-                normalised += [(heading, *ascii_v1(c), True) for c in split_code(tidy_code("\n".join(code)), split_lines)]
+                normalised += [(heading, *part, True) for part in code_parts("\n".join(code), split_lines)]
                 code = None
             else:
                 code.append(line)
@@ -152,6 +155,12 @@ def plain(text: str) -> str:
     return "".join(pieces)
 
 
+def code_parts(code: str, split_lines: int) -> list[tuple[str, int]]:
+    """A code block tidied, split by `split_code` and normalised with `ascii-v1`: each part
+    with how many characters normalising dropped from it."""
+    return [ascii_v1(part) for part in split_code(tidy_code(code), split_lines)]
+
+
 def split_code(code: str, split_lines: int) -> list[str]:
     """A tidied code block as `top_level_parts` put together, split as `lesson_passages` says."""
     parts = top_level_parts(code)
@@ -165,6 +174,18 @@ def split_code(code: str, split_lines: int) -> list[str]:
         else:
             chunks.append(part)
     return chunks
+
+
+def git(*args: str) -> str:
+    """Runs git and gives its output. git uses the Mac's own credentials. GIT_TERMINAL_PROMPT=0
+    stops it from asking for a password that nobody would see."""
+    env = os.environ | {"GIT_TERMINAL_PROMPT": "0"}
+    return subprocess.run(["git", *args], check=True, capture_output=True, text=True, env=env).stdout
+
+
+def repo_text(files: Sequence[tuple[str | Path, str]]) -> str:
+    """The text of a Source made from the files of a repo: each file's text after a `--- path` line."""
+    return "".join(f"--- {path}\n{text}" for path, text in files)
 
 
 def search_catalogue(catalogue: Path, query: str) -> list[dict]:

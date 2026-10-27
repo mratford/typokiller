@@ -11,7 +11,7 @@ const MENU = [
     ['m', 'Keymap on/off', toggleKeymap],
   ]],
   ['Sources', [
-    ['o', 'open a Source, endless Drills or endless Symbol Drills', async () => { await showSources(); screen = 'sources'; }],
+    ['o', 'open a Source, endless Drills or endless Symbol Drills, or import the symbol docs', async () => { await showSources(); screen = 'sources'; }],
     ['l', 'new Lesson', openLessonForm],
     ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
@@ -244,6 +244,13 @@ function importCode() {
   screen = 'typing';
 }
 
+// The server clones the doc repos in the background, and a notice says when the Sources are imported.
+function importSymbolDocs() {
+  send('/api/symbol-docs');
+  message = 'Importing the symbol docs in the background.';
+  screen = 'typing';
+}
+
 // The Lesson languages: [the key that chooses it, its name, the server's name for it].
 const LANGUAGES = [['p', 'Python', 'python'], ['g', 'Gleam', 'gleam']];
 const lessonLanguage = () => LANGUAGES.find(l => l[2] === language);
@@ -449,7 +456,7 @@ function settingsKey(e) {
 async function menuKey(e) {
   if (e.key === 'Escape' && screen !== 'menu') { screen = 'menu'; sel = 0; editing = null; }
   else if (screen === 'settings') settingsKey(e);
-  else if (screen === 'sources') listKey(e, openItems(), s => s.ask ? showDrill(s.ask) : chooseSource(s));
+  else if (screen === 'sources') listKey(e, openItems(), s => s.run ? s.run() : chooseSource(s));
   else if (screen === 'import') {
     const choice = IMPORTS.find(([k]) => k === e.key);
     if (choice) { screen = choice[2]; query = ''; }
@@ -573,13 +580,14 @@ function menuHTML() {
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
-// The `o` list: the Sources, then endless Drills and endless Symbol Drills, each with what
-// to ask the server for each Drill.
-const ENDLESS = [
-  { label: 'Endless Drills, with the Targets ranked again after each one', ask: {} },
-  { label: 'Endless Symbol Drills: lines of code, with the Targets ranked again after each one', ask: { symbols: true } },
+// The `o` list: the Sources, then endless Drills, endless Symbol Drills and the import of the
+// symbol docs, each with what choosing it does.
+const AFTER_SOURCES = [
+  { label: 'Endless Drills, with the Targets ranked again after each one', run: () => showDrill({}) },
+  { label: 'Endless Symbol Drills: lines of code, with the Targets ranked again after each one', run: () => showDrill({ symbols: true }) },
+  { label: 'Import the symbol docs: code Sources from the Python and Gleam docs, cloned in the background', run: importSymbolDocs },
 ];
-const openItems = () => [...sources, ...ENDLESS];
+const openItems = () => [...sources, ...AFTER_SOURCES];
 
 const sourceLabel = s => `${s.title} · ${s.at < s.total ? `§${s.at + 1} of ${s.total}` : 'finished, opens from the start'}`;
 

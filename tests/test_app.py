@@ -100,7 +100,7 @@ SETTINGS = {
     "passages": {"max_dropped": 0.05, "min_length": 20, "code_extensions": [".py", ".gleam"]},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
-    "symbols": {"weak": 2, "under_measured": 2, "lines": 6},
+    "symbols": {"weak": 2, "under_measured": 2, "lines": 6, "python_branch": "3.15"},
     "unlocking": UNLOCKING,
     "lessons": LESSONS,
     "keymaps": {},
@@ -194,7 +194,7 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
-    rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\n'
+    rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\npython_branch = "3.15"\n'
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
     rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
     rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
@@ -564,6 +564,161 @@ def test_a_clone_that_fails_is_reported(running, tmp_path):
 
     [notice] = wait_for_notice(running)
     assert notice.startswith(f"Could not clone {tmp_path / 'missing'}:")
+
+
+# Small copies of the layouts of the three doc repos, by path in the folder that they are cloned into.
+DOC_FILES = {
+    "cpython/Doc/tutorial/index.rst": ".. toctree::\n   :numbered:\n\n   second.rst\n   first.rst\n",
+    "cpython/Doc/tutorial/first.rst": (
+        "First steps\n===========\n\n"
+        "An example::\n\n   total = sum([1, 2, 3])\n   print(total)\n\n"
+        "Prompts\n-------\n\n"
+        ">>> squares = [n * n for n in range(5)]\n>>> squares\n[0, 1, 4, 9, 16]\n"
+        ">>> for n in squares:\n...     print(n)\n...\n0\n1\n"
+    ),
+    "cpython/Doc/tutorial/second.rst": (
+        "Second steps\n============\n\n"
+        ".. code-block:: shell-session\n\n   $ python3 -m venv tutorial-env\n\n"
+        "The grammar::\n\n   atom ::= identifier | literal\n\n"
+        ".. note::\n\n   For example:\n\n"
+        "   .. code-block:: python\n      :caption: greet.py\n\n"
+        "      def greet(name):\n          return f\"Hello, {name}!\"\n"
+    ),
+    "cpython/Doc/library/alpha.rst": (
+        ":mod:`!alpha` --- First module\n==============================\n\n"
+        ".. testcode::\n\n   import alpha\n   print(alpha.value())\n\n"
+        ".. testoutput::\n\n   42\n"
+    ),
+    "cpython/Doc/library/beta.rst": (
+        "Beta\n====\n\n.. doctest::\n\n   >>> import beta\n   >>> beta.double(21)\n   42\n"
+    ),
+    "tour/src/content/chapter0_basics/lesson01_hello_world/code.gleam": (
+        'import gleam/io\n\npub fn main() {\n  // Prints a greeting\n  io.println("Hello, Joe!")\n}\n'
+    ),
+    "tour/src/content/chapter0_basics/lesson01_hello_world/en.html": "<p>Here is a tiny program.</p>\n",
+    "tour/src/content/chapter0_basics/lesson02_string_concat/code.gleam": (
+        'pub fn main() {\n  "Hello, " <> "Joe"\n}\n'
+    ),
+    "tour/src/content/chapter1_functions/lesson01_functions/code.gleam": (
+        "pub fn double(x: Int) -> Int {\n  x * 2\n}\n"
+    ),
+    "stdlib/src/gleam/box.gleam": (
+        "//// Boxes hold one value.\n////\n//// ```gleam\n//// let b = box.new(\"module docs\")\n//// ```\n\n"
+        "/// Makes a new box.\n///\n/// ```gleam\n/// let b = box.new(\"hello there\")\n/// ```\n///\n"
+        "/// ```erlang\n/// box:new(<<\"hello there\">>).\n/// ```\n"
+        '@external(erlang, "box_ffi", "new")\npub fn new(value: a) -> Box(a) {\n  Box(value)\n}\n\n'
+        "/// The value in a box.\n///\n/// ```gleam\n/// assert box.new(1) |> box.get == 1\n/// ```\n"
+        "/// ```\n/// a plain fence is not taken\n/// ```\n"
+        "pub fn get(box: Box(a)) -> a {\n  box.value\n}\n"
+    ),
+    "stdlib/src/gleam/box/inner.gleam": "/// ```gleam\n/// let inner = inner.wrap(box.new(1))\n/// ```\npub type Inner\n",
+}
+
+
+@pytest.fixture
+def docs(monkeypatch):
+    """Replaces cloning the three doc repos: writes DOC_FILES into the folder instead, and
+    records the Python branch asked for."""
+    branches = []
+
+    def clone_docs(folder, python_branch):
+        branches.append(python_branch)
+        for path, text in DOC_FILES.items():
+            (folder / path).parent.mkdir(parents=True, exist_ok=True)
+            (folder / path).write_text(text)
+
+    monkeypatch.setattr("typokiller.symbol_docs.clone_docs", clone_docs)
+    return branches
+
+
+def doc_passages(db_path):
+    """The heading and text of each Passage, in order, by Source title."""
+    found = {}
+    for title, heading, text in rows(
+        db_path, "SELECT title, heading, passage.text FROM passage JOIN source ON source = source.id ORDER BY source, ord"
+    ):
+        found.setdefault(title, []).append((heading, text))
+    return found
+
+
+def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_with_headings(
+    running, db_path, docs, monkeypatch
+):
+    monkeypatch.setattr("random.shuffle", lambda files: files.reverse())
+
+    response = running.post("/api/symbol-docs")
+
+    assert response.status_code == 202
+    assert wait_for_notice(running) == [
+        "Imported the symbol docs: Python 3.15 tutorial (3 Passages), Python 3.15 library (2 Passages),"
+        " Gleam tour (3 Passages), Gleam stdlib (3 Passages)."
+    ]
+    assert docs == ["3.15"]
+    assert doc_passages(db_path) == {
+        # In the order of the toctree. Prompts are removed and output dropped. Shell commands and grammar are dropped.
+        "Python 3.15 tutorial": [
+            ("Second steps", 'def greet(name):\n    return f"Hello, {name}!"'),
+            ("First steps", "total = sum([1, 2, 3])\nprint(total)"),
+            ("Prompts", "squares = [n * n for n in range(5)]\nsquares\nfor n in squares:\n    print(n)"),
+        ],
+        # Shuffled by file; here the shuffle reverses the files.
+        "Python 3.15 library": [
+            ("Beta", "import beta\nbeta.double(21)"),
+            ("alpha --- First module", "import alpha\nprint(alpha.value())"),
+        ],
+        # Each lesson's file whole, in the order of the chapters and lessons.
+        "Gleam tour": [
+            ("Hello world", 'import gleam/io\n\npub fn main() {\n  // Prints a greeting\n  io.println("Hello, Joe!")\n}'),
+            ("String concat", 'pub fn main() {\n  "Hello, " <> "Joe"\n}'),
+            ("Functions", "pub fn double(x: Int) -> Int {\n  x * 2\n}"),
+        ],
+        # Only the gleam fences of /// comments, under the module and the name; the files reversed
+        # (box/inner.gleam sorts first).
+        "Gleam stdlib": [
+            ("box.new", 'let b = box.new("hello there")'),
+            ("box.get", "assert box.new(1) |> box.get == 1"),
+            ("inner.Inner", "let inner = inner.wrap(box.new(1))"),
+        ],
+    }
+    assert rows(db_path, "SELECT DISTINCT code FROM passage WHERE source IS NOT NULL") == [(1,)]
+
+
+def test_a_symbol_doc_block_longer_than_split_lines_is_split_like_lesson_code(running, db_path, docs):
+    running.put("/api/settings", json={"lessons": {"split_lines": 4}, "symbols": {"python_branch": "3.14"}})
+
+    running.post("/api/symbol-docs")
+
+    wait_for_notice(running)
+    assert docs == ["3.14"]
+    passages = doc_passages(db_path)
+    # The import line is too short to keep.
+    assert passages["Gleam tour"][0] == (
+        "Hello world",
+        'pub fn main() {\n  // Prints a greeting\n  io.println("Hello, Joe!")\n}',
+    )
+    assert "Python 3.14 tutorial" in passages
+
+
+def test_a_symbol_docs_clone_that_fails_is_reported_and_adds_no_source(running, db_path, monkeypatch):
+    def clone_docs(folder, python_branch):
+        raise subprocess.CalledProcessError(128, ["git"], stderr="fatal: Remote branch 9.99 not found\n")
+
+    monkeypatch.setattr("typokiller.symbol_docs.clone_docs", clone_docs)
+
+    running.post("/api/symbol-docs")
+
+    assert wait_for_notice(running) == ["Could not clone the symbol docs: fatal: Remote branch 9.99 not found"]
+    assert rows(db_path, "SELECT * FROM source") == []
+
+
+def test_symbol_docs_whose_layout_is_not_known_are_reported_and_add_no_source(running, db_path, monkeypatch):
+    monkeypatch.setattr("typokiller.symbol_docs.clone_docs", lambda folder, python_branch: None)  # clones nothing
+
+    running.post("/api/symbol-docs")
+
+    [notice] = wait_for_notice(running)
+    assert notice.startswith("Could not import the symbol docs: FileNotFoundError(")
+    assert rows(db_path, "SELECT * FROM source") == []
 
 
 # What `innerText` gives for a news page: each block on its own line, menu text at the top and the bottom.
