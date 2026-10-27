@@ -40,6 +40,10 @@ _Avoid_: exercise, snippet, text
 One typing of a Passage within a Session, finished or abandoned; every keystroke belongs to exactly one Attempt.
 _Avoid_: try, run, rep
 
+**Symbol Lesson**:
+A Python Lesson on a topic that the LLM chooses because it uses one rare Symbol, written when too few lines of code hold that Symbol.
+_Avoid_: symbol corpus, generated code
+
 **Drill**:
 A Passage that typokiller generates around chosen Targets rather than taking from a Source; used to practise weaknesses, gather data, or simply practise.
 _Avoid_: exercise, lesson
@@ -48,9 +52,17 @@ _Avoid_: exercise, lesson
 A character or pair of characters that a Drill focuses on, because it is measured as weak or has not been measured enough yet.
 _Avoid_: weak spot, focus
 
+**Symbol**:
+A digit, or one of ``!"#$%&()*+-/:;<=>?@[\]^`{|}~``. A pair is a symbol pair when at least one of its characters is a Symbol and neither is a space or newline. `' , . _` are not Symbols.
+_Avoid_: special character, punctuation (for this set)
+
 **Unlocked keys**:
 The keys of a Letter layout that Drills may use while that layout is being learned; the set only ever grows.
 _Avoid_: unlocked letters (punctuation keys count too), level
+
+**Symbol Drill**:
+A Drill whose Targets are only Symbols and symbol pairs, made of whole lines of code from the Sources; it may use every key, locked or not.
+_Avoid_: symbol exercise
 
 **Introduction Drill**:
 A Drill built around a key that has just been unlocked.
