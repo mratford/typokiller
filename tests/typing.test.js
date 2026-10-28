@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyKey, requestError, showChars } from '../src/typokiller/static/typing.js';
+import { applyKey, listLabels, requestError, showChars } from '../src/typokiller/static/typing.js';
 
 const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
 
@@ -53,4 +53,19 @@ test('requestError says why a request failed: no answer, the detail text, or the
   assert.equal(await requestError(failed, answer('{"detail": [{"msg": "Field required"}]}', 422, 'Unprocessable Entity')),
     'Could not import the symbol docs: 422 Unprocessable Entity');
   assert.equal(await requestError(failed, answer('<html>')), 'Could not import the symbol docs: 405 Method Not Allowed');
+});
+
+test('with no more items than letters, every label is one letter, in the order of the letters', () => {
+  assert.deepEqual(listLabels(3, 'sadflewcmpgh', 'jk'), ['s', 'a', 'd']);
+  assert.equal(listLabels(12, 'sadflewcmpgh', 'jk').join(''), 'sadflewcmpgh');
+});
+
+test('with more items than letters, no label is the start of another, and the first items have one letter', () => {
+  const labels = listLabels(19, 'sadflewcmpgh', 'jk');
+  assert.deepEqual(labels.slice(0, 11), [...'sadflewcmpg']);
+  assert.deepEqual(labels.slice(11), ['hs', 'ha', 'hd', 'hf', 'hl', 'he', 'hw', 'hc']);
+});
+
+test('the keys that the list uses are never labels, even when the letters have them', () => {
+  assert.deepEqual(listLabels(3, 'jsknad', 'jkn'), ['s', 'a', 'd']);
 });

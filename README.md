@@ -11,6 +11,8 @@ uv run pyright src tests   # type check
 
 The database is `typokiller.db` in the current directory. The Gutenberg catalogue, `pg_catalog.csv`, is downloaded next to it in the background when the server starts, and again when it is a week old. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor, or press `,` in the Escape menu.
 
+In a list, such as the Board list or the list of Sources (`o`), type an item's label of one or two letters to choose it, or select it with `j`/`k` and press Enter. After the first letter of a two-letter label, Esc or Backspace removes it. The letters are the `[lists]` setting `letters`.
+
 Code Sources (`i` then `c` in the Escape menu) are cloned with the `git` command, so it uses the Mac's own git credentials and private repos work. git must not need to ask for a password.
 
 Articles (`i` then `a` in the Escape menu) are sent with a bookmarklet. Drag the link in that panel to the bookmarks bar. The link opens `/send` on the address that typokiller was loaded from. So open typokiller at the address that the reading browser uses to reach this Mac, and drag the link from there.

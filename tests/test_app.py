@@ -103,6 +103,7 @@ SETTINGS = {
     "symbols": {"weak": 2, "under_measured": 2, "lines": 6, "python_branch": "3.15", "min_lines": 50, "max_lessons": 3},
     "unlocking": UNLOCKING,
     "lessons": LESSONS,
+    "lists": {"letters": "sadflewcmpgh"},
     "keymaps": {},
 }
 ATTEMPT = {"passage": 1, "settings": SETTINGS}  # the built-in Passage
@@ -198,6 +199,7 @@ def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
     rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
     rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
+    rest += '\n[lists]\nletters = "sadflewcmpgh"\n'
     rest += '\n[keymaps.Sweep.QWERTY]\nlayers = ["Base", "Sym"]\n'
     rest = 'show_keymap = false\n' + rest
     settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + rest)

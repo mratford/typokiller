@@ -278,6 +278,13 @@ drop_share = 0.34
 cap = 5.0
 dollars_per_pound = 1.337
 
+[lists]
+# The letters that label the items of the Board list, the Keymap list, the list of Sources (o in
+# the Escape menu) and the Gutenberg search results. An item is chosen by typing its label. The
+# first items get one letter, in this order, and the others two. j and k, and n in the Board list,
+# are never labels.
+letters = "sadflewcmpgh"
+
 [keymaps]
 # The layer names in Keymap drawings, for each Board and Letter layout. A layer with no
 # name is named after the key that opens it. Put a Board name with spaces in quotes,

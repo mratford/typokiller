@@ -1,4 +1,4 @@
-import { applyKey, esc, requestError, showChars } from './typing.js';
+import { applyKey, esc, listLabels, requestError, showChars } from './typing.js';
 import { openProgress, progressKey } from './progress.js';
 
 // Each menu item is [key, label, what choosing it does].
@@ -67,6 +67,8 @@ let ord = 0; // the current Attempt's order in the Session
 let attempts = []; // attempts[ord] holds the Passage id Attempt ord types and its settings
 let typed = '';
 let sel = 0; // the selected line of the list or menu on screen
+let labelLetters = ''; // the [lists] letters setting, from the last read of the settings file
+let labelStart = ''; // the first letter of a two-letter label, typed in a list; '' when none
 let settings = null; // the settings file's values while the settings page is open
 let editing = null; // the text typed for the selected number setting while it is edited
 let message = '';
@@ -78,11 +80,11 @@ let events = []; // not yet stored by the server
 let finished = []; // ords of finished Attempts, not yet stored by the server
 
 const getJSON = url => fetch(url).then(r => r.json());
-const getSettings = () => getJSON('/api/settings');
+const getSettings = () => getJSON('/api/settings').then(s => { labelLetters = s.lists.letters; return s; });
 const send = (url, body, { method = 'POST', keepalive = false } = {}) =>
   fetch(url, { method, keepalive, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 const sendJSON = (...args) => send(...args).then(r => r.json());
-const chooseHint = 'Press a number, or <kbd>j</kbd>/<kbd>k</kbd> and <kbd>Enter</kbd>.';
+const chooseHint = 'Type a label, or press <kbd>j</kbd>/<kbd>k</kbd> and <kbd>Enter</kbd>.';
 
 // Moves the selection with j and k. Returns whether the key was j or k.
 function moveSel(e, count) {
@@ -92,11 +94,33 @@ function moveSel(e, count) {
   return true;
 }
 
-// Chooses from a numbered list by its number, or with j/k and Enter.
-function listKey(e, items, choose) {
-  if (moveSel(e, items.length)) return;
-  const item = e.key === 'Enter' ? items[sel] : items[Number(e.key) - 1];
-  if (item) choose(item);
+// The lists, by screen: [their items, what choosing one does, the keys it uses besides j and k].
+const LISTS = {
+  boards: () => [boards, chooseBoard, 'n'],
+  keymaps: () => [board.keymaps, startSession],
+  sources: () => [sources, chooseSource],
+  results: () => [results, importBook],
+};
+
+// The labels of the list on screen. The keys that the list uses are never labels.
+const screenLabels = count => listLabels(count, labelLetters, 'jk' + (LISTS[screen]()[2] ?? ''));
+
+// On a list screen, chooses an item by its label, or with j/k and Enter, and returns whether it
+// used the key. After the first letter of a two-letter label, Esc or Backspace removes it, and
+// any other key that does not finish a label does nothing. With no letter typed, the screen's
+// other keys, such as Esc, work as on other screens. Keys with Cmd or Ctrl are left to the browser.
+function listKey(e) {
+  if (!LISTS[screen] || e.metaKey || e.ctrlKey) return false;
+  const [items, choose] = LISTS[screen]();
+  if (moveSel(e, items.length)) return true;
+  if (labelStart && (e.key === 'Escape' || e.key === 'Backspace')) { labelStart = ''; return true; }
+  const typedLabel = labelStart + e.key;
+  const labels = screenLabels(items.length);
+  const item = e.key === 'Enter' ? items[sel] : items[labels.indexOf(typedLabel)];
+  if (item) { labelStart = ''; choose(item); }
+  else if (labels.some(l => l.startsWith(typedLabel))) labelStart = typedLabel;
+  else return Boolean(labelStart); // after a first letter, a key that starts no label is used and does nothing
+  return true;
 }
 
 // The text in a form after one more key.
@@ -308,7 +332,8 @@ const FIELDS = {
 
 async function showBoards(id) {
   screen = 'boards';
-  const listed = await getJSON('/api/boards');
+  // The settings are read for the labels of the lists.
+  const [listed] = await Promise.all([getJSON('/api/boards'), getSettings()]);
   boards = listed.boards;
   await showSources();
   sel = Math.max(0, boards.findIndex(b => b.id === (id ?? listed.last)));
@@ -358,6 +383,7 @@ function pickFile(accept, then) {
 }
 
 function startKey(e) {
+  if (listKey(e)) return;
   if (screen === 'name') {
     if (e.key === 'Escape') screen = 'boards';
     else if (e.key === 'Enter' && draft.name) screen = 'vil';
@@ -371,8 +397,6 @@ function startKey(e) {
     });
   } else if (e.key === 'n' && screen === 'boards') { screen = 'name'; draft = { name: '' }; }
   else if (e.key === 'Escape') screen = 'boards';
-  else if (screen === 'boards') listKey(e, boards, chooseBoard);
-  else listKey(e, board.keymaps, startSession);
 }
 
 // Starts an Attempt at the current Passage. Reads the settings file again, so each
@@ -461,9 +485,9 @@ function settingsKey(e) {
 
 // Esc in any panel goes back to the menu.
 async function menuKey(e) {
+  if (listKey(e)) return render();
   if (e.key === 'Escape' && screen !== 'menu') { screen = 'menu'; sel = 0; editing = null; }
   else if (screen === 'settings') settingsKey(e);
-  else if (screen === 'sources') listKey(e, sources, chooseSource);
   else if (screen === 'import') {
     const choice = IMPORTS.find(([k]) => k === e.key);
     if (typeof choice?.[2] === 'function') await choice[2]();
@@ -471,7 +495,6 @@ async function menuKey(e) {
   }
   else if (screen === 'language') languageKey(e);
   else if (FIELDS[screen]) { if (e.key === 'Enter') FIELDS[screen].enter(); else query = edit(query, e); }
-  else if (screen === 'results') listKey(e, results, importBook);
   else if (screen === 'progress') progressKey(e);
   else if (screen === 'menu' && !moveSel(e, ITEMS.length)) {
     await (e.key === 'Enter' ? ITEMS[sel] : ITEMS.find(([k]) => k === e.key))?.[2]();
@@ -649,9 +672,16 @@ function settingsHTML() {
   return `<div class="menu"><h4>Settings</h4>${items}<div class="hint"><kbd>j</kbd>/<kbd>k</kbd> select, <kbd>Enter</kbd> changes the value, <kbd>Esc</kbd> goes back. They are saved in typokiller.toml.</div></div>`;
 }
 
-function listHTML(title, labels) {
-  const items = labels.map((l, i) =>
-    `<div class="item ${i === sel ? 'sel' : ''}"><kbd>${i + 1}</kbd> ${esc(l)}</div>`).join('');
+// A list of items, each shown with its label. After the first letter of a two-letter label, the
+// items whose labels do not start with it fade, and the typed letter is dim in the labels that do.
+function listHTML(title, texts) {
+  const labels = screenLabels(texts.length);
+  const items = texts.map((t, i) => {
+    const itemLabel = labels[i] ?? '';
+    const faded = !itemLabel.startsWith(labelStart);
+    const shown = faded ? esc(itemLabel) : `<span class="typed">${esc(labelStart)}</span>${esc(itemLabel.slice(labelStart.length))}`;
+    return `<div class="item ${i === sel ? 'sel' : ''} ${faded ? 'faded' : ''}"><kbd>${shown}</kbd> ${esc(t)}</div>`;
+  }).join('');
   return `<h4>${title}</h4>${items}`;
 }
 
