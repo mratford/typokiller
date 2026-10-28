@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS source (
     total INTEGER NOT NULL,  -- its number of Passages
     bookmark INTEGER NOT NULL DEFAULT 0,  -- the ord of the next Passage to serve
     opened TEXT NOT NULL,
-    symbol INTEGER NOT NULL DEFAULT 0  -- 1 for a Symbol Source, which is never opened to type in order
+    symbol_source INTEGER NOT NULL DEFAULT 0  -- 1 for a Symbol Source, which is never opened to type in order
 );
 CREATE TABLE IF NOT EXISTS passage (
     id INTEGER PRIMARY KEY,
@@ -474,11 +474,11 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             # Before, no column said which Passages are code. One that holds a newline is taken as code.
             db.execute("UPDATE passage SET code = 1 WHERE instr(text, char(10))")
         with suppress(sqlite3.OperationalError):
-            db.execute("ALTER TABLE source ADD COLUMN symbol INTEGER NOT NULL DEFAULT 0")
+            db.execute("ALTER TABLE source ADD COLUMN symbol_source INTEGER NOT NULL DEFAULT 0")
             # The Symbol Sources from before: the Symbol Lessons, and the Sources of the symbol
             # docs import, by the titles that `symbol_docs` gives them.
             db.execute(
-                "UPDATE source SET symbol = 1 WHERE id IN (SELECT source FROM lesson WHERE topic GLOB 'Symbol ?: *')"
+                "UPDATE source SET symbol_source = 1 WHERE id IN (SELECT source FROM lesson WHERE topic GLOB 'Symbol ?: *')"
                 " OR title IN ('Gleam tour', 'Gleam stdlib') OR title GLOB 'Python * tutorial' OR title GLOB 'Python * library'"
             )
 
@@ -500,15 +500,15 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         passages: list[str],
         headings: Sequence[str | None] = (),
         codes: Sequence[bool] = (),
-        symbol: bool = False,
+        symbol_source: bool = False,
     ) -> int:
         """Stores a Source with its Passages, with the heading above each Passage of a Lesson or
         of the symbol docs, and with whether each Passage is code. Passages with no flag in `codes` are not code.
-        `symbol` marks a Symbol Source."""
+        `symbol_source` marks a Symbol Source."""
         with db:
             (source,) = db.execute(
-                "INSERT INTO source (title, text, total, opened, symbol) VALUES (?, ?, ?, ?, ?) RETURNING id",
-                (title, text, len(passages), now(), symbol),
+                "INSERT INTO source (title, text, total, opened, symbol_source) VALUES (?, ?, ?, ?, ?) RETURNING id",
+                (title, text, len(passages), now(), symbol_source),
             ).fetchone()
             db.executemany(
                 "INSERT INTO passage (source, ord, text, normaliser, heading, code) VALUES (?, ?, ?, 'ascii-v1', ?, ?)",
@@ -577,7 +577,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             notices.append(f"Could not import the symbol docs: {e!r}")
             return
         for title, text, parts in found:
-            add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts), symbol=True)
+            add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts), symbol_source=True)
         await symbol_docs_imported([(title, len(parts)) for title, _, parts in found])
 
     async def symbol_docs_imported(counts: list[tuple[str, int]]):
@@ -706,7 +706,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         if not parts:
             return f"Lesson {topic} failed: it has nothing long enough to type.", False
         headings, passages, codes = zip(*parts)
-        source = add_source(topic, text, list(passages), headings, codes, symbol=bool(request.symbol))
+        source = add_source(topic, text, list(passages), headings, codes, symbol_source=bool(request.symbol))
         with db:
             db.execute("UPDATE lesson SET source = ? WHERE id = ?", (source, lesson))
         notice = f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped; {dropped} of {len(log)} code examples dropped."
@@ -1070,7 +1070,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         return [
             {"id": id, "title": title, "at": at, "total": total}
             for id, title, at, total in db.execute(
-                "SELECT id, title, bookmark, total FROM source WHERE NOT symbol ORDER BY bookmark >= total, opened DESC"
+                "SELECT id, title, bookmark, total FROM source WHERE NOT symbol_source ORDER BY bookmark >= total, opened DESC"
             )
         ]
 
