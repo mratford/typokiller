@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { applyKey, listLabels, requestError, showChars } from '../src/typokiller/static/typing.js';
 
 const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
@@ -68,4 +69,14 @@ test('with more items than letters, no label is the start of another, and the fi
 
 test('the keys that the list uses are never labels, even when the letters have them', () => {
   assert.deepEqual(listLabels(3, 'jsknad', 'jkn'), ['s', 'a', 'd']);
+});
+
+// The screen uses plain words, not the glossary terms of CONTEXT.md (see "Words on screen" in AGENTS.md).
+test('no text that the page shows holds a capitalised glossary term', async () => {
+  const terms = /\b(Passage|Attempt|Source|Target|Session|Board|Keymap|Drill|Lesson|Letter layout)s?\b/g;
+  for (const file of ['practice.js', 'progress.js', 'typing.js', 'send.html']) {
+    const code = (await readFile(new URL(`../src/typokiller/static/${file}`, import.meta.url), 'utf8'))
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*/g, '');
+    assert.deepEqual(code.match(terms), null, file);
+  }
 });

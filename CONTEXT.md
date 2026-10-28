@@ -4,6 +4,8 @@ A personal typing trainer that records detailed data on every keystroke, uses it
 
 ## Language
 
+These terms are for the code, the files in `docs/`, the settings file and tickets. The app's screen and the README use plain words instead; `AGENTS.md` lists them.
+
 ### Keyboards
 
 **Board**:

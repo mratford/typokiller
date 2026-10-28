@@ -65,7 +65,7 @@ export function progressKey(e) {
 function draw() {
   const k = keymaps[at];
   const count = keymaps.length > 1 ? ` (${at + 1} of ${keymaps.length})` : '';
-  const hint = '<kbd>h</kbd>/<kbd>l</kbd> Board · Letter layout, a number picks the layer, '
+  const hint = '<kbd>h</kbd>/<kbd>l</kbd> keyboard and layout, a number picks the layer, '
     + '<kbd>j</kbd>/<kbd>k</kbd> select a pair, <kbd>Esc</kbd> goes back.';
   const u = page?.unlocking;
   const unlock = u ? `<p class="hint">${u.unlocked} of ${u.total} keys unlocked.`
@@ -75,7 +75,7 @@ function draw() {
   if (!page) return;
   const trend = document.getElementById('trend');
   if (!page.days) {
-    trend.innerHTML = `<p class="hint">No finished Attempts in the last ${page.weeks} weeks.</p>`;
+    trend.innerHTML = `<p class="hint">No parts finished in the last ${page.weeks} weeks.</p>`;
   } else if (!window.vegaEmbed) {
     trend.innerHTML = '<p class="hint">The chart needs vega-embed from cdn.jsdelivr.net, which did not load.</p>';
   } else {

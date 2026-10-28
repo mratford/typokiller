@@ -192,6 +192,13 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
     assert "min_length = 20" in settings_path.read_text()
 
 
+def test_the_settings_page_has_a_plain_label_for_each_setting():
+    page = (Path(__file__).parent.parent / "src/typokiller/static/practice.js").read_text()
+
+    unlabelled = [f"{t}.{k}" for t, values in SETTINGS.items() for k in values if f"'{t}.{k}':" not in page]
+    assert unlabelled == []
+
+
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
@@ -538,7 +545,7 @@ def test_a_git_repo_is_cloned_in_the_background_and_each_function_of_its_tracked
     response = running.post("/api/code", json={"url": str(repo)})
 
     assert response.status_code == 202
-    assert wait_for_notice(running) == ["Imported myrepo: 3 Passages, 0 functions skipped."]
+    assert wait_for_notice(running) == ["Imported myrepo: 3 parts, 0 functions skipped."]
     [(source, title, text)] = rows(db_path, "SELECT id, title, text FROM source")
     assert title == "myrepo"
     assert sorted(re.findall(r"^--- (.*)$", text, re.M)) == ["a.py", "b.gleam"]
@@ -653,9 +660,9 @@ def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_wit
 
     assert response.status_code == 202
     assert wait_for_notice(running) == [
-        "Imported the symbol docs: Python 3.15 tutorial (3 Passages), Python 3.15 library (2 Passages),"
-        " Gleam tour (3 Passages), Gleam stdlib (3 Passages). The line pool has 17 lines;"
-        " the rarest Symbols, with their numbers of lines: 0 0, 4 0, 6 0, 7 0, 8 0. No Symbol Lessons queued."
+        "Imported the Python and Gleam docs: Python 3.15 tutorial (3 parts), Python 3.15 library (2 parts),"
+        " Gleam tour (3 parts), Gleam stdlib (3 parts). Symbol drills can use 17 lines of code;"
+        " the rarest symbols, with their numbers of lines: 0 0, 4 0, 6 0, 7 0, 8 0. No symbol lessons queued."
     ]
     assert docs == ["3.15"]
     assert doc_passages(db_path) == {
@@ -715,7 +722,7 @@ def test_a_symbol_docs_clone_that_fails_is_reported_and_adds_no_source(running, 
 
     running.post("/api/symbol-docs")
 
-    assert wait_for_notice(running) == ["Could not clone the symbol docs: fatal: Remote branch 9.99 not found"]
+    assert wait_for_notice(running) == ["Could not clone the Python and Gleam docs: fatal: Remote branch 9.99 not found"]
     assert rows(db_path, "SELECT * FROM source") == []
 
 
@@ -725,7 +732,7 @@ def test_symbol_docs_whose_layout_is_not_known_are_reported_and_add_no_source(ru
     running.post("/api/symbol-docs")
 
     [notice] = wait_for_notice(running)
-    assert notice.startswith("Could not import the symbol docs: FileNotFoundError(")
+    assert notice.startswith("Could not import the Python and Gleam docs: FileNotFoundError(")
     assert rows(db_path, "SELECT * FROM source") == []
 
 
@@ -760,15 +767,16 @@ def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lin
     provider.going.set()
     notices = wait_for_notice(running, 4)
     assert notices[0].endswith(
-        " Gleam stdlib (3 Passages). The line pool has 19 lines;"
-        " the rarest Symbols, with their numbers of lines: ^ 0, ~ 0, $ 1, 0 2, 4 2."
-        " Symbol Lessons queued for ^ ~ $."
+        " Gleam stdlib (3 parts). Symbol drills can use 19 lines of code;"
+        " the rarest symbols, with their numbers of lines: ^ 0, ~ 0, $ 1, 0 2, 4 2."
+        " Symbol lessons queued for ^ ~ $."
     )
     # In the order queued, each written by the Python model with the Symbol Lesson prompt.
     # Unlike the notice of another Lesson, it does not point to the list of Sources (o).
-    ready = "4 Passages, 1 skipped; 0 of 1 code examples dropped."
+    ready = "4 parts, 1 skipped; 0 of 1 code examples dropped."
     assert notices[1:] == [
-        f"Lesson ready: Symbol {s}: Pattern Matching in Python: {ready} Symbol {s}: {n} lines." for s, n in zip("^~$", [0, 0, 1])
+        f"New lesson ready: Symbol {s}: Pattern Matching in Python: {ready} {s} is in {n} lines of code."
+        for s, n in zip("^~$", [0, 0, 1])
     ]
     assert [call["model"] for call in provider.calls] == ["anthropic/claude-haiku-5.5"] * 3
     assert [f"the Symbol {s} " in lesson_asked(call) for call, s in zip(provider.calls, "^~$")] == [True] * 3
@@ -795,11 +803,11 @@ def test_each_symbol_lesson_is_checked_against_the_cap_and_one_that_is_refused_g
     with sqlite3.connect(db_path) as db:  # $0.05 more is spent while the ^ Lesson is written
         db.execute(spend_row(0.05, month_start().astimezone(UTC).isoformat()))
     provider.going.set()
-    assert notices[0].endswith(" Symbol Lessons queued for ^.")
-    assert notices[1:] == [f"No Symbol Lesson for {s}: Cap reached: resets 1 {resets:%b}" for s in "~$"]
+    assert notices[0].endswith(" Symbol lessons queued for ^.")
+    assert notices[1:] == [f"No symbol lesson for {s}: Cap reached: resets 1 {resets:%b}" for s in "~$"]
     # ^ is still rare, but one more Lesson for it is refused too, and not tried again.
     assert wait_for_notice(running, 4)[3].endswith(
-        f" dropped. Symbol ^: 0 lines. No Symbol Lesson for ^: Cap reached: resets 1 {resets:%b}"
+        f" dropped. ^ is in 0 lines of code. No symbol lesson for ^: Cap reached: resets 1 {resets:%b}"
     )
     assert len(provider.calls) == 1
 
@@ -811,7 +819,7 @@ def test_an_import_queues_no_symbol_lesson_for_a_symbol_that_has_max_lessons_of_
 
     running.post("/api/symbol-docs")  # ^ and ~ are still in no pool line
 
-    assert wait_for_notice(running, 4)[3].endswith(" ^ 0, ~ 0, $ 1, 4 2, 6 2. No Symbol Lessons queued.")
+    assert wait_for_notice(running, 4)[3].endswith(" ^ 0, ~ 0, $ 1, 4 2, 6 2. No symbol lessons queued.")
     assert len(provider.calls) == 2
 
 
@@ -823,7 +831,7 @@ def test_a_failed_symbol_lesson_queues_no_other(running, db_path, provider, docs
 
     notices = wait_for_notice(running, 3)
     assert notices[1:] == [
-        f"Lesson Symbol {s}: untitled failed: it was written 2 times; the last time, 1 of 1 code examples failed after repairs."
+        f"The lesson on Symbol {s}: untitled failed: it was written 2 times; the last time, 1 of 1 code examples failed after repairs."
         for s in "^~"
     ]
     time.sleep(0.2)
@@ -867,11 +875,11 @@ def test_a_written_symbol_lesson_queues_one_more_while_its_symbol_is_in_fewer_th
     wait_for_notice(running)
     provider.going.set()
     notices = wait_for_notice(running, 4)
-    assert notices[0].endswith(" Symbol Lessons queued for ^ ~.")
+    assert notices[0].endswith(" Symbol lessons queued for ^ ~.")
     assert [n.split(" dropped. ")[1] for n in notices[1:]] == [
-        "Symbol ^: 2 lines.",
-        "Symbol ~: 0 lines; another Symbol Lesson queued.",
-        "Symbol ~: 0 lines.",  # it has max_lessons Symbol Lessons
+        "^ is in 2 lines of code.",
+        "~ is in 0 lines of code; another symbol lesson queued.",
+        "~ is in 0 lines of code.",  # it has max_lessons Symbol Lessons
     ]
     assert len(provider.calls) == 3
 
@@ -891,7 +899,7 @@ def test_a_symbol_lesson_whose_count_fails_is_reported_and_the_next_lesson_is_st
     provider.going.set()
 
     notices = wait_for_notice(running, 3)
-    assert [n.split(" dropped. ")[1] for n in notices[1:]] == [f"Could not count Symbol {s} again: no pool" for s in "^~"]
+    assert [n.split(" dropped. ")[1] for n in notices[1:]] == [f"Could not count the lines of code with {s} again: no pool" for s in "^~"]
 
 
 # What `innerText` gives for a news page: each block on its own line, menu text at the top and the bottom.
@@ -919,7 +927,7 @@ def test_each_kept_line_of_an_article_is_a_passage_and_the_article_is_first_in_t
         ("The plan, they said, would take three years - and cost more than expected.", "ascii-v1"),
     ]
     assert client.get("/api/notices").json() == [
-        "Imported article Harbour rules: 2 Passages, 3 paragraphs skipped. It is first in the list of Sources (o)."
+        "Imported article Harbour rules: 2 parts, 3 paragraphs skipped. It is first in the list of texts (o)."
     ]
     assert [s["id"] for s in client.get("/api/sources").json()] == [article, book]
 
@@ -1311,7 +1319,7 @@ def test_with_no_lines_of_code_a_symbol_drill_is_refused(client, db_path):
     response = client.post(f"/api/sessions/{start_session(client)}/drills", json={"symbols": True})
 
     assert response.status_code == 409
-    assert response.json()["detail"].startswith("No lines of code for Symbol Drills yet.")
+    assert response.json()["detail"].startswith("No lines of code for symbol drills yet.")
     assert rows(db_path, "SELECT * FROM drill") == []
 
 
@@ -1550,7 +1558,7 @@ def test_u_unlocks_the_next_key_by_hand_and_drawings_show_the_locked_keys_and_ri
 
     assert unlocked == {"unlocked": 11, "total": 30, "next": "i", "introducing": "o"}
     assert unlock_log(db_path) == [("free-range", "o", "manual", "recent-cost-v1")]
-    assert client.get("/api/notices").json() == ["Unlocked o. Introduction Drills come after this Attempt."]
+    assert client.get("/api/notices").json() == ["Unlocked o. Next come drills for o."]
     page = client.get(f"/api/keymaps/{sweep}/progress").json()
     heat = ET.fromstring(page["layers"][0])
     assert drawn(heat, "4,2") == ("key locked unlock", ["I", "n=0", "i", "n=0"])
@@ -1679,8 +1687,8 @@ def test_a_lesson_is_written_in_the_background_in_the_order_asked_and_recorded_a
     responses = [running.post("/api/lessons", json={"topic": topic}) for topic in ["pattern matching", "decorators"]]
 
     assert [r.status_code for r in responses] == [202, 202]
-    ready = "4 Passages, 1 skipped; 0 of 1 code examples dropped. It is first in the list of Sources (o)."
-    assert wait_for_notice(running, 2) == [f"Lesson ready: pattern matching: {ready}", f"Lesson ready: decorators: {ready}"]
+    ready = "4 parts, 1 skipped; 0 of 1 code examples dropped. It is first in the list of texts (o)."
+    assert wait_for_notice(running, 2) == [f"New lesson ready: pattern matching: {ready}", f"New lesson ready: decorators: {ready}"]
     [call, _] = provider.calls
     assert {k: v for k, v in call.items() if k != "messages"} == {
         "model": "anthropic/claude-haiku-5.5", "max_tokens": 8000, "reasoning": "low"
@@ -1714,7 +1722,7 @@ def test_a_lesson_that_fails_says_why(running, db_path, provider):
 
     running.post("/api/lessons", json={"topic": "decorators"})
 
-    assert wait_for_notice(running) == ["Lesson decorators failed: HTTP Error 500"]
+    assert wait_for_notice(running) == ["The lesson on decorators failed: HTTP Error 500"]
     assert rows(db_path, "SELECT * FROM source") == []
 
 
@@ -1801,8 +1809,8 @@ def test_a_gleam_lesson_is_written_by_the_gleam_model_and_its_code_is_checked_wi
 
     running.post("/api/lessons", json={"topic": "actors", "language": "gleam"})
 
-    ready = "2 Passages, 0 skipped; 0 of 1 code examples dropped. It is first in the list of Sources (o)."
-    assert wait_for_notice(running) == [f"Lesson ready: actors: {ready}"]
+    ready = "2 parts, 0 skipped; 0 of 1 code examples dropped. It is first in the list of texts (o)."
+    assert wait_for_notice(running) == [f"New lesson ready: actors: {ready}"]
     [call] = provider.calls
     assert call["model"] == "anthropic/claude-sonnet-5.5"
     prompt = " ".join(m["content"] for m in call["messages"])
@@ -1843,8 +1851,8 @@ def test_a_failing_block_gets_up_to_2_repair_calls_with_its_error_and_then_is_dr
 
     running.post("/api/lessons", json={"topic": "checking"})
 
-    ready = "5 Passages, 0 skipped; 1 of 3 code examples dropped. It is first in the list of Sources (o)."
-    assert wait_for_notice(running) == [f"Lesson ready: checking: {ready}"]
+    ready = "5 parts, 0 skipped; 1 of 3 code examples dropped. It is first in the list of texts (o)."
+    assert wait_for_notice(running) == [f"New lesson ready: checking: {ready}"]
     repairs = provider.calls[1:]
     assert [(c["max_tokens"], c["reasoning"]) for c in repairs] == [(4000, "low")] * 3
     asked = [c["messages"][-1]["content"] for c in repairs]
@@ -1874,7 +1882,7 @@ def test_a_lesson_with_more_than_a_third_of_its_blocks_dropped_is_written_again_
 
     running.post("/api/lessons", json={"topic": "checking"})
 
-    assert wait_for_notice(running)[0].startswith("Lesson ready: checking: 4 Passages")
+    assert wait_for_notice(running)[0].startswith("New lesson ready: checking: 4 parts")
     assert len(provider.calls) == 1 + 4 + 1
     assert provider.calls[5]["messages"] == provider.calls[0]["messages"]
     # Each time it was written has its own row, with its check log. The first has no Source.
@@ -1889,7 +1897,7 @@ def test_a_lesson_with_no_code_left_after_it_is_written_again_is_rejected(runnin
 
     running.post("/api/lessons", json={"topic": "prose"})
 
-    assert wait_for_notice(running) == ["Lesson prose failed: it was written 2 times; the last time, it had no code example."]
+    assert wait_for_notice(running) == ["The lesson on prose failed: it was written 2 times; the last time, it had no code example."]
     assert len(provider.calls) == 2
     assert rows(db_path, "SELECT checks, source FROM lesson") == [("[]", None), ("[]", None)]
     assert rows(db_path, "SELECT * FROM source") == []

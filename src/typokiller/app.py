@@ -544,7 +544,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 "INSERT INTO unlock VALUES (?, ?, ?, ?, ?, ?)",
                 (letters, key, now(), how, json.dumps(settings["unlocking"]), settings["weakness"]["model"]),
             )
-        notices.append(f"Unlocked {key}. Introduction Drills come after this Attempt.")
+        notices.append(f"Unlocked {key}. Next come drills for {key}.")
 
     async def import_repo(url: str):
         title = Path(url).name.removesuffix(".git")
@@ -566,7 +566,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             passages += found
             skipped += n
         add_source(title, repo_text(files), passages, codes=[True] * len(passages))
-        notices.append(f"Imported {title}: {len(passages)} Passages, {skipped} functions skipped.")
+        notices.append(f"Imported {title}: {len(passages)} parts, {skipped} functions skipped.")
 
     async def import_symbol_docs():
         """Clones the doc repos and stores the four symbol doc Sources."""
@@ -581,10 +581,10 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 rule["min_length"],
             )
         except subprocess.CalledProcessError as e:
-            notices.append(f"Could not clone the symbol docs: {e.stderr.strip()}")
+            notices.append(f"Could not clone the Python and Gleam docs: {e.stderr.strip()}")
             return
         except Exception as e:  # such as a repo whose files are no longer where they were
-            notices.append(f"Could not import the symbol docs: {e!r}")
+            notices.append(f"Could not import the Python and Gleam docs: {e!r}")
             return
         for title, text, parts in found:
             add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts), symbol_source=True)
@@ -609,12 +609,12 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 refusals.append(refused)
             else:
                 queued.append(s)
-        listed = ", ".join(f"{title} ({n} Passages)" for title, n in counts)
+        listed = ", ".join(f"{title} ({n} parts)" for title, n in counts)
         fewest = ", ".join(f"{s} {held[s]}" for s in rarest[:5])
-        queued_text = f"Symbol Lessons queued for {' '.join(queued)}." if queued else "No Symbol Lessons queued."
+        queued_text = f"Symbol lessons queued for {' '.join(queued)}." if queued else "No symbol lessons queued."
         notices.append(
-            f"Imported the symbol docs: {listed}. The line pool has {len(lines):,} lines;"
-            f" the rarest Symbols, with their numbers of lines: {fewest}. {queued_text}"
+            f"Imported the Python and Gleam docs: {listed}. Symbol drills can use {len(lines):,} lines of code;"
+            f" the rarest symbols, with their numbers of lines: {fewest}. {queued_text}"
         )
         notices.extend(refusals)
 
@@ -640,7 +640,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         try:
             await queue_lesson(LessonRequest(topic=f"Symbol {symbol}", symbol=symbol), lessons)
         except HTTPException as e:
-            return f"No Symbol Lesson for {symbol}: {e.detail}"
+            return f"No symbol lesson for {symbol}: {e.detail}"
 
     def lesson_call(request: LessonRequest, lessons: dict) -> tuple[dict, str, list[dict[str, str]]]:
         """The [lessons] settings, the model and the prompt messages of a Lesson. A Symbol Lesson
@@ -710,28 +710,29 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 break
             if writes == WRITES:
                 why = f"{dropped} of {len(log)} code examples failed after repairs" if log else "it had no code example"
-                return f"Lesson {topic} failed: it was written {writes} times; the last time, {why}.", False
+                return f"The lesson on {topic} failed: it was written {writes} times; the last time, {why}.", False
         rule = settings["passages"]
         parts, skipped = lesson_passages(text, lessons["split_lines"], rule["max_dropped"], rule["min_length"])
         if not parts:
-            return f"Lesson {topic} failed: it has nothing long enough to type.", False
+            return f"The lesson on {topic} failed: it has nothing long enough to type.", False
         headings, passages, codes = zip(*parts)
         source = add_source(topic, text, list(passages), headings, codes, symbol_source=bool(request.symbol))
         with db:
             db.execute("UPDATE lesson SET source = ? WHERE id = ?", (source, lesson))
-        notice = f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped; {dropped} of {len(log)} code examples dropped."
-        return notice + ("" if request.symbol else " It is first in the list of Sources (o)."), True
+        notice = f"New lesson ready: {topic}: {len(parts)} parts, {skipped} skipped; {dropped} of {len(log)} code examples dropped."
+        return notice + ("" if request.symbol else " It is first in the list of texts (o)."), True
 
     async def symbol_lesson_written(symbol: str, settings: dict) -> str:
         """After a Symbol Lesson for `symbol` is stored: counts again the lines of the line pool
         that hold `symbol`, and queues one more Symbol Lesson for it if `wants_symbol_lesson`.
         Returns the end of the Lesson's notice, with the count and whether one more was queued."""
         held = lines_holding(symbol, line_pool(db))
+        held_text = f" {symbol} is in {held} lines of code"
         if not wants_symbol_lesson(symbol, held, settings["symbols"]):
-            return f" Symbol {symbol}: {held} lines."
+            return held_text + "."
         if refused := await queue_symbol_lesson(symbol, settings["lessons"]):
-            return f" Symbol {symbol}: {held} lines. {refused}"
-        return f" Symbol {symbol}: {held} lines; another Symbol Lesson queued."
+            return f"{held_text}. {refused}"
+        return held_text + "; another symbol lesson queued."
 
     # The Lessons asked for and not written yet, in the order asked for, each with its worst
     # case in dollars. `waiting` is the sum of those worst cases, which the cap counts.
@@ -748,13 +749,13 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             try:
                 notice, stored = await write_lesson(request)
             except Exception as e:  # reported, so the next Lesson is still written
-                notice, stored = f"Lesson {request.topic} failed: {e}", False
+                notice, stored = f"The lesson on {request.topic} failed: {e}", False
             waiting -= worst
             if stored and request.symbol:
                 try:
                     notice += await symbol_lesson_written(request.symbol, read_settings(settings_path).unwrap())
                 except Exception as e:  # reported, so the next Lesson is still written
-                    notice += f" Could not count Symbol {request.symbol} again: {e}"
+                    notice += f" Could not count the lines of code with {request.symbol} again: {e}"
             notices.append(notice)
 
     async def queue_lesson(request: LessonRequest, lessons: dict):
@@ -1064,8 +1065,8 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             raise HTTPException(422, "No paragraph in it is long enough to type.")
         source = add_source(article.title, article.text, passages)
         notices.append(
-            f"Imported article {article.title}: {len(passages)} Passages, {skipped} paragraphs skipped."
-            " It is first in the list of Sources (o)."
+            f"Imported article {article.title}: {len(passages)} parts, {skipped} paragraphs skipped."
+            " It is first in the list of texts (o)."
         )
         return {"source": source}
 

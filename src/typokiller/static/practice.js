@@ -5,25 +5,25 @@ import { openProgress, progressKey } from './progress.js';
 const MENU = [
   ['Practice', [
     ['Escape', 'resume', () => { screen = 'typing'; }],
-    ['d', 'Drill', () => showDrill(drill?.endless ?? false)],
-    ['e', 'endless Drills', () => showDrill({})],
-    ['y', 'endless Symbol Drills', () => showDrill({ symbols: true })],
-    ['s', 'skip this Passage', () => { moveOn(); screen = 'typing'; }],
-    ['r', 'restart this Passage', () => { nextAttempt(); screen = 'typing'; }],
-    ['m', 'Keymap on/off', toggleKeymap],
+    ['d', 'drill your weakest keys', () => showDrill(drill?.endless ?? false)],
+    ['e', 'endless drills', () => showDrill({})],
+    ['y', 'endless symbol drills', () => showDrill({ symbols: true })],
+    ['s', 'skip this part', () => { moveOn(); screen = 'typing'; }],
+    ['r', 'restart this part', () => { nextAttempt(); screen = 'typing'; }],
+    ['m', 'keyboard picture on/off', toggleKeymap],
   ]],
-  ['Sources', [
-    ['o', 'open a Source', async () => { await showSources(); screen = 'sources'; }],
-    ['l', 'new Lesson', openLessonForm],
-    ['i', 'import a Source', () => { screen = 'import'; }],
+  ['Texts', [
+    ['o', 'open a text', async () => { await showSources(); screen = 'sources'; }],
+    ['l', 'new lesson (written by the AI)', openLessonForm],
+    ['i', 'add a text', () => { screen = 'import'; }],
   ]],
   ['Learning', [
     ['u', 'unlock the next key (free-range only)', unlockNext],
   ]],
-  ['Session', [
+  ['Other', [
     ['p', 'progress page', () => { screen = 'progress'; openProgress(board.name, keymap.letter_layout); }],
-    ['b', 'change Board', () => showBoards()],
-    ['q', 'end Session', () => { screen = 'ended'; }],
+    ['b', 'change keyboard', () => showBoards()],
+    ['q', 'stop', () => { screen = 'ended'; }],
     [',', 'settings', openSettings],
     ['?', 'all keys', () => { screen = 'help'; }],
   ]],
@@ -32,6 +32,53 @@ const ITEMS = MENU.flatMap(([, items]) => items);
 
 // The values each choice setting can take. Enter on the settings page moves to the next one.
 const CHOICES = { 'typing.wrong_key_mode': ['keep typing', 'locked until fixed'], 'typing.show_keymap': [false, true] };
+
+// The label of each setting on the settings page, by its path of TOML keys. The settings under
+// [keymaps] all have the label of `keymaps`.
+const SETTING_LABELS = {
+  'typing.wrong_key_mode': 'What a wrong key does',
+  'typing.show_keymap': 'Show the keyboard picture',
+  'typing.keymap_lines': 'Lines of text shown above the keyboard picture',
+  'passages.max_dropped': 'Share of characters that may be lost to ASCII',
+  'passages.min_length': 'Shortest part to type, in characters',
+  'passages.code_extensions': 'File extensions taken from a git repo',
+  'weakness.model': 'Method that ranks your weakest keys',
+  'weakness.weeks': 'Weeks of typing used to rank your weakest keys',
+  'weakness.min_seen': 'Times a key is typed before it is ranked',
+  'drills.generator': 'Method that writes drills',
+  'drills.weak': 'Number of weakest keys in a drill',
+  'drills.under_measured': 'Number of keys typed too few times, in a drill',
+  'drills.min_seen': 'Times a key is typed before it is measured well enough',
+  'drills.words': 'Words in a drill',
+  'symbols.weak': 'Number of weakest symbols in a symbol drill',
+  'symbols.under_measured': 'Number of symbols typed too few times, in a symbol drill',
+  'symbols.lines': 'Lines in a symbol drill',
+  'symbols.python_branch': 'Version of the Python docs',
+  'symbols.min_lines': 'Lines of code that each symbol should be in',
+  'symbols.max_lessons': 'Most lessons written for one symbol',
+  'unlocking.letter_layout': 'Layout that you are learning',
+  'unlocking.start': 'Keys unlocked at the start',
+  'unlocking.order': 'Order in which the other keys unlock',
+  'unlocking.threshold': 'Time in ms that each key must beat before the next unlocks',
+  'unlocking.last': 'Last keystrokes of each key that count for unlocking',
+  'unlocking.min_seen': 'Times each key is typed before the next unlocks',
+  'lessons.prompt': 'Instructions that ask the AI for a lesson',
+  'lessons.python_model': 'AI model for Python lessons',
+  'lessons.gleam_model': 'AI model for Gleam lessons',
+  'lessons.reasoning': 'How hard the AI thinks',
+  'lessons.max_tokens': 'Most tokens in a lesson',
+  'lessons.words': 'Words in a lesson',
+  'lessons.level': 'Level of a lesson',
+  'lessons.split_lines': 'Longest code example in one part, in lines',
+  'lessons.timeout': 'Seconds that a code example may run',
+  'lessons.repairs': 'Repairs of a code example that fails',
+  'lessons.repair_tokens': 'Most tokens in a repair',
+  'lessons.drop_share': 'Largest share of code examples that may be dropped',
+  'lessons.cap': 'Most that the AI may cost in a month, in pounds',
+  'lessons.dollars_per_pound': 'Dollars in a pound',
+  'lists.letters': 'Letters that label the items of a list',
+  keymaps: 'Layer names in the keyboard picture',
+};
 
 // The screens shown before a Session starts: the Board list, the Keymap list, and
 // the three steps of adding a Board.
@@ -259,7 +306,7 @@ async function importBook(book) {
   const r = await send('/api/gutenberg', { number: book.number, title: book.title });
   if (!r.ok) { message = `Could not import ${book.title}.`; render(); return; }
   const imported = await r.json();
-  message = `Imported ${book.title}: ${imported.passages} Passages, ${imported.skipped} paragraphs skipped.`;
+  message = `Imported ${book.title}: ${imported.passages} parts, ${imported.skipped} paragraphs skipped.`;
   await chooseSource({ id: imported.source, at: 0, total: imported.passages });
 }
 
@@ -279,7 +326,7 @@ const importCode = () =>
 
 // The server clones the doc repos in the background and imports them as Symbol Sources.
 const importSymbolDocs = () =>
-  startImport('/api/symbol-docs', 'Importing the symbol docs in the background.', 'Could not import the symbol docs');
+  startImport('/api/symbol-docs', 'Importing the Python and Gleam docs in the background.', 'Could not import the Python and Gleam docs');
 
 // The Lesson languages: [the key that chooses it, its name, the server's name for it].
 const LANGUAGES = [['p', 'Python', 'python'], ['g', 'Gleam', 'gleam']];
@@ -305,7 +352,7 @@ async function requestLesson() {
   if (!topic) return;
   const r = await send('/api/lessons', { topic, language });
   if (!r.ok) { message = (await r.json()).detail; render(); return; }
-  message = `Writing a ${lessonLanguage()[1]} Lesson on ${topic} in the background.`;
+  message = `Writing a ${lessonLanguage()[1]} lesson on ${topic} in the background.`;
   screen = 'typing';
   render();
 }
@@ -315,7 +362,7 @@ const IMPORTS = [
   ['g', 'Project Gutenberg book', 'gutenberg'],
   ['c', 'Code from a git repo', 'code'],
   ['a', 'Article from the browser', 'article'],
-  ['s', 'Python and Gleam symbol docs, cloned in the background', importSymbolDocs],
+  ['s', 'Python and Gleam docs (code for symbol drills), added in the background', importSymbolDocs],
 ];
 
 // The text fields of the import panel, by screen: the title and what Enter does.
@@ -326,7 +373,7 @@ const FIELDS = {
   code: { enter: importCode, enterHint: 'clones it in the background', title: 'Code: type or paste a git URL' },
   lesson: { enter: requestLesson, enterHint: 'asks for it; it is written in the background',
     get title() {
-      return `New ${lessonLanguage()[1]} Lesson: type a topic · £${spend.spent.toFixed(2)} of £${spend.cap} this month`;
+      return `New ${lessonLanguage()[1]} lesson: type a topic · £${spend.spent.toFixed(2)} of £${spend.cap} this month`;
     } },
 };
 
@@ -480,7 +527,7 @@ function settingsKey(e) {
   else if (editing.trim() && !isNaN(editing)) settings[table][key] = Number(editing);
   editing = null;
   saveSetting(path, settings[table][key]);
-  message = 'Settings saved. They apply from the next Attempt.';
+  message = 'Settings saved. They apply from the next part you start.';
 }
 
 // Esc in any panel goes back to the menu.
@@ -579,7 +626,7 @@ setInterval(() => { flush(); checkNotices(); }, 1000);
 const label = k => (k === 'Escape' ? 'Esc' : k);
 
 function passageHTML() {
-  if (!passage) return '<p>Making a Drill…</p>';
+  if (!passage) return '<p>Making a drill…</p>';
   const text = passage.text;
   let h = '';
   for (let j = 0; j < text.length; j++) {
@@ -626,12 +673,12 @@ function menuHTML() {
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
-const sourceLabel = s => `${s.title} · ${s.at < s.total ? `§${s.at + 1} of ${s.total}` : 'finished, opens from the start'}`;
+const sourceLabel = s => `${s.title} · ${s.at < s.total ? `part ${s.at + 1} of ${s.total}` : 'finished, opens from the start'}`;
 
 // The `o` list: the Sources that are not Symbol Sources.
 function sourcesHTML() {
-  return `<div class="menu">${listHTML('Open a Source', sources.map(sourceLabel))}`
-    + `<div class="hint">${chooseHint}${sources.length ? '' : ' No Sources yet: <kbd>i</kbd> in the menu imports one.'} <kbd>Esc</kbd> goes back.</div></div>`;
+  return `<div class="menu">${listHTML('Open a text', sources.map(sourceLabel))}`
+    + `<div class="hint">${chooseHint}${sources.length ? '' : ' No texts yet: <kbd>i</kbd> in the menu adds one.'} <kbd>Esc</kbd> goes back.</div></div>`;
 }
 
 // A panel of choices, each [key, label], with the one of the key `selected` marked.
@@ -640,10 +687,10 @@ const choicesHTML = (title, choices, hint, selected) => `<div class="menu"><h4>$
   + `<div class="hint">${hint}<kbd>Esc</kbd> goes back.</div></div>`;
 
 function importHTML() {
-  if (screen === 'import') return choicesHTML('Import a Source', IMPORTS, '');
+  if (screen === 'import') return choicesHTML('Add a text', IMPORTS, '');
   if (screen === 'language') {
     const hint = '<kbd>Enter</kbd> chooses the last used. ';
-    return choicesHTML('New Lesson: choose the language', LANGUAGES, hint, lessonLanguage()[0]);
+    return choicesHTML('New lesson: choose the language', LANGUAGES, hint, lessonLanguage()[0]);
   }
   const field = FIELDS[screen];
   if (field) {
@@ -682,7 +729,9 @@ const PANELS = {
 function settingsHTML() {
   const items = settingRows().map(([path, value], i) => {
     const shown = i === sel && editing !== null ? `${esc(editing)}<span class="cur"> </span>` : esc(String(value));
-    return `<div class="item ${i === sel ? 'sel' : ''}">${esc(path.join('.'))} = ${shown}</div>`;
+    const name = path.join('.');
+    return `<div class="item ${i === sel ? 'sel' : ''}">${SETTING_LABELS[name] ?? SETTING_LABELS[path[0]]}: ${shown}`
+      + `<span class="key">· ${esc(name)}</span></div>`;
   }).join('');
   return `<div class="menu"><h4>Settings</h4>${items}<div class="hint"><kbd>j</kbd>/<kbd>k</kbd> select, <kbd>Enter</kbd> changes the value, <kbd>Esc</kbd> goes back. They are saved in typokiller.toml.</div></div>`;
 }
@@ -702,18 +751,18 @@ function listHTML(title, texts) {
 
 function startHTML() {
   const resumed = resume();
-  const resumes = resumed ? `Resumes ${esc(sourceLabel(resumed))}.` : 'No Source to resume: types the built-in Passage.';
+  const resumes = resumed ? `Resumes ${esc(sourceLabel(resumed))}.` : 'No text open: typing the sample text.';
   if (screen === 'boards') {
-    return `${listHTML('Board', boards.map(b => b.name))}<p class="hint">${chooseHint} <kbd>n</kbd> adds a Board.</p><p>${resumes}</p>`;
+    return `${listHTML('Choose a keyboard', boards.map(b => b.name))}<p class="hint">${chooseHint} <kbd>n</kbd> adds a keyboard.</p><p>${resumes}</p>`;
   }
   if (screen === 'keymaps') {
-    return `${listHTML(`Keymap on ${esc(board.name)}`, board.keymaps.map(k => k.letter_layout))}`
+    return `${listHTML(`Choose a layout on ${esc(board.name)}`, board.keymaps.map(k => k.letter_layout))}`
       + `<p class="hint">${chooseHint} <kbd>Esc</kbd> goes back.</p><p>${resumes}</p>`;
   }
   const step = screen === 'name' ? `Name: ${esc(draft.name)}<span class="cur"> </span>`
     : `Press <kbd>Enter</kbd> to choose the <code>${screen === 'vil' ? '.vil' : 'vial.json'}</code> file.`;
-  return `<h4>New Board</h4><p class="p">${step}</p>`
-    + '<p class="hint">A name that exists adds the <code>.vil</code> to that Board. <kbd>Esc</kbd> goes back.</p>';
+  return `<h4>Add a keyboard</h4><p class="p">${step}</p>`
+    + '<p class="hint">A name that exists adds the <code>.vil</code> to that keyboard. <kbd>Esc</kbd> goes back.</p>';
 }
 
 // The key to press for the next character of the Passage, as { layer, key }, if the Keymap has one.
@@ -723,9 +772,9 @@ const nextKey = () => drawing.keys[passage?.text[typed.length]];
 const keymapShown = () => screen === 'typing' && passage && attempts[ord].settings.typing.show_keymap;
 
 // The status line's Drill part: the Targets, as showChars shows them.
-const drillLabel = () => ({ introduction: 'Introduction Drill', 'symbols-v1': 'Symbol Drill' }[drill.generator]
-  ?? (drill.endless ? 'Endless Drills' : 'Drill'))
-  + (drill.targets.length ? ` · Targets: ${drill.targets.map(t => showChars(t.unit)).join(' ')}` : '');
+const drillLabel = () => ({ introduction: 'new key drill', 'symbols-v1': 'symbol drill' }[drill.generator]
+  ?? (drill.endless ? 'endless drills' : 'drill'))
+  + (drill.targets.length ? ` · practising: ${drill.targets.map(t => showChars(t.unit)).join(' ')}` : '');
 
 // The status line's unlock progress on a Letter layout being learned, such as "10/30 keys · next o".
 const unlockLabel = () => `${unlocking.unlocked}/${unlocking.total} keys`
@@ -738,10 +787,10 @@ function render() {
   document.getElementById('app').hidden = screen === 'progress';
   document.getElementById('progress').hidden = screen !== 'progress';
   document.getElementById('app').innerHTML = `
-    <main>${screen === 'ended' ? '<p>Session ended. Reload the page to start a new Session.</p>' : starting ? startHTML() : passageHTML()}</main>
+    <main>${screen === 'ended' ? '<p>Stopped. Reload the page to start again.</p>' : starting ? startHTML() : passageHTML()}</main>
     ${PANELS[screen]?.() ?? ''}
-    <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(`${board.name} · ${keymap.letter_layout}`)}</span>
-      <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'built-in Passage')}</span>
+    <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a keyboard' : esc(`${board.name} · ${keymap.letter_layout}`)}</span>
+      <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'sample text')}</span>
       ${!starting && unlocking ? `<span>${esc(unlockLabel())}</span>` : ''}
       ${!starting && wrongKeyMode() === 'locked until fixed' ? '<span>locked until fixed</span>' : ''}</div>
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;

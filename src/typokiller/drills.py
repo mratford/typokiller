@@ -220,7 +220,7 @@ def symbols_v1(
     may use every key. Raises NoLines when the line pool is empty."""
     lines = line_pool(db)
     if not lines:
-        raise NoLines("No lines of code for Symbol Drills yet. Import a code Source (i) or ask for a Lesson (l).")
+        raise NoLines("No lines of code for symbol drills yet. Add code (i then c) or ask for a lesson (l).")
     counts = Counter({u: n for u, n in unit_counts(Counter(lines)).items() if symbol_unit(u)})
     symbols = settings["symbols"]
     targets = choose_targets(db, board, letter_layout, settings, counts, symbols)
