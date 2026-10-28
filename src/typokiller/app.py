@@ -168,6 +168,9 @@ wrong_key_mode = "keep typing"
 # Whether the practice screen draws the Keymap faintly under the Passage. m in the
 # Escape menu turns it on and off. Each Attempt records it with its settings.
 show_keymap = false
+# While the Keymap is drawn, the Passage shows only this many lines: the cursor's line and
+# the lines after it, as they are wrapped on the screen. The drawing is directly under them.
+keymap_lines = 3
 
 [passages]
 # A paragraph or function is not made into a Passage when normalising it to ASCII

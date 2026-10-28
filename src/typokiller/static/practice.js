@@ -591,8 +591,23 @@ function passageHTML() {
     else if (j < typed.length) { cls = 'bad'; shown = showChars(typed[j]); }
     h += `<span class="${cls}">${esc(shown)}</span>${newline ? '\n' : ''}`;
   }
+  // While the Keymap is drawn: a heading line, which may be empty, a box `keymap_lines` lines high, and
+  // under it the drawing of the next character's layer. render() outlines the key to press.
+  if (keymapShown()) {
+    return `<h3 class="heading line">${esc(passage.heading ?? '')}</h3>`
+      + `<div class="p lines" style="--lines: ${attempts[ord].settings.typing.keymap_lines}"><div>${h}</div></div>`
+      + `<div class="drawing">${drawing.layers[nextKey()?.layer ?? 0] ?? ''}</div>`;
+  }
   const heading = passage.heading ? `<h3 class="heading">${esc(passage.heading)}</h3>` : '';
   return `${heading}<div class="p">${h}</div>${nextPassage ? `<div class="p next">${esc(nextPassage.text)}</div>` : ''}`;
+}
+
+// While the Keymap is drawn, moves the Passage up by whole lines, so that the cursor's line is the first in the box.
+function showCursorLine() {
+  const shown = document.querySelector('main .lines > div');
+  const lineHeight = parseFloat(getComputedStyle(shown).lineHeight);
+  const line = Math.round((shown.querySelector('.cur').offsetTop - shown.firstChild.offsetTop) / lineHeight);
+  shown.style.transform = `translateY(${-line * lineHeight}px)`;
 }
 
 // A Passage taller than the screen scrolls to keep the cursor's line a third of the way down.
@@ -704,12 +719,8 @@ function startHTML() {
 // The key to press for the next character of the Passage, as { layer, key }, if the Keymap has one.
 const nextKey = () => drawing.keys[passage?.text[typed.length]];
 
-// The Keymap drawn faintly under the Passage while typing, when the setting is on. It shows the
-// layer of the next character; render() outlines the key to press.
-function keymapHTML() {
-  if (screen !== 'typing' || !passage || !attempts[ord].settings.typing.show_keymap) return '';
-  return `<div class="drawing">${drawing.layers[nextKey()?.layer ?? 0] ?? ''}</div>`;
-}
+// Whether the Keymap is drawn: while typing, when the setting is on.
+const keymapShown = () => screen === 'typing' && passage && attempts[ord].settings.typing.show_keymap;
 
 // The status line's Drill part: the Targets, as showChars shows them.
 const drillLabel = () => ({ introduction: 'Introduction Drill', 'symbols-v1': 'Symbol Drill' }[drill.generator]
@@ -728,7 +739,7 @@ function render() {
   document.getElementById('progress').hidden = screen !== 'progress';
   document.getElementById('app').innerHTML = `
     <main>${screen === 'ended' ? '<p>Session ended. Reload the page to start a new Session.</p>' : starting ? startHTML() : passageHTML()}</main>
-    ${keymapHTML()}${PANELS[screen]?.() ?? ''}
+    ${PANELS[screen]?.() ?? ''}
     <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a Board' : esc(`${board.name} · ${keymap.letter_layout}`)}</span>
       <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'built-in Passage')}</span>
       ${!starting && unlocking ? `<span>${esc(unlockLabel())}</span>` : ''}
@@ -736,7 +747,8 @@ function render() {
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;
   // Look only in this page's Keymap drawing: the progress page's drawing uses the same key ids.
   document.querySelector(`#app .drawing [id="k${nextKey()?.key}"]`)?.classList.add('next');
-  scrollToCursor();
+  if (keymapShown()) showCursorLine();
+  else scrollToCursor();
 }
 
 showBoards();
