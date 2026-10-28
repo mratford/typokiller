@@ -1,4 +1,4 @@
-import { applyKey, esc, showChars } from './typing.js';
+import { applyKey, esc, requestError, showChars } from './typing.js';
 import { openProgress, progressKey } from './progress.js';
 
 // Each menu item is [key, label, what choosing it does].
@@ -237,19 +237,23 @@ async function importBook(book) {
   await chooseSource({ id: imported.source, at: 0, total: imported.passages });
 }
 
-// The server clones the repo in the background, and a notice says when it is done.
-function importCode() {
-  send('/api/code', { url: query });
-  message = `Cloning ${query} in the background.`;
-  screen = 'typing';
+// Asks the server for an import that it does in the background; a notice says when it is done.
+// The message says `started`, or, when the server refuses the request or does not answer, why
+// it `failed`, and the panel stays open.
+async function startImport(url, started, failed, body) {
+  const r = await send(url, body).catch(() => null);
+  if (r?.ok) { message = started; screen = 'typing'; }
+  else message = await requestError(failed, r);
+  render();
 }
 
-// The server clones the doc repos in the background, and a notice says when the Sources are imported.
-function importSymbolDocs() {
-  send('/api/symbol-docs');
-  message = 'Importing the symbol docs in the background.';
-  screen = 'typing';
-}
+// The server clones the repo in the background.
+const importCode = () =>
+  startImport('/api/code', `Cloning ${query} in the background.`, `Could not clone ${query}`, { url: query });
+
+// The server clones the doc repos in the background and imports them as Sources.
+const importSymbolDocs = () =>
+  startImport('/api/symbol-docs', 'Importing the symbol docs in the background.', 'Could not import the symbol docs');
 
 // The Lesson languages: [the key that chooses it, its name, the server's name for it].
 const LANGUAGES = [['p', 'Python', 'python'], ['g', 'Gleam', 'gleam']];

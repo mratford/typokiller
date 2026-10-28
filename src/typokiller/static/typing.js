@@ -3,6 +3,15 @@ export const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/
 // Typed characters as the page shows them outside the Passage text: a space as ␣, a newline as ↵.
 export const showChars = text => text.replaceAll(' ', '␣').replaceAll('\n', '↵');
 
+// The message for a request that failed, such as "Could not clone <url>: 405 Method Not Allowed".
+// `answer` is the server's answer, or null when there was none. The server's `detail` is used
+// when it is text: a 422 answer has a list there, and an error page from a proxy is not JSON.
+export async function requestError(failed, answer) {
+  if (!answer) return `${failed}: the server did not answer.`;
+  const detail = (await answer.json().catch(() => null))?.detail;
+  return `${failed}: ${typeof detail === 'string' ? detail : `${answer.status} ${answer.statusText}`}`;
+}
+
 // The spaces at the start of the line that begins at position i of the Passage.
 const indentAt = (passage, i) => passage.slice(i).match(/^ */)[0];
 
