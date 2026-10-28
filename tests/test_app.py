@@ -683,6 +683,10 @@ def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_wit
         ],
     }
     assert rows(db_path, "SELECT DISTINCT code FROM passage WHERE source IS NOT NULL") == [(1,)]
+    # They are Symbol Sources: not in the list of Sources (o), but Symbol Drills take lines from them.
+    assert source_titles(running) == []
+    made = drill(running, start_session(running), symbols=True)
+    assert set(made["text"].split("\n")) <= set(line_pool(sqlite3.connect(db_path)))
 
 
 def test_a_symbol_doc_block_longer_than_split_lines_is_split_like_lesson_code(running, db_path, docs):
@@ -759,7 +763,8 @@ def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lin
         " Symbol Lessons queued for ^ ~ $."
     )
     # In the order queued, each written by the Python model with the Symbol Lesson prompt.
-    ready = "4 Passages, 1 skipped; 0 of 1 code examples dropped. It is first in the list of Sources (o)."
+    # Unlike the notice of another Lesson, it does not point to the list of Sources (o).
+    ready = "4 Passages, 1 skipped; 0 of 1 code examples dropped."
     assert notices[1:] == [
         f"Lesson ready: Symbol {s}: Pattern Matching in Python: {ready} Symbol {s}: {n} lines." for s, n in zip("^~$", [0, 0, 1])
     ]
@@ -768,7 +773,8 @@ def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lin
     assert rows(db_path, "SELECT topic, language, prompt FROM lesson ORDER BY id") == [
         (f"Symbol {s}: Pattern Matching in Python", "python", "symbol-lesson-v1") for s in "^~$"
     ]
-    assert source_titles(running)[:3] == [f"Symbol {s}: Pattern Matching in Python" for s in "$~^"]
+    # They are Symbol Sources, so they are not in the list of Sources (o).
+    assert source_titles(running) == []
 
 
 def test_each_symbol_lesson_is_checked_against_the_cap_and_one_that_is_refused_gets_a_notice_and_no_retry(
@@ -791,7 +797,7 @@ def test_each_symbol_lesson_is_checked_against_the_cap_and_one_that_is_refused_g
     assert notices[1:] == [f"No Symbol Lesson for {s}: Cap reached: resets 1 {resets:%b}" for s in "~$"]
     # ^ is still rare, but one more Lesson for it is refused too, and not tried again.
     assert wait_for_notice(running, 4)[3].endswith(
-        f" (o). Symbol ^: 0 lines. No Symbol Lesson for ^: Cap reached: resets 1 {resets:%b}"
+        f" dropped. Symbol ^: 0 lines. No Symbol Lesson for ^: Cap reached: resets 1 {resets:%b}"
     )
     assert len(provider.calls) == 1
 
@@ -837,8 +843,8 @@ def test_a_symbol_lesson_is_told_the_topics_of_the_earlier_symbol_lessons_for_it
 
     wait_for_notice(running, 5)
     # The title has the # heading without inline markup. A # line in code is not a heading.
-    assert [t for t in source_titles(running) if t.startswith("Symbol")] == [
-        "Symbol ~: Home ~ folders", "Symbol ^: Sets", "Symbol ~: untitled", "Symbol ^: Bitwise XOR"
+    assert rows(db_path, "SELECT title FROM source WHERE title GLOB 'Symbol*' ORDER BY id DESC") == [
+        ("Symbol ~: Home ~ folders",), ("Symbol ^: Sets",), ("Symbol ~: untitled",), ("Symbol ^: Bitwise XOR",)
     ]  # fmt: skip
     asked = [lesson_asked(call) for call in provider.calls]
     assert "Earlier" not in asked[0] and "Earlier" not in asked[1]
@@ -860,7 +866,7 @@ def test_a_written_symbol_lesson_queues_one_more_while_its_symbol_is_in_fewer_th
     provider.going.set()
     notices = wait_for_notice(running, 4)
     assert notices[0].endswith(" Symbol Lessons queued for ^ ~.")
-    assert [n.split(" (o). ")[1] for n in notices[1:]] == [
+    assert [n.split(" dropped. ")[1] for n in notices[1:]] == [
         "Symbol ^: 2 lines.",
         "Symbol ~: 0 lines; another Symbol Lesson queued.",
         "Symbol ~: 0 lines.",  # it has max_lessons Symbol Lessons
@@ -883,7 +889,7 @@ def test_a_symbol_lesson_whose_count_fails_is_reported_and_the_next_lesson_is_st
     provider.going.set()
 
     notices = wait_for_notice(running, 3)
-    assert [n.split(" (o). ")[1] for n in notices[1:]] == [f"Could not count Symbol {s} again: no pool" for s in "^~"]
+    assert [n.split(" dropped. ")[1] for n in notices[1:]] == [f"Could not count Symbol {s} again: no pool" for s in "^~"]
 
 
 # What `innerText` gives for a news page: each block on its own line, menu text at the top and the bottom.
@@ -1324,6 +1330,21 @@ def test_passages_stored_before_the_code_flag_are_code_when_they_hold_a_newline(
     client.post("/api/articles", json={"title": "Prose", "text": "A paragraph of new prose."})
 
     assert rows(db_path, "SELECT code FROM passage WHERE id > 4") == [(0,)]
+
+
+def test_sources_stored_before_the_symbol_mark_are_symbol_sources_when_from_a_symbol_lesson_or_the_symbol_docs(
+    db_path, settings_path, provider
+):
+    with sqlite3.connect(db_path) as db:
+        db.execute("CREATE TABLE source (id INTEGER PRIMARY KEY, title TEXT NOT NULL, text TEXT NOT NULL,"
+                   " total INTEGER NOT NULL, bookmark INTEGER NOT NULL DEFAULT 0, opened TEXT NOT NULL)")  # fmt: skip
+        db.execute("CREATE TABLE lesson (id INTEGER PRIMARY KEY, topic TEXT NOT NULL, source INTEGER)")
+        titles = ["Symbol ^: Sets", "decorators", "Python 3.14 tutorial", "Gleam stdlib", "Pride and Prejudice"]
+        db.executemany("INSERT INTO source (title, text, total, opened) VALUES (?, '', 2, ?)", [(t, t) for t in titles])
+        db.executemany("INSERT INTO lesson (topic, source) VALUES (?, ?)", [("Symbol ^: Sets", 1), ("decorators", 2)])
+    client = TestClient(create_app(db_path, settings_path, provider))
+
+    assert source_titles(client) == ["decorators", "Pride and Prejudice"]
 
 
 def test_the_trend_has_the_medians_of_each_days_finished_attempts_on_one_keymap_in_the_last_13_weeks(

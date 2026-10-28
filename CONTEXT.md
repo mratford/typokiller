@@ -44,6 +44,10 @@ _Avoid_: try, run, rep
 A Python Lesson on a topic that the LLM chooses because it uses one rare Symbol, written when too few lines of code hold that Symbol.
 _Avoid_: symbol corpus, generated code
 
+**Symbol Source**:
+A Source that exists to give lines of code to Symbol Drills: a Symbol Lesson, or a Source taken from the Python or Gleam documentation. It is never opened to type in order.
+_Avoid_: background source, symbol docs (for one of these Sources)
+
 **Drill**:
 A Passage that typokiller generates around chosen Targets rather than taking from a Source; used to practise weaknesses, gather data, or simply practise.
 _Avoid_: exercise, lesson

@@ -6,12 +6,14 @@ const MENU = [
   ['Practice', [
     ['Escape', 'resume', () => { screen = 'typing'; }],
     ['d', 'Drill', () => showDrill(drill?.endless ?? false)],
+    ['e', 'endless Drills', () => showDrill({})],
+    ['y', 'endless Symbol Drills', () => showDrill({ symbols: true })],
     ['s', 'skip this Passage', () => { moveOn(); screen = 'typing'; }],
     ['r', 'restart this Passage', () => { nextAttempt(); screen = 'typing'; }],
     ['m', 'Keymap on/off', toggleKeymap],
   ]],
   ['Sources', [
-    ['o', 'open a Source, endless Drills or endless Symbol Drills, or import the symbol docs', async () => { await showSources(); screen = 'sources'; }],
+    ['o', 'open a Source', async () => { await showSources(); screen = 'sources'; }],
     ['l', 'new Lesson', openLessonForm],
     ['i', 'import a Source', () => { screen = 'import'; }],
   ]],
@@ -46,7 +48,7 @@ let drill = null; // while Drills are typed: { endless, generator, targets, back
                   // skipped, so the Source then moves on from it
 let unlocking = null; // the unlock state of a Letter layout being learned, from the server:
                       // { unlocked, total, next, introducing }; null for other Letter layouts
-let sources = []; // from the server, unfinished first, the last opened first
+let sources = []; // from the server, without Symbol Sources: unfinished first, the last opened first
 let query = ''; // typed into the open text field of the import panel or the Lesson form
 let spend = null; // for the Lesson form: { spent, cap } in pounds this month, and the last Lesson's language
 let language = null; // the Lesson form's language, such as 'python': the last used, from the server at first
@@ -106,7 +108,7 @@ async function showSources() {
   sel = 0;
 }
 
-// The Source a new Session resumes: the last opened one that is not finished.
+// The Source a new Session resumes: the last opened one that is not finished and not a Symbol Source.
 const resume = () => sources.find(s => s.at < s.total);
 
 // Shows what the server serves: a Passage and the one after it. After a Source's
@@ -251,7 +253,7 @@ async function startImport(url, started, failed, body) {
 const importCode = () =>
   startImport('/api/code', `Cloning ${query} in the background.`, `Could not clone ${query}`, { url: query });
 
-// The server clones the doc repos in the background and imports them as Sources.
+// The server clones the doc repos in the background and imports them as Symbol Sources.
 const importSymbolDocs = () =>
   startImport('/api/symbol-docs', 'Importing the symbol docs in the background.', 'Could not import the symbol docs');
 
@@ -284,11 +286,12 @@ async function requestLesson() {
   render();
 }
 
-// The import panel's choices: [key, label, the screen it opens].
+// The import panel's choices: [key, label, the screen it opens or what choosing it does].
 const IMPORTS = [
   ['g', 'Project Gutenberg book', 'gutenberg'],
   ['c', 'Code from a git repo', 'code'],
   ['a', 'Article from the browser', 'article'],
+  ['s', 'Python and Gleam symbol docs, cloned in the background', importSymbolDocs],
 ];
 
 // The text fields of the import panel, by screen: the title and what Enter does.
@@ -460,10 +463,11 @@ function settingsKey(e) {
 async function menuKey(e) {
   if (e.key === 'Escape' && screen !== 'menu') { screen = 'menu'; sel = 0; editing = null; }
   else if (screen === 'settings') settingsKey(e);
-  else if (screen === 'sources') listKey(e, openItems(), s => s.run ? s.run() : chooseSource(s));
+  else if (screen === 'sources') listKey(e, sources, chooseSource);
   else if (screen === 'import') {
     const choice = IMPORTS.find(([k]) => k === e.key);
-    if (choice) { screen = choice[2]; query = ''; }
+    if (typeof choice?.[2] === 'function') await choice[2]();
+    else if (choice) { screen = choice[2]; query = ''; }
   }
   else if (screen === 'language') languageKey(e);
   else if (FIELDS[screen]) { if (e.key === 'Enter') FIELDS[screen].enter(); else query = edit(query, e); }
@@ -477,7 +481,7 @@ async function menuKey(e) {
 
 // Keys used on the start screens and in the menu are not key events of any Attempt,
 // so they are not recorded.
-// An Attempt that is left without finishing (d, s, r, o, b, q, closing or reloading) stays
+// An Attempt that is left without finishing (d, e, y, s, r, o, b, q, closing or reloading) stays
 // abandoned. Only finishing and s move the Source's bookmark on.
 addEventListener('keydown', e => {
   if (screen === 'ended') return;
@@ -584,20 +588,11 @@ function menuHTML() {
   return `<div class="menu"><div class="groups">${groups}</div><div class="hint">${hint}</div></div>`;
 }
 
-// The `o` list: the Sources, then endless Drills, endless Symbol Drills and the import of the
-// symbol docs, each with what choosing it does.
-const AFTER_SOURCES = [
-  { label: 'Endless Drills, with the Targets ranked again after each one', run: () => showDrill({}) },
-  { label: 'Endless Symbol Drills: lines of code, with the Targets ranked again after each one', run: () => showDrill({ symbols: true }) },
-  { label: 'Import the symbol docs: code Sources from the Python and Gleam docs, cloned in the background', run: importSymbolDocs },
-];
-const openItems = () => [...sources, ...AFTER_SOURCES];
-
 const sourceLabel = s => `${s.title} · ${s.at < s.total ? `§${s.at + 1} of ${s.total}` : 'finished, opens from the start'}`;
 
+// The `o` list: the Sources that are not Symbol Sources.
 function sourcesHTML() {
-  const labels = openItems().map(s => s.label ?? sourceLabel(s));
-  return `<div class="menu">${listHTML('Open a Source', labels)}`
+  return `<div class="menu">${listHTML('Open a Source', sources.map(sourceLabel))}`
     + `<div class="hint">${chooseHint}${sources.length ? '' : ' No Sources yet: <kbd>i</kbd> in the menu imports one.'} <kbd>Esc</kbd> goes back.</div></div>`;
 }
 

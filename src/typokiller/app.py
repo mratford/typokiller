@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS source (
     text TEXT NOT NULL,
     total INTEGER NOT NULL,  -- its number of Passages
     bookmark INTEGER NOT NULL DEFAULT 0,  -- the ord of the next Passage to serve
-    opened TEXT NOT NULL
+    opened TEXT NOT NULL,
+    symbol INTEGER NOT NULL DEFAULT 0  -- 1 for a Symbol Source, which is never opened to type in order
 );
 CREATE TABLE IF NOT EXISTS passage (
     id INTEGER PRIMARY KEY,
@@ -203,7 +204,7 @@ min_seen = 20
 words = 40
 
 [symbols]
-# Symbol Drills (o in the Escape menu) are made of lines of code from the Sources. Their
+# Symbol Drills (y in the Escape menu) are made of lines of code from the Sources. Their
 # Targets are only Symbols (the digits and !"#$%&()*+-/:;<=>?@[\\]^`{|}~) and symbol pairs
 # (pairs with a Symbol and no space or newline). They are chosen like those of usual Drills:
 # `weak` that the Weakness model ranks highest, then `under_measured` that are common in the
@@ -212,7 +213,7 @@ words = 40
 weak = 2
 under_measured = 2
 lines = 6
-# "Import the symbol docs" (the last item of o in the Escape menu) takes the Python tutorial
+# The import of the symbol docs (i then s in the Escape menu) takes the Python tutorial
 # and library from this branch of python/cpython. A change applies to the next import.
 python_branch = "3.15"
 # After that import, each Symbol that fewer than min_lines lines of the line pool hold gets one
@@ -472,6 +473,14 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             db.execute("ALTER TABLE passage ADD COLUMN code INTEGER NOT NULL DEFAULT 0")
             # Before, no column said which Passages are code. One that holds a newline is taken as code.
             db.execute("UPDATE passage SET code = 1 WHERE instr(text, char(10))")
+        with suppress(sqlite3.OperationalError):
+            db.execute("ALTER TABLE source ADD COLUMN symbol INTEGER NOT NULL DEFAULT 0")
+            # The Symbol Sources from before: the Symbol Lessons, and the Sources of the symbol
+            # docs import, by the titles that `symbol_docs` gives them.
+            db.execute(
+                "UPDATE source SET symbol = 1 WHERE id IN (SELECT source FROM lesson WHERE topic GLOB 'Symbol ?: *')"
+                " OR title IN ('Gleam tour', 'Gleam stdlib') OR title GLOB 'Python * tutorial' OR title GLOB 'Python * library'"
+            )
 
     def served(source: dict | None) -> dict:
         """The Source's Passage at its bookmark and the one after it. After the Source's
@@ -486,14 +495,20 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         return {"source": source if rows else None, "passages": passages[:2]}
 
     def add_source(
-        title: str, text: str, passages: list[str], headings: Sequence[str | None] = (), codes: Sequence[bool] = ()
+        title: str,
+        text: str,
+        passages: list[str],
+        headings: Sequence[str | None] = (),
+        codes: Sequence[bool] = (),
+        symbol: bool = False,
     ) -> int:
         """Stores a Source with its Passages, with the heading above each Passage of a Lesson or
-        of the symbol docs, and with whether each Passage is code. Passages with no flag in `codes` are not code."""
+        of the symbol docs, and with whether each Passage is code. Passages with no flag in `codes` are not code.
+        `symbol` marks a Symbol Source."""
         with db:
             (source,) = db.execute(
-                "INSERT INTO source (title, text, total, opened) VALUES (?, ?, ?, ?) RETURNING id",
-                (title, text, len(passages), now()),
+                "INSERT INTO source (title, text, total, opened, symbol) VALUES (?, ?, ?, ?, ?) RETURNING id",
+                (title, text, len(passages), now(), symbol),
             ).fetchone()
             db.executemany(
                 "INSERT INTO passage (source, ord, text, normaliser, heading, code) VALUES (?, ?, ?, 'ascii-v1', ?, ?)",
@@ -562,7 +577,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             notices.append(f"Could not import the symbol docs: {e!r}")
             return
         for title, text, parts in found:
-            add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts))
+            add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts), symbol=True)
         await symbol_docs_imported([(title, len(parts)) for title, _, parts in found])
 
     async def symbol_docs_imported(counts: list[tuple[str, int]]):
@@ -658,7 +673,8 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         """Has the model write a Lesson, checks its code, stores it as a Source, and returns the
         notice and whether it was stored. When too many code blocks are dropped, the Lesson is
         written again, up to WRITES times in all, and then rejected. Each time it is written has
-        its own lesson row. The topic of a Symbol Lesson, and so its title, is
+        its own lesson row. A Symbol Lesson is stored as a Symbol Source, so its notice does not
+        point to the list of Sources (o). The topic of a Symbol Lesson, and so its title, is
         "Symbol <s>: <the Lesson's # heading>"."""
         topic, language = request.topic, request.language
         settings = read_settings(settings_path).unwrap()
@@ -690,14 +706,11 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         if not parts:
             return f"Lesson {topic} failed: it has nothing long enough to type.", False
         headings, passages, codes = zip(*parts)
-        source = add_source(topic, text, list(passages), headings, codes)
+        source = add_source(topic, text, list(passages), headings, codes, symbol=bool(request.symbol))
         with db:
             db.execute("UPDATE lesson SET source = ? WHERE id = ?", (source, lesson))
-        return (
-            f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped; {dropped} of {len(log)} code examples"
-            " dropped. It is first in the list of Sources (o).",
-            True,
-        )
+        notice = f"Lesson ready: {topic}: {len(parts)} Passages, {skipped} skipped; {dropped} of {len(log)} code examples dropped."
+        return notice + ("" if request.symbol else " It is first in the list of Sources (o)."), True
 
     async def symbol_lesson_written(symbol: str, settings: dict) -> str:
         """After a Symbol Lesson for `symbol` is stored: counts again the lines of the line pool
@@ -1013,7 +1026,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     async def import_code(repo: Repo):
         in_background(import_repo(repo.url))
 
-    # "Import the symbol docs" in the o list. Clones in the background. A notice says when it is done.
+    # i then s in the Escape menu. Clones in the background, and stores Symbol Sources. A notice says when it is done.
     @app.post("/api/symbol-docs", status_code=202)
     async def request_symbol_docs():
         in_background(import_symbol_docs())
@@ -1050,13 +1063,14 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     async def get_notices():
         return notices
 
+    # The o list, which a new Session also resumes from. Symbol Sources are left out.
     # Unfinished Sources come first, the last opened first.
     @app.get("/api/sources")
     async def sources():
         return [
             {"id": id, "title": title, "at": at, "total": total}
             for id, title, at, total in db.execute(
-                "SELECT id, title, bookmark, total FROM source ORDER BY bookmark >= total, opened DESC"
+                "SELECT id, title, bookmark, total FROM source WHERE NOT symbol ORDER BY bookmark >= total, opened DESC"
             )
         ]
 
