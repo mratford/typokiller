@@ -74,6 +74,14 @@ _Avoid_: symbol exercise
 A Drill built around a key that has just been unlocked.
 _Avoid_: intro, warm-up
 
+**Word list**:
+The fixed list of common British English words (SCOWL, size 35) that Drills use instead of the Sources while a Letter layout has locked keys.
+_Avoid_: dictionary, SCOWL (for the list in use), WORDS
+
+**Made-up word**:
+A string of Unlocked keys that is not a real word, made from the letter pairs of the Word list, so that Drills have enough words when only a few keys are unlocked.
+_Avoid_: pseudo-word, nonsense word, fake word
+
 ### Analysis
 
 **Weakness model**:
