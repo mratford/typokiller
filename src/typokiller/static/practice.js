@@ -62,6 +62,7 @@ const SETTING_LABELS = {
   'unlocking.threshold': 'Time in ms that each key must beat before the next unlocks',
   'unlocking.last': 'Last keystrokes of each key that count for unlocking',
   'unlocking.min_seen': 'Times each key is typed before the next unlocks',
+  'unlocking.min_words': 'Fewest different words for a drill while keys are locked (made-up words are added)',
   'lessons.prompt': 'Instructions that ask the AI for a lesson',
   'lessons.python_model': 'AI model for Python lessons',
   'lessons.gleam_model': 'AI model for Gleam lessons',

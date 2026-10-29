@@ -8,46 +8,17 @@ import random
 import sqlite3
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import polars as pl
 
 from typokiller.analysis import seen_counts, weakness
 
-# Common English words. They join the pool while the Sources give fewer than SMALL_POOL
-# different words that can be used, so the first Drills have enough words to choose from.
-WORDS = """
-the of and to a in is it you that he was for on are with as I his they be at one have this
-from or had by not word but what some we can out other were all there when up use your how
-said an each she which do their time if will way about many then them write would like so
-these her long make thing see him two has look more day could go come did number sound no
-most people my over know water than call first who may down side been now find any new work
-part take get place made live where after back little only round man year came show every
-good me give our under name very through just form sentence great think say help low line
-differ turn cause much mean before move right boy old too same tell does set three want air
-well also play small end put home read hand port large spell add even land here must big
-high such follow act why ask men change went light kind off need house picture try us again
-animal point mother world near build self earth father head stand own page should country
-found answer school grow study still learn plant cover food sun four between state keep eye
-never last let thought city tree cross farm hard start might story saw far sea draw left late
-run don't while press close night real life few north open seem together next white children
-begin got walk example ease paper group always music those both mark often letter until mile
-river car feet care second book carry took science eat room friend began idea fish mountain
-stop once base hear horse cut sure watch colour face wood main enough plain girl usual young
-ready above ever red list though feel talk bird soon body dog family direct pose leave song
-measure door product black short numeral class wind question happen complete ship area half
-rock order fire south problem piece told knew pass since top whole king space heard best hour
-better true during hundred five remember step early hold west ground interest reach fast verb
-sing listen six table travel less morning ten simple several vowel toward war lay against
-pattern slow centre love person money serve appear road map rain rule govern pull cold notice
-voice unit power town fine certain fly fall lead cry dark machine note wait plan figure star
-box noun field rest correct able pound done beauty drive stood contain front teach week final
-gave green oh quick develop ocean warm free minute strong special mind behind clear tail
-produce fact street inch multiply nothing course stay wheel full force blue object decide
-surface deep moon island foot system busy test record boat common gold possible plane stead
-dry wonder laugh thousand ago ran check game shape equate hot miss brought heat snow tire
-bring yes distant fill east paint language among
-""".split()
+# The Word list: common British English words (SCOWL, size 35), in one file. The words of the
+# Sources are not enough for Drills while few keys are unlocked, and they join a small pool.
+# Its copyright notice is in words-COPYRIGHT.txt next to it.
+WORD_LIST = (Path(__file__).parent / "words.txt").read_text().split()
 SMALL_POOL = 1000
 
 # The Symbols, as CONTEXT.md defines them. ' , . and _ are not Symbols.
@@ -74,22 +45,55 @@ class Drill(NamedTuple):
     # (ms, from the Weakness model; None when the model does not rank it) and seen (times).
     targets: list[dict[str, Any]]
     text: str
+    made_up: list[str] = []  # the Made-up words of the text
 
 
-def pool(db: sqlite3.Connection, unlocked: str | None) -> Counter[str]:
-    """The words a Drill can use, with how often each is in the Sources: the text of every
-    Source's Passages split at whitespace, plus WORDS while there are fewer than SMALL_POOL
-    different words. With `unlocked`, only words made of those characters."""
-    allowed = unlocked and set(unlocked)
+def pool(db: sqlite3.Connection, unlocked: str | None, min_words: int) -> tuple[Counter[str], list[str]]:
+    """The words a Drill can use, with how often each is in the Sources, and the Made-up words
+    among them. Without `unlocked`, all the keys are unlocked: the pool is the text of every
+    Source's Passages split at whitespace, plus the Word list while there are fewer than
+    SMALL_POOL different words. With `unlocked`, it is the words of the Word list with at least 2
+    letters that are made of those characters, not the Sources' words, plus Made-up words until
+    there are `min_words` different words."""
+    if not unlocked:
+        passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL")
+        words = Counter(w for (text,) in passages for w in text.split())
+        if len(words) < SMALL_POOL:
+            words.update(Counter(WORD_LIST))
+        return words, []
+    keys = set(unlocked)
+    words = Counter(w for w in WORD_LIST if len(w) >= 2 and set(w) <= keys)
+    made_up = made_up_words(unlocked, set(words), min_words - len(words))
+    return words + Counter(made_up), made_up
 
-    def usable(words: Counter[str]) -> Counter[str]:
-        return Counter({w: n for w, n in words.items() if set(w) <= allowed}) if allowed else words
 
-    passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL")
-    words = usable(Counter(w for (text,) in passages for w in text.split()))
-    if len(words) < SMALL_POOL:
-        words.update(usable(Counter(WORDS)))
-    return words
+def made_up_words(unlocked: str, real: set[str], n: int) -> list[str]:
+    """Up to `n` different Made-up words of 2 to 6 letters, made of `unlocked` and not in `real`.
+    The first letter is chosen by how often Word list words start with it. Each next letter is
+    chosen by how often it follows the letter before it, and the word ends by how often Word
+    list words end after that letter. A word with no possible next letter ends there. It gives
+    up after a limited number of tries, when `unlocked` has too few Made-up words."""
+    if n <= 0:
+        return []
+    counts = unit_counts(Counter(WORD_LIST))  # " a" holds how often words start with a, "a " end with a
+
+    def pick(weights: dict[str, int]) -> str | None:
+        return random.choices(list(weights), list(weights.values()))[0] if sum(weights.values()) else None
+
+    found: dict[str, None] = {}
+    for _ in range(100 * n):
+        if len(found) == n:
+            break
+        word = pick({c: counts[" " + c] for c in unlocked}) or ""
+        while 0 < len(word) < 6:
+            last = word[-1]
+            choice = pick({**{c: counts[last + c] for c in unlocked}, "": counts[last + " "] if len(word) >= 2 else 0})
+            if not choice:
+                break
+            word += choice
+        if len(word) >= 2 and word not in real:
+            found[word] = None
+    return list(found)
 
 
 def unit_counts(words: Counter[str]) -> Counter[str]:
@@ -118,9 +122,10 @@ def density_v1(
     the Targets are under-measured. With too few under-measured units, more weak units fill
     in. A Target must be a unit that the pool's words hold. The text is `drill_text`."""
     drills = settings["drills"]
-    words = pool(db, unlocked)
+    words, made_up = pool(db, unlocked, settings["unlocking"]["min_words"])
     targets = choose_targets(db, board, letter_layout, settings, unit_counts(words), drills)
-    return Drill(targets, drill_text(words, [t["unit"] for t in targets], drills["words"]))
+    text = drill_text(words, [t["unit"] for t in targets], drills["words"])
+    return Drill(targets, text, used(made_up, text))
 
 
 def choose_targets(
@@ -164,7 +169,7 @@ def introduction(
     Drill still has it."""
     assert unlocked  # app.py gives the Unlocked keys while Introduction Drills are due
     new = unlocked[-1]
-    words = pool(db, unlocked)
+    words, made_up = pool(db, unlocked, settings["unlocking"]["min_words"])
     if not any(new in w for w in words):
         words[new] = 1
     counts = unit_counts(words)
@@ -173,7 +178,8 @@ def introduction(
     cost = dict(zip(ranking["unit"], ranking["cost"]))
     units = [new, *pairs[:2]]
     targets = [{"unit": u, "reason": "introduction", "cost": cost.get(u), "seen": seen.get(u, 0)} for u in units]
-    return Drill(targets, drill_text(words, units, settings["drills"]["words"]))
+    text = drill_text(words, units, settings["drills"]["words"])
+    return Drill(targets, text, used(made_up, text))
 
 
 def ranking_and_seen(
@@ -184,6 +190,11 @@ def ranking_and_seen(
     since = datetime.now(UTC) - timedelta(weeks=settings["weakness"]["weeks"])
     counted = seen_counts(db, board, letter_layout, since)
     return weakness(db, board, letter_layout, settings["weakness"]), dict(zip(counted["unit"], counted["seen"]))
+
+
+def used(made_up: list[str], text: str) -> list[str]:
+    """The Made-up words that are in the text of a Drill."""
+    return [w for w in made_up if w in text.split()]
 
 
 def drill_text(words: Counter[str], targets: list[str], n: int) -> str:

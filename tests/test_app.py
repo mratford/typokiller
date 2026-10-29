@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, progress, weakness
 from typokiller.app import create_app
 from typokiller.drawing import Heat, draw_keymap
-from typokiller.drills import SYMBOLS, WORDS, line_pool, line_text, pool, symbol_unit
+from typokiller.drills import SYMBOLS, WORD_LIST, line_pool, line_text, pool, symbol_unit
 from typokiller.keymap import qmk_settings, read_keymap
 from typokiller.lessons import GLEAM_PROJECT, Reply, month_start, run_code
 from typokiller.sources import ascii_v1, code_passages, lesson_passages
@@ -73,11 +73,12 @@ def client(db_path, settings_path, provider):
 WEAKNESS = {"model": "recent-cost-v1", "weeks": 4, "min_seen": 20}
 UNLOCKING = {
     "letter_layout": "free-range",
-    "start": "u n t s m , r e a _",
-    "order": "o i l h d c w f g y p b v . k ' j x q z",
+    "start": "t s r e",
+    "order": "a n o i l h d u c m w f g y p b , v . _ k ' j x q z",
     "threshold": 400,
     "last": 50,
     "min_seen": 20,
+    "min_words": 200,
 }
 LESSONS = {
     "prompt": "lesson-prompt-v1",
@@ -203,8 +204,8 @@ def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
     rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\npython_branch = "3.15"\nmin_lines = 50\nmax_lessons = 3\n'
-    rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "u n t s m , r e a _"\n'
-    rest += 'order = "o i l h d c w f g y p b v . k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\n'
+    rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "t s r e"\n'
+    rest += 'order = "a n o i l h d u c m w f g y p b , v . _ k \' j x q z"\nthreshold = 400\nlast = 50\nmin_seen = 20\nmin_words = 200\n'
     rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
     rest += '\n[lists]\nletters = "sadflewcmpgh"\n'
     rest += '\n[keymaps.Sweep.QWERTY]\nlayers = ["Base", "Sym"]\n'
@@ -1166,7 +1167,7 @@ def drill(client, session, **request):
 def test_with_no_data_a_drill_has_3_under_measured_targets_the_most_common_in_the_sources_first(
     client, db_path, monkeypatch
 ):
-    monkeypatch.setattr("typokiller.drills.WORDS", [])  # so the pool is only the article's words
+    monkeypatch.setattr("typokiller.drills.WORD_LIST", [])  # so the pool is only the article's words
     client.post("/api/articles", json={"title": "Tents", "text": "ten ten ten ten ten net net tent"})
     session = start_session(client)
 
@@ -1190,13 +1191,13 @@ def test_with_no_data_a_drill_has_3_under_measured_targets_the_most_common_in_th
 def test_while_the_pool_is_small_the_built_in_word_list_is_in_it(client):
     words = drill(client, start_session(client))["text"].split(" ")
 
-    assert set(words) <= set(WORDS)
+    assert set(words) <= set(WORD_LIST)
 
 
 def test_a_drill_targets_the_weakest_units_and_the_most_common_under_measured_one_on_this_keymap(
     client, db_path, monkeypatch
 ):
-    monkeypatch.setattr("typokiller.drills.WORDS", [])
+    monkeypatch.setattr("typokiller.drills.WORD_LIST", [])
     qwerty, free_range = sweep_versions(client, db_path)
     client.post("/api/articles", json={"title": "Abcc", "text": "abcc abcc abcc abcc abcc"})
     session = typed_session(client, qwerty, TYPE_CODE, ["a", "x", "Backspace", "b"], finished=[0])
@@ -1548,22 +1549,22 @@ def test_u_unlocks_the_next_key_by_hand_and_drawings_show_the_locked_keys_and_ri
 
     keymap = client.get(f"/api/sessions/{session}/keymap").json()
 
-    assert keymap["unlocking"] == {"unlocked": 10, "total": 30, "next": "o", "introducing": None}
+    assert keymap["unlocking"] == {"unlocked": 4, "total": 30, "next": "a", "introducing": None}
     base = ET.fromstring(keymap["layers"][0])
-    assert drawn(base, "1,0") == ("key", ["u"])
+    assert drawn(base, "1,0") == ("key locked", ["u"])
     assert drawn(base, "0,0") == ("key locked", ["x"])
-    assert drawn(base, "4,3") == ("key locked unlock", ["o"])
+    assert drawn(base, "5,3") == ("key locked unlock", ["a"])
 
     unlocked = client.post(f"/api/sessions/{session}/unlocks").json()
 
-    assert unlocked == {"unlocked": 11, "total": 30, "next": "i", "introducing": "o"}
-    assert unlock_log(db_path) == [("free-range", "o", "manual", "recent-cost-v1")]
-    assert client.get("/api/notices").json() == ["Unlocked o. Next come drills for o."]
+    assert unlocked == {"unlocked": 5, "total": 30, "next": "n", "introducing": "a"}
+    assert unlock_log(db_path) == [("free-range", "a", "manual", "recent-cost-v1")]
+    assert client.get("/api/notices").json() == ["Unlocked a. Next come drills for a."]
     page = client.get(f"/api/keymaps/{sweep}/progress").json()
     heat = ET.fromstring(page["layers"][0])
-    assert drawn(heat, "4,2") == ("key locked unlock", ["I", "n=0", "i", "n=0"])
+    assert drawn(heat, "1,1") == ("key locked unlock", ["N", "n=0", "n", "n=0"])
 
-    for _ in range(19):
+    for _ in range(25):
         client.post(f"/api/sessions/{session}/unlocks")
 
     assert client.get(f"/api/sessions/{session}/keymap").json()["unlocking"]["next"] is None
@@ -1577,23 +1578,79 @@ def test_drills_use_only_the_unlocked_keys_until_all_30_are_unlocked_and_record_
 
     made = drill(client, session)
 
-    assert set(made["text"]) <= set("untsm,rea_ ")  # no capitals either
+    assert set(made["text"]) <= set("tsre ")  # no capitals either
 
     client.put("/api/settings", json={"unlocking": {"min_seen": 0}})  # so no Introduction Drills
-    for _ in range(20):
+    for _ in range(26):
         client.post(f"/api/sessions/{session}/unlocks")
     drill(client, session)
 
     assert rows(db_path, "SELECT generator, unlocked FROM drill ORDER BY passage")[1] == ("density-v1", None)
 
 
+def test_while_keys_are_locked_the_pool_is_the_word_lists_words_of_the_unlocked_keys_filled_with_made_up_words(
+    client, db_path
+):
+    client.post("/api/articles", json={"title": "Tests", "text": "tretset tretset"})  # made of t, s, r and e, not in the Word list
+
+    words, made_up = pool(sqlite3.connect(db_path), "tsre", 200)
+
+    assert len(words) == 200
+    assert all(len(w) >= 2 and set(w) <= set("tsre") for w in words)
+    assert {"see", "tree", "street", "test"} <= set(words)
+    assert "tretset" not in words
+    assert made_up and set(made_up) == {w for w in words if w not in WORD_LIST}
+    assert all(2 <= len(w) <= 6 for w in made_up)
+
+
+def test_made_up_words_are_left_out_when_the_word_list_has_enough_words(db_path, client):
+    words, made_up = pool(sqlite3.connect(db_path), "tsre", 20)
+
+    assert len(words) >= 20
+    assert made_up == []
+
+
+def test_a_made_up_word_follows_the_letter_pairs_of_the_word_list_and_is_not_a_real_word_of_the_pool(
+    db_path, client, monkeypatch
+):
+    monkeypatch.setattr("typokiller.drills.WORD_LIST", ["abcd", "abce"])
+
+    # Only a, b and c are unlocked: a word starts with a, b follows a, c follows b, and nothing follows c.
+    words, made_up = pool(sqlite3.connect(db_path), "abc", 3)
+
+    assert made_up == ["abc"]
+    assert set(words) == {"abc"}
+
+
+def test_with_every_key_unlocked_the_pool_is_the_sources_words_and_the_word_list_fills_a_small_pool(db_path, client):
+    client.post("/api/articles", json={"title": "Odd", "text": "zzz zzz Qq are the words of this article"})
+
+    words, made_up = pool(sqlite3.connect(db_path), None, 200)
+
+    assert (words["zzz"], words["Qq"], made_up) == (2, 1, [])
+    assert set(words) == {"zzz", "Qq", *WORD_LIST}
+
+
+def test_a_drill_with_made_up_words_records_them_and_a_drill_without_any_has_null(client, db_path, monkeypatch):
+    monkeypatch.setattr("typokiller.drills.WORD_LIST", ["tesx"])  # x is locked, so the only Made-up word is tes
+    _, sweep, _ = free_range_boards(client, db_path)
+    session = start_session(client, sweep)
+    client.put("/api/settings", json={"unlocking": {"min_words": 1}})
+
+    assert set(drill(client, session)["text"].split(" ")) == {"tes"}
+
+    monkeypatch.setattr("typokiller.drills.WORD_LIST", ["set", "tesx"])
+    drill(client, session)
+
+    assert rows(db_path, "SELECT made_up FROM drill ORDER BY passage") == [('["tes"]',), (None,)]
+
+
 def test_each_unlock_queues_introduction_drills_of_the_new_key_and_its_two_commonest_pairs_until_it_is_seen_enough(
     client, db_path, monkeypatch
 ):
-    monkeypatch.setattr("typokiller.drills.WORDS", [])  # so the pool is only the article's words
+    monkeypatch.setattr("typokiller.drills.WORD_LIST", ["ear", "era", "are", "re", "at"])  # at holds a key that is locked
     _, sweep, _ = free_range_boards(client, db_path)
-    client.post("/api/articles", json={"title": "Ears", "text": "ear ear ear era era are re at"})
-    client.put("/api/settings", json={"unlocking": {"start": "r e", "order": "a t", "min_seen": 2}})
+    client.put("/api/settings", json={"unlocking": {"start": "r e", "order": "a t", "min_seen": 2, "min_words": 0}})
     before = typed_session(client, sweep, ["r", "e", "a"], ["r", "e", "a"], finished=[0, 1], attempt=REA)
     with sqlite3.connect(db_path) as db:
         an_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
@@ -1603,12 +1660,12 @@ def test_each_unlock_queues_introduction_drills_of_the_new_key_and_its_two_commo
 
     made = drill(client, session)
 
-    # In the pool's words of r, e and a, ar is in 4 and ea in 3. a was seen twice before its unlock.
+    # In the pool's words of r, e and a, ar is in 2 and ea in 1. a was seen twice before its unlock.
     assert made["generator"] == "introduction"
     assert [(t["unit"], t["reason"], t["seen"]) for t in made["targets"]] == [
         ("a", "introduction", 2), ("ar", "introduction", 0), ("ea", "introduction", 2)
     ]  # fmt: skip
-    assert set(made["text"].split(" ")) <= {"ear", "era", "are"}
+    assert set(made["text"].split(" ")) <= {"ear", "era", "are", "re"}
     assert rows(db_path, "SELECT generator, unlocked FROM drill") == [("introduction", '["r", "e", "a"]')]
 
     later = typed_session(client, sweep, ["r", "e", "a"], finished=[0], attempt=REA)  # a seen once since its unlock
@@ -1714,7 +1771,7 @@ def test_a_lesson_is_written_in_the_background_in_the_order_asked_and_recorded_a
     ]
     assert running.get("/api/lessons/spend").json() == {"spent": 0.003 / 1.337, "cap": 5.0, "language": "python"}
     # Lesson text joins the Drill word pool.
-    assert pool(sqlite3.connect(db_path), None)["literal"] == 2
+    assert pool(sqlite3.connect(db_path), None, 0)[0]["wildcard"] == 2
 
 
 def test_a_lesson_that_fails_says_why(running, db_path, provider):

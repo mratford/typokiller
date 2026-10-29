@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS drill (
     model TEXT NOT NULL,  -- the Weakness model
     generator TEXT NOT NULL,  -- the Drill generator
     targets TEXT NOT NULL,  -- JSON: a list of {unit, reason, cost, seen}, as the generator chose them
-    unlocked TEXT  -- JSON: the Unlocked keys it was built from; NULL when it could use every key
+    unlocked TEXT,  -- JSON: the Unlocked keys it was built from; NULL when it could use every key
+    made_up TEXT  -- JSON: the Made-up words of its text; NULL when there are none
 );
 CREATE TABLE IF NOT EXISTS unlock (  -- the unlock log of the Letter layout being learned
     letter_layout TEXT NOT NULL,
@@ -230,13 +231,14 @@ max_lessons = 3
 
 [unlocking]
 # The Letter layout being learned. Drills use only its Unlocked keys until all 30 of its main
-# keys are unlocked, so no capitals, digits or symbols of other layers either. Reading and
-# Lessons use every key. Other Letter layouts have no locked keys.
+# keys are unlocked, so no capitals, digits or symbols of other layers either. Their words come
+# from the Word list, not from the Sources. Reading and Lessons use every key. Other Letter
+# layouts have no locked keys.
 letter_layout = "free-range"
 # The keys unlocked at the start, and the order in which the others unlock. Each key is
 # written as the character it types without Shift, with a space between keys.
-start = "u n t s m , r e a _"
-order = "o i l h d c w f g y p b v . k ' j x q z"
+start = "t s r e"
+order = "a n o i l h d u c m w f g y p b , v . _ k ' j x q z"
 # After each finished Attempt, the next key unlocks when each Unlocked key costs less than
 # threshold ms by the Weakness model, over its last `last` keystrokes on every Board with
 # this Letter layout, and was seen at least min_seen times in them. u in the Escape menu
@@ -245,6 +247,10 @@ order = "o i l h d c w f g y p b v . k ' j x q z"
 threshold = 400
 last = 50
 min_seen = 20
+# While keys are locked, the words of Drills are the words of the Word list (at least 2 letters)
+# that use only Unlocked keys, not the words of the Sources. When there are fewer than min_words
+# of them, Made-up words fill the list up to min_words different words.
+min_words = 200
 
 [lessons]
 # The prompt that asks the model for a Lesson. There is one so far: "lesson-prompt-v1", which
@@ -471,7 +477,10 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     db = sqlite3.connect(db_path, check_same_thread=False)
     db.executescript(SCHEMA)
     # Databases made before these columns existed get them here. Their old rows keep NULL.
-    for table, column in [("session", "keymap_version"), ("attempt", "settings"), ("passage", "heading"), ("lesson", "checks")]:
+    for table, column in [
+        ("session", "keymap_version"), ("attempt", "settings"), ("passage", "heading"), ("lesson", "checks"),
+        ("drill", "made_up"),
+    ]:
         with suppress(sqlite3.OperationalError):  # fails when the column is there already
             db.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
     with db:
@@ -947,10 +956,10 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 (drill.text,),
             ).fetchone()
             db.execute(
-                "INSERT INTO drill VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO drill VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     passage, now(), session, settings["weakness"]["model"], generator, json.dumps(drill.targets),
-                    unlocked and json.dumps(list(unlocked)),
+                    unlocked and json.dumps(list(unlocked)), json.dumps(drill.made_up) if drill.made_up else None,
                 ),
             )
         return {
