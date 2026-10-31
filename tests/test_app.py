@@ -110,8 +110,9 @@ SETTINGS = {
 ATTEMPT = {"passage": 1, "settings": SETTINGS}  # the built-in Passage
 
 
-# The sweep-layouts repo is in the same folder as this repo, or as the repo that holds this worktree.
-SWEEP_LAYOUTS = next(p / "sweep-layouts" for p in Path(__file__).parents if (p / "sweep-layouts").exists())
+# Real .vil and vial.json files from the sweep-layouts repo, as of its commit 67c9332 (2026-10-25).
+# They are copies, so that a change to a keyboard there does not change the tests.
+SWEEP_LAYOUTS = Path(__file__).parent / "fixtures"
 
 
 def add_board(client, name, vil, vial):
@@ -258,7 +259,7 @@ def test_each_character_has_its_candidate_keys_from_the_keymap_best_first():
 
 
 def drawing(vil, vial, layer, names=(), change=lambda vil: None, heat=None, pairs=()):
-    """The Keymap drawing of a .vil from sweep-layouts as an XML tree. `change` may edit the .vil first."""
+    """The Keymap drawing of a .vil from the fixtures as an XML tree. `change` may edit the .vil first."""
     data = json.loads((SWEEP_LAYOUTS / "vil" / vil).read_text())
     change(data)
     vial_text = (SWEEP_LAYOUTS / "boards" / vial / "vial.json").read_text() if vial else None

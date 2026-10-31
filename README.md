@@ -50,4 +50,4 @@ Gleam examples need `gleam` and Erlang on this Mac. Each one is built and run in
 rm -rf src/typokiller/gleam/build && (cd src/typokiller/gleam && gleam build)
 ```
 
-The server tests read real `.vil` and `vial.json` files from the `sweep-layouts` repo, which must be in the same folder as this repo.
+The server tests read copies of real `.vil` and `vial.json` files, kept in `tests/fixtures/`. They come from the `sweep-layouts` repo (commit 67c9332), which the tests do not need.
