@@ -2,15 +2,39 @@
 
 ## Running
 
+typokiller runs all the time on this Mac as a launchd service, on port 8000 (http://<this Mac>:8000 on the LAN). The service does not run the code in this folder. It runs its own copy, a git worktree in `~/.local/share/typokiller/app`, which changes only when you update it. Its database, settings, `.env` and backups are in `~/.local/share/typokiller/data`. Its log is `~/Library/Logs/typokiller.log`. The reasons are in `docs/adr/0002-local-service.md`.
+
 ```sh
-uv run typokiller          # serves http://<this Mac>:8000 on the LAN
-uv run typokiller --port 8001   # for development while the service runs on 8000
+uv run typokiller-service install     # set it up and start it
+uv run typokiller-service update      # go to the latest local main
+uv run typokiller-service update abc1234   # go to another commit, also an older one
+uv run typokiller-service status      # running or not, its commit, its newest backup
+uv run typokiller-service logs        # the end of the log, as it grows (Ctrl-C stops)
+uv run typokiller-service stop        # stop it until the next login
+uv run typokiller-service start
+uv run typokiller-service restore     # list the backups, newest first
+uv run typokiller-service restore typokiller-2026-11-01-0930-abc1234.db
+uv run typokiller-service uninstall   # remove it, but keep the data and the log
+```
+
+`install` runs the tests in the new worktree, moves `typokiller.db` from this folder to the data folder, and copies `typokiller.toml`, `.env` and `pg_catalog.csv` there. It refuses while something answers on port 8000, so stop a server that runs from this folder first. After an `uninstall`, `install` keeps the database that is in the data folder already.
+
+`update` moves the worktree to the commit, installs its packages and runs the tests. If they fail, it goes back to the old commit and the service continues with the old code. If they pass, it backs up the database to `backups/` in the data folder, keeps the 10 newest backups, and restarts the service.
+
+A restart stops the work that the server does in the background: lessons that are being written or are queued, repos being cloned and the import of the Python, Gleam and shell docs. So `update`, `stop`, `restore` and `uninstall` first ask the server for that work, and stop if there is any. Add `--force` to continue.
+
+To go back to a backup, list them with `restore`, then give one file name. The service stops, the database is backed up first (so you can undo the restore with the same command), the chosen backup becomes the database, and the service starts again. The code does not change.
+
+For development, run a server from this folder on another port. It uses `typokiller.db` and `typokiller.toml` in this folder, not the service's data:
+
+```sh
+uv run typokiller --port 8001
 uv run pytest              # server tests
 node --test tests/*.test.js   # typing rules tests
 uv run pyright src tests   # type check
 ```
 
-The database is `typokiller.db` in the current directory. The Gutenberg catalogue, `pg_catalog.csv`, is downloaded next to it in the background when the server starts, and again when it is a week old. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor, or press `,` in the Escape menu.
+The database is `typokiller.db` in the folder that the server runs in. The Gutenberg catalogue, `pg_catalog.csv`, is downloaded next to it in the background when the server starts, and again when it is a week old. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor, or press `,` in the Escape menu.
 
 In a list, such as the list of keyboards or the list of texts (`o`), type an item's label of one or two letters to choose it, or select it with `j`/`k` and press Enter. After the first letter of a two-letter label, Esc or Backspace removes it. The letters are the `[lists]` setting `letters`.
 
