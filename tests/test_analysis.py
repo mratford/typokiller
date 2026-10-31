@@ -1,4 +1,4 @@
-from typokiller.analysis import Keydown, first_error_v1
+from typokiller.analysis import Keydown, apply_key, first_error_v1
 
 BS = "Backspace"
 
@@ -59,6 +59,36 @@ def test_locked_until_fixed_keeps_the_cursor_at_the_error():
         (1, "correct", False),  # ends the Fix
         (2, "correct", True),
     ]
+
+
+def test_a_repeat_keydown_types_and_deletes_nothing_and_does_not_end_an_open_error():
+    pressed = keys("c", "x", Keydown(0, "a", repeat=True), Keydown(0, BS, repeat=True), "a")
+
+    assert aligned("cat", pressed) == [
+        (0, "correct", True),
+        (1, "error", True),
+        (None, "ignored", False),
+        (None, "ignored", False),
+        (2, "off-track", True),  # the "x" is still typed, so this is not the Fix
+    ]
+
+
+def test_apply_key_ignores_a_repeat_and_keys_at_the_end_of_the_text():
+    assert apply_key("cat", "c", Keydown(0, "a", repeat=True), None) == "c"
+    assert apply_key("cat", "cx", Keydown(0, BS, repeat=True), None) == "cx"
+    assert apply_key("cat", "cax", Keydown(0, "s"), None) == "cax"
+
+
+def test_an_error_left_at_the_end_stays_an_error_with_no_fix_and_later_keys_are_ignored():
+    pressed = keys("c", "a", "x", "s")
+
+    assert aligned("cat", pressed) == [
+        (0, "correct", True),
+        (1, "correct", True),
+        (2, "error", True),
+        (None, "ignored", False),
+    ]
+    assert [r["fix_ms"] for r in first_error_v1("cat", None, pressed)] == [None] * 4
 
 
 def test_a_retyped_character_is_not_first():

@@ -17,12 +17,13 @@ const indentAt = (passage, i) => passage.slice(i).match(/^ */)[0];
 
 // Returns what has been typed in the Attempt after one more key. In "keep typing" mode
 // a wrong character goes in like a right one; in "locked until fixed" mode it does not
-// go in. Only Backspace removes characters. Enter goes in only where the Passage has a
-// newline, and the next line's indentation is then filled in without typing it.
+// go in. A repeat of a held key changes nothing. Only Backspace removes characters. Enter
+// goes in only where the Passage has a newline, and the next line's indentation is then
+// filled in without typing it.
 // `apply_key` in analysis.py replays these rules on the stored key events, so the
 // two must change together.
 export function applyKey(passage, typed, e, mode) {
-  if (e.ctrlKey || e.metaKey) return typed;
+  if (e.ctrlKey || e.metaKey || e.repeat) return typed;
   if (e.key === 'Backspace') {
     // Backspace after filled-in indentation removes it together with the newline.
     const newline = typed.lastIndexOf('\n');

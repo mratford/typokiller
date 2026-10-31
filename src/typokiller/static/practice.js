@@ -565,7 +565,8 @@ addEventListener('keydown', e => {
     record(e, ord);
     heldIn.set(e.code, ord);
     typed = applyKey(passage.text, typed, e, wrongKeyMode());
-    if (typed === passage.text) {
+    // The last character ends the Attempt, even with wrong keys left in.
+    if (typed.length === passage.text.length) {
       finished.push(ord);
       summaryFor = ord;
       // Firefox loses some keyups, so the summary is asked for after a second at the latest.
@@ -654,7 +655,9 @@ function passageHTML() {
 function showCursorLine() {
   const shown = document.querySelector('main .lines > div');
   const lineHeight = parseFloat(getComputedStyle(shown).lineHeight);
-  const line = Math.round((shown.querySelector('.cur').offsetTop - shown.firstChild.offsetTop) / lineHeight);
+  const cur = shown.querySelector('.cur'); // none at the end of the text
+  if (!cur) return;
+  const line = Math.round((cur.offsetTop - shown.firstChild.offsetTop) / lineHeight);
   shown.style.transform = `translateY(${-line * lineHeight}px)`;
 }
 

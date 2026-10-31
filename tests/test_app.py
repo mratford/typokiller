@@ -1122,7 +1122,7 @@ def test_mod_tap_combo_and_macro_misfires_are_their_own_event_types(client, db_p
 
 def test_dwell_and_flight_come_from_finger_events_with_summed_time_around_tap_hold_keys(client, db_path):
     table = typed_keystrokes(
-        client, db_path, "sweep", "ab e-d->ff\ng",
+        client, db_path, "sweep", "ab e-d->f\ng",
         tap(0, "a"), tap(200, "b"),
         tap(500, " ", "Space", 0.3),  # a tapped layer-tap arrives at its release
         tap(600, "e"),
@@ -1144,8 +1144,7 @@ def test_dwell_and_flight_come_from_finger_events_with_summed_time_around_tap_ho
         ("d", "plain", None, 120.0, 200.0),
         ("-", "macro", None, None, None),
         (">", "macro", None, None, None),
-        ("f", "plain", 550.0, None, None),  # its keyup came after the auto-repeat
-        ("f", "plain", None, None, None),  # auto-repeat
+        ("f", "plain", 550.0, None, None),  # its keyup came after the auto-repeat, which has no row
         ("\n", "combo", None, None, None),
         ("g", "plain", 80.0, None, None),
     ]

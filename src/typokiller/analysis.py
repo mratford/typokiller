@@ -27,6 +27,7 @@ class Keydown(NamedTuple):
     key: str
     ctrl: bool = False
     meta: bool = False
+    repeat: bool = False
 
 
 def indent_at(passage: str, i: int) -> str:
@@ -38,13 +39,18 @@ def indent_at(passage: str, i: int) -> str:
 def typed_char(passage: str, typed: str, k: Keydown) -> str | None:
     """The character that a key puts at the cursor, if it is put in: the key's character,
     or a newline for Enter where the Passage has one. None for other keys, for keys with
-    Ctrl or Meta, and after the end of the Passage."""
+    Ctrl or Meta, for a repeat of a held key, and after the end of the Passage."""
     at = passage[len(typed) : len(typed) + 1]
-    if k.ctrl or k.meta or not at:
+    if k.ctrl or k.meta or k.repeat or not at:
         return None
     if k.key == "Enter":
         return "\n" if at == "\n" else None
     return k.key if len(k.key) == 1 else None
+
+
+def is_backspace(k: Keydown) -> bool:
+    """Whether the key deletes: Backspace, but not with Ctrl or Meta, and not as a repeat."""
+    return k.key == "Backspace" and not (k.ctrl or k.meta or k.repeat)
 
 
 def apply_key(passage: str, typed: str, k: Keydown, mode: str | None) -> str:
@@ -53,7 +59,7 @@ def apply_key(passage: str, typed: str, k: Keydown, mode: str | None) -> str:
     These are the rules of `applyKey` in static/typing.js, which the page uses. The two
     must change together, or the alignment no longer sees what the page showed.
     """
-    if k.key == "Backspace" and not (k.ctrl or k.meta):
+    if is_backspace(k):
         # Backspace after filled-in indentation removes it together with the newline.
         newline = typed.rfind("\n")
         if newline >= 0 and typed[newline + 1 :] == indent_at(passage, newline + 1):
@@ -94,7 +100,7 @@ def first_error_v1(passage: str, mode: str | None, keydowns: list[Keydown]) -> l
             row |= {"position": cursor, "first": cursor not in seen}
             seen.add(cursor)
         typed = apply_key(passage, typed, k, mode)
-        if error is not None and (char is not None or (k.key == "Backspace" and not (k.ctrl or k.meta))):
+        if error is not None and (char is not None or is_backspace(k)):
             if passage.startswith(typed) and len(typed) > rows[error]["position"]:
                 row["status"] = "correct"
                 rows[error]["fix_ms"] = k.t - keydowns[error].t
@@ -248,7 +254,7 @@ def replayed(db: sqlite3.Connection, since: datetime) -> dict[tuple[int, int], R
 def replay(session: int, ord: int, passage: str, mode: str | None, keymap: Keymap, events: list[Event]) -> Replay:
     """Replays the key events of one Attempt, given in seq order."""
     downs = [e for e in events if e.type == "keydown"]
-    aligned = first_error_v1(passage, mode, [Keydown(e.t, e.key, e.ctrl, e.meta) for e in downs])
+    aligned = first_error_v1(passage, mode, [Keydown(e.t, e.key, e.ctrl, e.meta, e.repeat) for e in downs])
     attempt = {"session": session, "ord": ord}
     rows = attempt_keystrokes(passage, keymap, events, dict(zip((e.seq for e in downs), aligned)))
     counted = [a["status"] == "correct" for a in aligned if a["first"] and a["status"] in ("correct", "error")]
@@ -296,7 +302,7 @@ def keystrokes(db: sqlite3.Connection, since: datetime = datetime.min) -> pl.Dat
       whose keydowns come at their release, every pair gets an equal share of the time from the keydown
       before the run to the keydown after it.
       Dwell, flight and time are None for keys that are not finger presses: macros, combo
-      outputs, auto-repeat, misfires and off-track keys. Shift from Caps Word or from a shifted
+      outputs, misfires and off-track keys. Shift from Caps Word or from a shifted
       keycode is a modifier key, so it does not count either.
     - first_time_correct: for the first keystroke at a position, whether it was correct
       (True) or an Error (False). None for later keystrokes, off-track keys and misfires.
@@ -351,7 +357,7 @@ def attempt_keystrokes(
         a = aligned[e.seq]
         row = {"seq": e.seq, "t": e.t, "position": a["position"], "typed": e.key, "status": a["status"]}
         row |= {"event": "typed", "candidates": candidates(e.key), "fix_ms": a["fix_ms"], "first": a["first"]}
-        row |= {"presses": presses, "repeat": e.repeat}
+        row |= {"presses": presses}
         if a["position"] is not None:
             char = passage[a["position"]]
             misfired = next((keymap.holds[m, char] for m in mods if (m, char) in keymap.holds), None)
@@ -385,12 +391,7 @@ def attempt_keystrokes(
         pick = next((k for k in r["candidates"] if own and k.layer == own[0].layer), None)
         pick = pick or next(iter(r["candidates"]), None)
         r |= {"layer": pick and pick.layer, "key": pick and pick.key, "kind": pick and pick.kind}
-        r["timed"] = (
-            r["event"] == "typed"
-            and r["kind"] not in ("macro", "combo")
-            and not r["repeat"]
-            and r["status"] != "off-track"
-        )
+        r["timed"] = r["event"] == "typed" and r["kind"] not in ("macro", "combo") and r["status"] != "off-track"
         r["tap_hold"] = r["kind"] in ("mod-tap", "layer-tap")
         counted = r["first"] and r["event"] == "typed" and r["status"] in ("correct", "error")
         r["first_time_correct"] = r["status"] == "correct" if counted else None
