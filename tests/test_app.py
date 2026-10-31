@@ -88,7 +88,6 @@ LESSONS = {
     "max_tokens": 8000,
     "words": 1300,
     "level": "intermediate",
-    "split_lines": 40,
     "timeout": 10,
     "repairs": 2,
     "repair_tokens": 4000,
@@ -98,7 +97,7 @@ LESSONS = {
 }
 SETTINGS = {
     "typing": {"wrong_key_mode": "keep typing", "show_keymap": False, "keymap_lines": 3},
-    "passages": {"max_dropped": 0.05, "min_length": 20, "code_extensions": [".py", ".gleam"]},
+    "passages": {"max_dropped": 0.05, "min_length": 20, "prose_chars": 400, "code_chars": 200, "code_extensions": [".py", ".gleam"]},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
     "symbols": {"weak": 2, "under_measured": 2, "lines": 6, "python_branch": "3.15", "min_lines": 50, "max_lessons": 3},
@@ -181,6 +180,7 @@ def test_a_missing_settings_file_is_created_with_defaults_and_comments(client, s
 
     assert settings == SETTINGS
     assert "# " in settings_path.read_text()
+    assert "split_lines" not in settings_path.read_text()
 
 
 def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and_settings_are_added(
@@ -202,7 +202,7 @@ def test_the_settings_page_has_a_plain_label_for_each_setting():
 
 
 def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
-    rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
+    rest = '\n[passages]\nmax_dropped = 0.05\nmin_length = 20\nprose_chars = 400\ncode_chars = 200\ncode_extensions = [".py", ".gleam"]\n\n[weakness]\nmodel = "recent-cost-v1"\nweeks = 4\nmin_seen = 20\n'
     rest += '\n[drills]\ngenerator = "density-v1"\nweak = 2\nunder_measured = 1\nmin_seen = 20\nwords = 40\n'
     rest += '\n[symbols]\nweak = 2\nunder_measured = 2\nlines = 6\npython_branch = "3.15"\nmin_lines = 50\nmax_lessons = 3\n'
     rest += '\n[unlocking]\nletter_layout = "free-range"\nstart = "t s r e"\n'
@@ -491,7 +491,7 @@ def test_each_function_in_a_code_file_is_a_passage_with_code_normalising():
         "class A:\n    pass\n"
     )
 
-    assert code_passages(code, 0.05, 10) == (
+    assert code_passages(code, 0.05, 10, 200) == (
         ["def area(x):\n    if x: return 1\n\n    return 2", "class A:\n    pass"],
         1,  # "import os" is too short
     )
@@ -700,20 +700,20 @@ def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_wit
     assert set(made["text"].split("\n")) <= set(line_pool(sqlite3.connect(db_path)))
 
 
-def test_a_symbol_doc_block_longer_than_split_lines_is_split_like_lesson_code(running, db_path, docs):
-    running.put("/api/settings", json={"lessons": {"split_lines": 4}, "symbols": {"python_branch": "3.14", "min_lines": 0}})
+def test_a_symbol_doc_block_longer_than_code_chars_is_cut_like_lesson_code(running, db_path, docs):
+    running.put("/api/settings", json={"passages": {"code_chars": 60}, "symbols": {"python_branch": "3.14", "min_lines": 0}})
 
     running.post("/api/symbol-docs")
 
     wait_for_notice(running)
     assert docs == ["3.14"]
     passages = doc_passages(db_path)
-    # The import line is too short to keep.
-    assert passages["Gleam tour"][0] == (
-        "Hello world",
-        'pub fn main() {\n  // Prints a greeting\n  io.println("Hello, Joe!")\n}',
-    )
-    assert "Python 3.14 tutorial" in passages
+    # The first four lines are 55 characters, and a fifth would make 83. The blank line after the
+    # import is too early to cut at: it is before half of code_chars.
+    assert passages["Gleam tour"][:2] == [
+        ("Hello world", 'import gleam/io\n\npub fn main() {\n  // Prints a greeting'),
+        ("Hello world", '  io.println("Hello, Joe!")\n}'),
+    ]
 
 
 def test_a_symbol_docs_clone_that_fails_is_reported_and_adds_no_source(running, db_path, monkeypatch):
@@ -1358,6 +1358,57 @@ def test_sources_stored_before_the_symbol_mark_are_symbol_sources_when_from_a_sy
     assert source_titles(client) == ["decorators", "Pride and Prejudice"]
 
 
+def test_at_start_up_stored_passages_over_their_limit_are_replaced_by_pieces_once(db_path, settings_path, provider):
+    create_app(db_path, settings_path, provider)  # makes the tables
+    settings_path.write_text("[passages]\nmin_length = 10\nprose_chars = 40\ncode_chars = 40\n")
+    long_prose = "The first zzyzx is here. The second one is here."
+    long_code = "aaaaaaaaaa = 1\n\nbbbbbbbbbb = 2\n\ncccccccccc = 3\n\ndddddddddd = 4"
+    with sqlite3.connect(db_path) as db:
+        db.execute("INSERT INTO source (id, title, text, total, bookmark, opened) VALUES (1, 'Book', '', 4, 2, '')")
+        db.executemany(
+            "INSERT INTO passage (id, source, ord, text, normaliser, heading, code) VALUES (?, 1, ?, ?, 'ascii-v1', ?, ?)",
+            [
+                (10, 0, "A short one stays.", None, 0),
+                (11, 1, long_prose, None, 0),
+                (12, 2, long_code, "Heading", 1),
+                (13, 3, "values = [1, 2, 3]\nprint(values)", "Heading", 1),
+            ],
+        )
+        db.execute("INSERT INTO attempt (session, ord, finished, passage) VALUES (1, 0, 1, 11)")
+    expected = [
+        (10, 0, "A short one stays."),
+        (14, 1, "The first zzyzx is here."),
+        (15, 2, "The second one is here."),
+        (16, 3, "aaaaaaaaaa = 1\n\nbbbbbbbbbb = 2\n\ncccccccccc = 3"),
+        (17, 4, "dddddddddd = 4"),
+        (13, 5, "values = [1, 2, 3]\nprint(values)"),
+    ]
+
+    client = TestClient(create_app(db_path, settings_path, provider))
+
+    assert rows(db_path, "SELECT id, ord, text FROM passage WHERE source = 1 AND NOT replaced ORDER BY ord") == expected
+    assert rows(db_path, "SELECT id FROM passage WHERE replaced") == [(11,), (12,)]
+    assert rows(db_path, "SELECT id, heading, code FROM passage WHERE id IN (14, 16, 17)") == [
+        (14, None, 0), (16, "Heading", 1), (17, "Heading", 1)
+    ]  # fmt: skip
+    # The bookmark was at the code block, which now starts at ord 3.
+    assert rows(db_path, "SELECT total, bookmark FROM source") == [(6, 3)]
+    assert rows(db_path, "SELECT passage FROM attempt") == [(11,)]
+    assert bookmark(client, 1, 1) == (1, [14, 15])
+    assert pool(sqlite3.connect(db_path), None, 0)[0]["zzyzx"] == 1
+    # A replaced code Passage gives no lines to Symbol Drills.
+    assert "values = [1, 2, 3]" in line_pool(sqlite3.connect(db_path))
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE passage SET replaced = 1 WHERE id = 13")
+    assert "values = [1, 2, 3]" not in line_pool(sqlite3.connect(db_path))
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE passage SET replaced = 0 WHERE id = 13")
+    before = rows(db_path, "SELECT * FROM passage ORDER BY id")
+    TestClient(create_app(db_path, settings_path, provider))
+
+    assert rows(db_path, "SELECT * FROM passage ORDER BY id") == before
+
+
 def test_the_trend_has_the_medians_of_each_days_finished_attempts_on_one_keymap_in_the_last_13_weeks(
     client, db_path
 ):
@@ -1715,7 +1766,7 @@ def test_a_lesson_is_split_into_paragraphs_and_code_blocks_under_their_headings(
     heading = "Pattern Matching in Python"
     code = 'import sys\n\ndef describe(command):\n    match command:\n\n        case "quit":\n            return "leaving"'
 
-    assert lesson_passages(LESSON, 40, 0.05, 20) == (
+    assert lesson_passages(LESSON, 0.05, 20, 400, 200) == (
         [
             (heading, "Python's match statement compares a value against patterns, as the tutorial shows.", False),
             ("Literal patterns", "A literal matches an equal value.", False),
@@ -1724,12 +1775,6 @@ def test_a_lesson_is_split_into_paragraphs_and_code_blocks_under_their_headings(
         ],
         1,  # the table
     )
-    # A block over split_lines lines (9 > 7) is split at blank lines before unindented lines,
-    # with as many whole parts as fit in split_lines.
-    assert lesson_passages(LESSON, 7, 0.05, 20)[0][3:] == [
-        ("Literal patterns", code, True),
-        ("Literal patterns", "print(describe(sys.argv[0]))", True),
-    ]
 
 
 def spend_row(dollars, time):

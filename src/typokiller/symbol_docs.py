@@ -14,7 +14,7 @@ from collections.abc import Callable
 from itertools import dropwhile
 from pathlib import Path
 
-from typokiller.sources import code_parts, git, kept, repo_text
+from typokiller.sources import code_block, cut_code, git, keep_passages, repo_text
 
 CPYTHON = "https://github.com/python/cpython.git"
 TOUR = "https://github.com/gleam-lang/language-tour.git"
@@ -36,7 +36,7 @@ def clone_docs(folder: Path, python_branch: str):
 DocSource = tuple[str, str, list[tuple[str, str]]]
 
 
-def symbol_docs(python_branch: str, split_lines: int, max_dropped: float, min_length: int) -> list[DocSource]:
+def symbol_docs(python_branch: str, max_dropped: float, min_length: int, code_chars: int) -> list[DocSource]:
     """The four symbol doc Sources, from the repos that `clone_docs` puts in a temporary folder.
     The tutorial and the tour are in doc order; the library and the stdlib are shuffled once by file."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -55,7 +55,7 @@ def symbol_docs(python_branch: str, split_lines: int, max_dropped: float, min_le
             ("Gleam stdlib", stdlib, stdlib_blocks),
         ]
         return [
-            doc_source(title, folder, files, blocks, split_lines, max_dropped, min_length) for title, files, blocks in found
+            doc_source(title, folder, files, blocks, max_dropped, min_length, code_chars) for title, files, blocks in found
         ]
 
 
@@ -64,19 +64,19 @@ def doc_source(
     folder: Path,
     files: list[Path],
     blocks: Callable[[Path, str], list[tuple[str, str]]],
-    split_lines: int,
     max_dropped: float,
     min_length: int,
+    code_chars: int,
 ) -> DocSource:
     """A Source made of the code blocks that `blocks` finds in each of `files`, with their
-    headings. Its text is like a code repo's. Each block is a code Passage, split and skipped
+    headings. Its text is like a code repo's. Each block is a code Passage, cut and skipped
     like a Lesson's code block."""
     texts = [(path.relative_to(folder), path.read_text()) for path in files]
     passages = []
     for path, text in texts:
         for heading, code in blocks(path, text):
-            parts = code_parts(code, split_lines)
-            passages += [(heading, part) for part, dropped in parts if kept(part, dropped, max_dropped, min_length)]
+            pieces, _ = keep_passages([code_block(code)], max_dropped, min_length, code_chars, cut_code)
+            passages += [(heading, piece) for piece in pieces]
     return title, repo_text(texts), passages
 
 

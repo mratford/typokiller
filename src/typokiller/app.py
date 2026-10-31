@@ -56,6 +56,7 @@ from typokiller.sources import (
     CODE_BLOCK,
     article_paragraphs,
     code_passages,
+    cut_stored_passages,
     git,
     gutenberg_paragraphs,
     lesson_passages,
@@ -92,7 +93,8 @@ CREATE TABLE IF NOT EXISTS passage (
     text TEXT NOT NULL,
     normaliser TEXT NOT NULL,
     heading TEXT,  -- a Lesson's heading, shown above the Passage and not typed
-    code INTEGER NOT NULL DEFAULT 0  -- 1 for code: from a code Source or a Lesson's code block
+    code INTEGER NOT NULL DEFAULT 0,  -- 1 for code: from a code Source or a Lesson's code block
+    replaced INTEGER NOT NULL DEFAULT 0  -- 1 when it was cut into pieces after it was stored; the pieces are other Passages
 );
 CREATE TABLE IF NOT EXISTS drill (
     passage INTEGER PRIMARY KEY,  -- a Drill is a Passage with no Source
@@ -179,6 +181,14 @@ keymap_lines = 3
 # characters.
 max_dropped = 0.05
 min_length = 20
+# A paragraph is cut into Passages of at most this many characters, at the ends of sentences.
+# A Lesson's paragraphs are cut the same way. A Passage already stored that is longer than this
+# is cut again when typokiller starts.
+prose_chars = 400
+# A function or code block is cut into Passages of about this many characters, at blank lines
+# (up to a quarter more) or at line breaks. Code up to a quarter more is not cut. A single line
+# stays whole.
+code_chars = 200
 # A code Source takes Passages only from the files with one of these extensions, so lock
 # files, dotfiles and docs are left out. A change applies to the next import.
 code_extensions = [".py", ".gleam"]
@@ -267,9 +277,6 @@ max_tokens = 8000
 # The length that the prompt asks for, in words with the code, and the learner's level.
 words = 1300
 level = "intermediate"
-# A code block longer than this many lines is split into Passages at blank lines before
-# unindented lines.
-split_lines = 40
 # Each code block is run on its own in a new folder under sandbox-exec, with no network and no
 # writes outside that folder. It passes when it ends with exit code 0 within `timeout` seconds.
 # One that fails is sent back to the model with its error, up to `repairs` times, and each
@@ -500,6 +507,10 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 "UPDATE source SET symbol_source = 1 WHERE id IN (SELECT source FROM lesson WHERE topic GLOB 'Symbol ?: *')"
                 " OR title IN ('Gleam tour', 'Gleam stdlib') OR title GLOB 'Python * tutorial' OR title GLOB 'Python * library'"
             )
+        with suppress(sqlite3.OperationalError):
+            db.execute("ALTER TABLE passage ADD COLUMN replaced INTEGER NOT NULL DEFAULT 0")
+    limits = read_settings(settings_path)["passages"]
+    cut_stored_passages(db, limits["prose_chars"], limits["code_chars"], limits["min_length"])
 
     def served(source: dict | None) -> dict:
         """The Source's Passage at its bookmark and the one after it. After the Source's
@@ -507,7 +518,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         rows = []
         if source:
             rows = db.execute(
-                "SELECT id, text, heading FROM passage WHERE source = ? AND ord >= ? ORDER BY ord LIMIT 2",
+                "SELECT id, text, heading FROM passage WHERE source = ? AND NOT replaced AND ord >= ? ORDER BY ord LIMIT 2",
                 (source["id"], source["at"]),
             ).fetchall()
         passages = [{"id": id, "text": text, "heading": heading} for id, text, heading in rows] + [BUILT_IN]
@@ -571,7 +582,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         random.shuffle(files)  # once: the Passages' ords then keep this order
         passages, skipped = [], 0
         for _, text in files:
-            found, n = code_passages(text, rule["max_dropped"], rule["min_length"])
+            found, n = code_passages(text, rule["max_dropped"], rule["min_length"], rule["code_chars"])
             passages += found
             skipped += n
         add_source(title, repo_text(files), passages, codes=[True] * len(passages))
@@ -585,9 +596,9 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             found = await asyncio.to_thread(
                 symbol_docs,
                 settings["symbols"]["python_branch"],
-                settings["lessons"]["split_lines"],
                 rule["max_dropped"],
                 rule["min_length"],
+                rule["code_chars"],
             )
         except subprocess.CalledProcessError as e:
             notices.append(f"Could not clone the Python and Gleam docs: {e.stderr.strip()}")
@@ -721,7 +732,9 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 why = f"{dropped} of {len(log)} code examples failed after repairs" if log else "it had no code example"
                 return f"The lesson on {topic} failed: it was written {writes} times; the last time, {why}.", False
         rule = settings["passages"]
-        parts, skipped = lesson_passages(text, lessons["split_lines"], rule["max_dropped"], rule["min_length"])
+        parts, skipped = lesson_passages(
+            text, rule["max_dropped"], rule["min_length"], rule["prose_chars"], rule["code_chars"]
+        )
         if not parts:
             return f"The lesson on {topic} failed: it has nothing long enough to type.", False
         headings, passages, codes = zip(*parts)
@@ -1038,7 +1051,9 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         n = book.number
         text = (await asyncio.to_thread(fetch, f"https://www.gutenberg.org/cache/epub/{n}/pg{n}.txt")).decode()
         rule = read_settings(settings_path)["passages"]
-        passages, skipped = prose_passages(gutenberg_paragraphs(text), rule["max_dropped"], rule["min_length"])
+        passages, skipped = prose_passages(
+            gutenberg_paragraphs(text), rule["max_dropped"], rule["min_length"], rule["prose_chars"]
+        )
         return {"source": add_source(book.title, text, passages), "passages": len(passages), "skipped": skipped}
 
     # Clones in the background. A notice says when it is done.
@@ -1069,7 +1084,9 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     @app.post("/api/articles")
     async def import_article(article: Article):
         rule = read_settings(settings_path)["passages"]
-        passages, skipped = prose_passages(article_paragraphs(article.text), rule["max_dropped"], rule["min_length"])
+        passages, skipped = prose_passages(
+            article_paragraphs(article.text), rule["max_dropped"], rule["min_length"], rule["prose_chars"]
+        )
         if not passages:
             raise HTTPException(422, "No paragraph in it is long enough to type.")
         source = add_source(article.title, article.text, passages)

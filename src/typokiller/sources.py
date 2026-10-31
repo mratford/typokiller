@@ -1,10 +1,11 @@
 import csv
 import os
 import re
+import sqlite3
 import subprocess
 import unicodedata
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 # Characters that NFKD does not turn into ASCII, and the ASCII to type instead.
@@ -38,13 +39,15 @@ def article_paragraphs(text: str) -> list[str]:
     return [line for line in lines if line and counts[line] == 1]
 
 
-def keep_passages(normalised: list[tuple[str, int]], max_dropped: float, min_length: int) -> tuple[list[str], int]:
-    """The texts that are kept as Passages, and how many were skipped. Each text comes with how many
+def keep_passages(
+    normalised: list[tuple[str, int]], max_dropped: float, min_length: int, limit: int, cut: Callable[[str, int, int], list[str]]
+) -> tuple[list[str], int]:
+    """The Passages made from texts, and how many texts were skipped. Each text comes with how many
     characters normalising dropped from it. A text is skipped when normalising dropped more than
-    `max_dropped` of its characters or left fewer than `min_length`.
-    """
-    passages = [text for text, dropped in normalised if kept(text, dropped, max_dropped, min_length)]
-    return passages, len(normalised) - len(passages)
+    `max_dropped` of its characters or left fewer than `min_length`. This is checked on the whole
+    text. Each text that is kept is cut into pieces of at most about `limit` characters by `cut`."""
+    texts = [text for text, dropped in normalised if kept(text, dropped, max_dropped, min_length)]
+    return [piece for text in texts for piece in cut(text, limit, min_length)], len(normalised) - len(texts)
 
 
 def kept(text: str, dropped: int, max_dropped: float, min_length: int) -> bool:
@@ -52,10 +55,12 @@ def kept(text: str, dropped: int, max_dropped: float, min_length: int) -> bool:
     return dropped <= max_dropped * (len(text) + dropped) and len(text) >= min_length
 
 
-def prose_passages(paragraphs: list[str], max_dropped: float, min_length: int) -> tuple[list[str], int]:
+def prose_passages(
+    paragraphs: list[str], max_dropped: float, min_length: int, prose_chars: int
+) -> tuple[list[str], int]:
     """The Passages made from prose paragraphs with `ascii-v1`, and how many paragraphs were skipped.
-    Line breaks inside a paragraph become spaces."""
-    return keep_passages([prose(p) for p in paragraphs], max_dropped, min_length)
+    Line breaks inside a paragraph become spaces. A long paragraph is cut by `cut_prose`."""
+    return keep_passages([prose(p) for p in paragraphs], max_dropped, min_length, prose_chars, cut_prose)
 
 
 def prose(paragraph: str) -> tuple[str, int]:
@@ -64,19 +69,134 @@ def prose(paragraph: str) -> tuple[str, int]:
     return ascii_v1(" ".join(paragraph.split()))
 
 
-def code_passages(text: str, max_dropped: float, min_length: int) -> tuple[list[str], int]:
+def cut_prose(text: str, limit: int, min_length: int) -> list[str]:
+    """A normalised paragraph cut into pieces of at most `limit` characters, each with as many
+    whole sentences as fit. A sentence ends at `.`, `!` or `?` followed by a space and a capital
+    letter or a quote. A sentence over `limit` starts a new piece, and is cut at the last
+    semicolon, colon or comma that keeps the piece within `limit`, else at the last space that
+    does. A last piece shorter than `min_length` is joined to the piece before it. The text is
+    the pieces with a space between them."""
+    if len(text) <= limit:
+        return [text]
+    pieces: list[str] = []
+    current = ""
+    for sentence in re.split(r"(?<=[.!?]) (?=[A-Z\"'])", text):
+        if current and len(current) + 1 + len(sentence) <= limit:
+            current += " " + sentence
+            continue
+        if current:
+            pieces.append(current)
+        while len(sentence) > limit:
+            window = sentence[: limit + 1]
+            ends = [m.end() for m in re.finditer(r"[;:,](?= )", window)]
+            end = ends[-1] if ends else window.rfind(" ")
+            if end <= 0:  # a word over the limit
+                break
+            pieces.append(sentence[:end])
+            sentence = sentence[end:].lstrip()
+        current = sentence
+    pieces.append(current)
+    if len(pieces) > 1 and len(pieces[-1]) < min_length:
+        pieces[-2:] = [" ".join(pieces[-2:])]
+    return pieces
+
+
+def code_passages(text: str, max_dropped: float, min_length: int, code_chars: int) -> tuple[list[str], int]:
     """The Passages made from one code file with `ascii-v1`: one for each function, and how many were skipped.
 
     The file is tidied with `tidy_code` and split into `top_level_parts`. A function is skipped by
-    the same rule as a prose paragraph.
+    the same rule as a prose paragraph, and a long one is cut by `cut_code`.
     """
-    return keep_passages([ascii_v1(f) for f in top_level_parts(tidy_code(text))], max_dropped, min_length)
+    parts = [ascii_v1(f) for f in top_level_parts(tidy_code(text))]
+    return keep_passages(parts, max_dropped, min_length, code_chars, cut_code)
 
 
 def top_level_parts(code: str) -> list[str]:
     """Tidied code split at blank lines before unindented lines: the functions, classes and
     other top-level parts, in written order. Runs of blank lines become one blank line."""
-    return [part for part in re.split(r"\n\n(?=\S)", re.sub(r"\n\n+", "\n\n", code.strip("\n"))) if part]
+    return [part for part in re.split(r"\n\n(?=\S)", squeeze(code)) if part]
+
+
+def squeeze(code: str) -> str:
+    """Code without blank lines at its ends, and with each run of blank lines made one blank line."""
+    return re.sub(r"\n\n+", "\n\n", code.strip("\n"))
+
+
+def cut_code(code: str, limit: int, min_length: int) -> list[str]:
+    """Tidied code cut into pieces. Each piece starts at the line after the one before it, and
+    ends at the first of these that exists:
+
+    1. The last blank line that ends the piece at no more than `limit` plus a quarter of it, and
+       at no less than half of `limit`. The blank line is not in any piece.
+    2. The last line break that ends the piece at no more than `limit`, after a line that is
+       not blank.
+    3. The end of the first line, so a single line over `limit` stays whole.
+
+    The rest of the code is the last piece when it is within a quarter more than `limit`, so that
+    no piece is cut again. A last piece shorter than `min_length` is joined to the piece before it.
+    """
+    lines = code.split("\n")
+    # The length of lines[start:end] joined is totals[end] - totals[start] - 1.
+    totals = [0]
+    for line in lines:
+        totals.append(totals[-1] + len(line) + 1)
+
+    def size(start: int, end: int) -> int:
+        return totals[end] - totals[start] - 1
+
+    longest = limit * 5 / 4  # the most for a piece that ends at a blank line, and for the last piece
+    ranges = []
+    start = 0
+    while start < len(lines):
+        if size(start, len(lines)) <= longest:
+            end = len(lines)
+        elif blanks := [e for e in range(start + 1, len(lines)) if not lines[e] and limit / 2 <= size(start, e) <= longest]:
+            end = blanks[-1]
+        else:
+            fits = (e for e in range(start + 1, len(lines)) if lines[e - 1] and size(start, e) <= limit)
+            end = max(fits, default=start + 1)
+        ranges.append((start, end))
+        start = end + 1 if end < len(lines) and not lines[end] else end
+    if len(ranges) > 1 and size(*ranges[-1]) < min_length:
+        ranges[-2:] = [(ranges[-2][0], ranges[-1][1])]
+    return ["\n".join(lines[start:end]) for start, end in ranges]
+
+
+def cut_stored_passages(db: sqlite3.Connection, prose_chars: int, code_chars: int, min_length: int):
+    """Cuts the stored Passages that are over their limit, in every Source. A Source's text is
+    not cut again, only its Passages. A Passage that is cut is marked `replaced` and stays,
+    because Attempts point to it. Its pieces are new Passages with its heading and `code` value.
+    The Passages that are not replaced get new consecutive `ord` numbers, the Source's `total`
+    counts them, and its bookmark moves to the Passage that holds the start of the Passage it
+    was at. A Source with no Passage to cut is not changed, so a second run does nothing."""
+    with db:
+        for source, bookmark in db.execute("SELECT id, bookmark FROM source").fetchall():
+            old = db.execute(
+                "SELECT id, ord, text, normaliser, heading, code FROM passage WHERE source = ? AND NOT replaced ORDER BY ord",
+                (source,),
+            ).fetchall()
+            pieces = [
+                cut_code(text, code_chars, min_length) if code else cut_prose(text, prose_chars, min_length)
+                for _, _, text, _, _, code in old
+            ]
+            if all(len(parts) == 1 for parts in pieces):
+                continue
+            new_ords: dict[int, int] = {}  # each old ord, with the new ord of its Passage or first piece
+            total = 0
+            for (id, old_ord, _, normaliser, heading, code), parts in zip(old, pieces):
+                new_ords[old_ord] = total
+                if len(parts) == 1:
+                    db.execute("UPDATE passage SET ord = ? WHERE id = ?", (total, id))
+                else:
+                    db.execute("UPDATE passage SET replaced = 1 WHERE id = ?", (id,))
+                    db.executemany(
+                        "INSERT INTO passage (source, ord, text, normaliser, heading, code) VALUES (?, ?, ?, ?, ?, ?)",
+                        [(source, total + i, part, normaliser, heading, code) for i, part in enumerate(parts)],
+                    )
+                total += len(parts)
+            db.execute(
+                "UPDATE source SET total = ?, bookmark = ? WHERE id = ?", (total, new_ords.get(bookmark, total), source)
+            )
 
 
 def tidy_code(text: str) -> str:
@@ -94,7 +214,7 @@ CODE_BLOCK = re.compile(rf"^{FENCE_MARK}.*\n((?:.*\n)*?){FENCE_MARK}.*$", re.M)
 
 
 def lesson_passages(
-    markdown: str, split_lines: int, max_dropped: float, min_length: int
+    markdown: str, max_dropped: float, min_length: int, prose_chars: int, code_chars: int
 ) -> tuple[list[tuple[str | None, str, bool]], int]:
     """The Passages of a Lesson written in Markdown, each with the heading above it and whether
     it is code, and how many paragraphs and code blocks were skipped (spec §9).
@@ -102,10 +222,9 @@ def lesson_passages(
     Headings are not typed. Each paragraph and each list item is a prose Passage, with inline
     markup removed: code spans keep their text without the backticks, and bold, italics and
     links keep their words. A table is dropped, and counts as skipped. Each fenced code block is
-    a code Passage, tidied like a code file with runs of blank lines made one. A block over
-    `split_lines` lines is split at blank lines before unindented lines, with as many whole
-    parts in each Passage as fit in `split_lines`. Then each Passage is normalised with
-    `ascii-v1` and skipped by the rule of `keep_passages`.
+    a code Passage, tidied like a code file with runs of blank lines made one. Each paragraph
+    and block is normalised with `ascii-v1` and skipped by the rule of `keep_passages`. One that
+    is kept is cut by `cut_prose` or `cut_code`, and each piece keeps the heading.
     """
     heading = None
     normalised: list[tuple[str | None, str, int, bool]] = []  # (heading, text, characters dropped, code)
@@ -122,7 +241,7 @@ def lesson_passages(
     for line in markdown.splitlines():
         if code is not None:
             if FENCE.match(line):
-                normalised += [(heading, *part, True) for part in code_parts("\n".join(code), split_lines)]
+                normalised.append((heading, *code_block("\n".join(code)), True))
                 code = None
             else:
                 code.append(line)
@@ -141,8 +260,14 @@ def lesson_passages(
         else:
             paragraph.append(line)
     end_paragraph()
-    parts = [(h, text, code) for h, text, dropped, code in normalised if kept(text, dropped, max_dropped, min_length)]
-    return parts, len(normalised) - len(parts)
+    parts = []
+    skipped = 0
+    for under, text, dropped, is_code in normalised:  # `under` is the heading above it
+        limit, cut = (code_chars, cut_code) if is_code else (prose_chars, cut_prose)
+        pieces, n = keep_passages([(text, dropped)], max_dropped, min_length, limit, cut)
+        parts += [(under, piece, is_code) for piece in pieces]
+        skipped += n
+    return parts, skipped
 
 
 def plain(text: str) -> str:
@@ -155,25 +280,10 @@ def plain(text: str) -> str:
     return "".join(pieces)
 
 
-def code_parts(code: str, split_lines: int) -> list[tuple[str, int]]:
-    """A code block tidied, split by `split_code` and normalised with `ascii-v1`: each part
-    with how many characters normalising dropped from it."""
-    return [ascii_v1(part) for part in split_code(tidy_code(code), split_lines)]
-
-
-def split_code(code: str, split_lines: int) -> list[str]:
-    """A tidied code block as `top_level_parts` put together, split as `lesson_passages` says."""
-    parts = top_level_parts(code)
-    if (whole := "\n\n".join(parts)).count("\n") < split_lines:
-        return [whole]
-    chunks: list[str] = []
-    for part in parts:
-        # The lines of the last chunk, a blank line and the lines of this part.
-        if chunks and chunks[-1].count("\n") + 1 + 1 + part.count("\n") + 1 <= split_lines:
-            chunks[-1] += "\n\n" + part
-        else:
-            chunks.append(part)
-    return chunks
+def code_block(code: str) -> tuple[str, int]:
+    """A code block tidied like a code file, with runs of blank lines made one, and normalised
+    with `ascii-v1`; and how many characters were dropped."""
+    return ascii_v1(squeeze(tidy_code(code)))
 
 
 def git(*args: str) -> str:

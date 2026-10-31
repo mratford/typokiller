@@ -34,8 +34,9 @@ def symbol_unit(unit: str) -> bool:
 def line_pool(db: sqlite3.Connection) -> list[str]:
     """The lines that Symbol Drills are made of: each line of the code Passages of every Source,
     with its indent trimmed, that has at most 80 characters and at least 2 Symbols. Each
-    different line is in it once, in the order first found."""
-    passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL AND code ORDER BY id")
+    different line is in it once, in the order first found. A Passage that was replaced by
+    pieces is left out."""
+    passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL AND code AND NOT replaced ORDER BY id")
     lines = (line.strip() for (text,) in passages for line in text.split("\n"))
     return list(dict.fromkeys(line for line in lines if len(line) <= 80 and sum(c in SYMBOLS for c in line) >= 2))
 
@@ -56,7 +57,7 @@ def pool(db: sqlite3.Connection, unlocked: str | None, min_words: int) -> tuple[
     letters that are made of those characters, not the Sources' words, plus Made-up words until
     there are `min_words` different words."""
     if not unlocked:
-        passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL")
+        passages = db.execute("SELECT text FROM passage WHERE source IS NOT NULL AND NOT replaced")
         words = Counter(w for (text,) in passages for w in text.split())
         if len(words) < SMALL_POOL:
             words.update(Counter(WORD_LIST))
