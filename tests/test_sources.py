@@ -7,6 +7,25 @@ def test_prose_is_cut_at_sentence_ends_with_as_many_whole_sentences_as_fit():
     assert cut_prose(text, 40, 5) == ["First one is here. Second one is here.", "Third one is here. Fourth."]
 
 
+def test_prose_is_not_cut_after_an_abbreviation_such_as_mr():
+    text = "Aaaa bbbb cccc. Said Mr. Webster went home."
+
+    # The limit falls just after "Mr.", but the cut is at the sentence end before it.
+    assert cut_prose(text, 30, 5) == ["Aaaa bbbb cccc.", "Said Mr. Webster went home."]
+
+
+def test_prose_is_not_cut_between_initials():
+    text = "Aaaa bbbb cccc. Then J. K. Rowling wrote."
+
+    assert cut_prose(text, 25, 5) == ["Aaaa bbbb cccc.", "Then J. K. Rowling wrote."]
+
+
+def test_a_word_that_only_ends_like_an_initial_is_a_sentence_end():
+    text = "Aaaa bbbb NASA. Then go home now."
+
+    assert cut_prose(text, 25, 5) == ["Aaaa bbbb NASA.", "Then go home now."]
+
+
 def test_a_sentence_over_the_limit_is_cut_at_the_last_semicolon_colon_or_comma_that_fits_else_at_a_space():
     text = "alpha beta, gamma delta; epsilon zeta eta theta iota kappa"
 

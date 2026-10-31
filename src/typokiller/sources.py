@@ -69,18 +69,30 @@ def prose(paragraph: str) -> tuple[str, int]:
     return ascii_v1(" ".join(paragraph.split()))
 
 
+# Words that end with a full stop but do not end a sentence. `cut_prose` also skips a single capital letter.
+ABBREVIATIONS = ("Mr", "Mrs", "Ms", "Dr", "St", "Prof", "Capt", "Col", "Gen", "Lieut", "Rev", "vs", "etc", "Jr", "Sr", "Mt")
+
+# The space where `cut_prose` ends a sentence. Python can only look back over text of one fixed
+# length, so each word has its own test. The test for `.`, `!` or `?` is first, so the other
+# tests run only after a likely sentence end.
+SENTENCE_END = re.compile(
+    r"(?<=[.!?])" + "".join(rf"(?<!\b{word}\.)" for word in (*ABBREVIATIONS, "[A-Z]")) + r" (?=[A-Z\"'])"
+)
+
+
 def cut_prose(text: str, limit: int, min_length: int) -> list[str]:
     """A normalised paragraph cut into pieces of at most `limit` characters, each with as many
     whole sentences as fit. A sentence ends at `.`, `!` or `?` followed by a space and a capital
-    letter or a quote. A sentence over `limit` starts a new piece, and is cut at the last
-    semicolon, colon or comma that keeps the piece within `limit`, else at the last space that
-    does. A last piece shorter than `min_length` is joined to the piece before it. The text is
-    the pieces with a space between them."""
+    letter or a quote. A full stop after one of the `ABBREVIATIONS` or after a single capital
+    letter, such as "Mr." or "J.", does not end a sentence. A sentence over `limit` starts a new
+    piece, and is cut at the last semicolon, colon or comma that keeps the piece within `limit`,
+    else at the last space that does. A last piece shorter than `min_length` is joined to the
+    piece before it. The text is the pieces with a space between them."""
     if len(text) <= limit:
         return [text]
     pieces: list[str] = []
     current = ""
-    for sentence in re.split(r"(?<=[.!?]) (?=[A-Z\"'])", text):
+    for sentence in SENTENCE_END.split(text):
         if current and len(current) + 1 + len(sentence) <= limit:
             current += " " + sentence
             continue
