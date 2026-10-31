@@ -50,4 +50,4 @@ Gleam examples need `gleam` and Erlang on this Mac. Each one is built and run in
 rm -rf src/typokiller/gleam/build && (cd src/typokiller/gleam && gleam build)
 ```
 
-The server tests read copies of real `.vil` and `vial.json` files, kept in `tests/fixtures/`. They come from the `sweep-layouts` repo (commit 67c9332), which the tests do not need.
+The server tests read copies of real `.vil` and `vial.json` files, kept in `tests/fixtures/`. They come from the `sweep-layouts` repo (commit 67c9332), which the tests do not need. They do not follow that repo. To refresh them, copy the files that a test needs from `sweep-layouts`, then change the commit in this line and in `tests/test_app.py`.
