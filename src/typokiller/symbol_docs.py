@@ -1,4 +1,5 @@
-"""The symbol docs (#49): four code Sources taken from the Python and Gleam documentation.
+"""The symbol docs (#49, #47): six code Sources taken from the Python and Gleam documentation,
+the GNU bash examples and the tldr pages.
 
 The repos are cloned at run time and only the database keeps their text, so nothing from
 the docs goes into git.
@@ -11,25 +12,36 @@ import tempfile
 import textwrap
 import warnings
 from collections.abc import Callable
+from contextlib import suppress
 from itertools import dropwhile
 from pathlib import Path
 
-from typokiller.sources import code_block, cut_code, git, keep_passages, repo_text
+from typokiller.sources import code_block, cut_code, git, keep_passages, repo_text, tidy_code, top_level_parts
 
 CPYTHON = "https://github.com/python/cpython.git"
 TOUR = "https://github.com/gleam-lang/language-tour.git"
 STDLIB = "https://github.com/gleam-lang/stdlib.git"
+BASH = "https://git.savannah.gnu.org/git/bash.git"
+TLDR = "https://github.com/tldr-pages/tldr.git"
+# Where the bash examples are in the bash clone.
+BASH_EXAMPLES = "bash/examples"
+# The folders of the tldr pages that are used.
+TLDR_PAGES = ("common", "linux", "osx")
 
 
 def clone_docs(folder: Path, python_branch: str):
-    """Clones the doc repos into `folder` as `cpython`, `tour` and `stdlib`. CPython is large,
-    so its clone is shallow and sparse: only the files of `Doc/tutorial` and `Doc/library`
-    are downloaded."""
+    """Clones the doc repos into `folder` as `cpython`, `tour`, `stdlib`, `bash` and `tldr`. CPython
+    and tldr are large, so their clones are shallow and sparse: only the files of `Doc/tutorial`
+    and `Doc/library`, and of the folders in `TLDR_PAGES`, are downloaded."""
     cpython = str(folder / "cpython")
     git("clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", python_branch, CPYTHON, cpython)
     git("-C", cpython, "sparse-checkout", "set", "Doc/tutorial", "Doc/library")
     git("clone", "-q", "--depth", "1", TOUR, str(folder / "tour"))
     git("clone", "-q", "--depth", "1", STDLIB, str(folder / "stdlib"))
+    git("clone", "-q", "--depth", "1", BASH, str(folder / "bash"))
+    tldr = str(folder / "tldr")
+    git("clone", "-q", "--depth", "1", "--filter=blob:none", "--sparse", TLDR, tldr)
+    git("-C", tldr, "sparse-checkout", "set", *(f"pages/{name}" for name in TLDR_PAGES))
 
 
 # A Source as (title, text, Passages), where each Passage is (heading, text).
@@ -37,8 +49,9 @@ DocSource = tuple[str, str, list[tuple[str, str]]]
 
 
 def symbol_docs(python_branch: str, max_dropped: float, min_length: int, code_chars: int) -> list[DocSource]:
-    """The four symbol doc Sources, from the repos that `clone_docs` puts in a temporary folder.
-    The tutorial and the tour are in doc order; the library and the stdlib are shuffled once by file."""
+    """The six symbol doc Sources, from the repos that `clone_docs` puts in a temporary folder.
+    The tutorial and the tour are in doc order; the library, the stdlib and the tldr pages are
+    shuffled once by file."""
     with tempfile.TemporaryDirectory() as tmp:
         folder = Path(tmp)
         clone_docs(folder, python_branch)
@@ -48,11 +61,15 @@ def symbol_docs(python_branch: str, max_dropped: float, min_length: int, code_ch
         stdlib = sorted((folder / "stdlib/src/gleam").glob("**/*.gleam"))
         random.shuffle(library)
         random.shuffle(stdlib)
+        tldr = sorted(page for name in TLDR_PAGES for page in (folder / "tldr/pages" / name).glob("*.md"))
+        random.shuffle(tldr)
         found = [
             (f"Python {python_branch} tutorial", [doc / "tutorial" / name for name in tutorial], python_blocks),
             (f"Python {python_branch} library", library, python_blocks),
             ("Gleam tour", sorted((folder / "tour/src/content").glob("chapter*/lesson*/code.gleam")), tour_block),
             ("Gleam stdlib", stdlib, stdlib_blocks),
+            ("GNU bash examples", bash_files(folder / BASH_EXAMPLES), bash_blocks),
+            ("tldr pages", tldr, tldr_blocks),
         ]
         return [
             doc_source(title, folder, files, blocks, max_dropped, min_length, code_chars) for title, files, blocks in found
@@ -71,7 +88,10 @@ def doc_source(
     """A Source made of the code blocks that `blocks` finds in each of `files`, with their
     headings. Its text is like a code repo's. Each block is a code Passage, cut and skipped
     like a Lesson's code block."""
-    texts = [(path.relative_to(folder), path.read_text()) for path in files]
+    texts = []
+    for path in files:
+        with suppress(UnicodeDecodeError):  # a picture or an archive
+            texts.append((path.relative_to(folder), path.read_text()))
     passages = []
     for path, text in texts:
         for heading, code in blocks(path, text):
@@ -172,3 +192,30 @@ def stdlib_blocks(path: Path, code: str) -> list[tuple[str, str]]:
         for block in re.findall(r"^```gleam\n((?:.*\n)*?)```", text, re.M):
             blocks.append((f"{path.stem}.{name[1]}" if name else path.stem, block))
     return blocks
+
+
+def bash_files(examples: Path) -> list[Path]:
+    """Every file under `examples` of the bash repo, except those in `loadables/` (C code), in path order."""
+    return sorted(path for path in examples.glob("**/*") if path.is_file() and path.relative_to(examples).parts[0] != "loadables")
+
+
+def bash_blocks(path: Path, code: str) -> list[tuple[str, str]]:
+    """A file of the bash examples cut into its top-level parts, as a code repo's file is, each under
+    the file's path in `examples/`."""
+    return [(path.relative_to(BASH_EXAMPLES).as_posix(), part) for part in top_level_parts(tidy_code(code))]
+
+
+# A command line of a tldr page: it is the whole line, between backticks.
+TLDR_COMMAND = re.compile(r"^`(.*)`$", re.M)
+
+
+def tldr_blocks(path: Path, page: str) -> list[tuple[str, str]]:
+    """The commands of a tldr page, one to a line, under the page name (`tar` for `tar.md`). The
+    description lines are not taken. In a command, `{{x}}` is `x`, an option such as
+    `[-n|--name]` is its short form `-n`, and `path/to/` is removed. Other brackets stay."""
+    commands = []
+    for command in TLDR_COMMAND.findall(page):
+        command = re.sub(r"\{\{(.*?)\}\}", r"\1", command)
+        command = re.sub(r"\[(-\w)\|--[\w-]+\]", r"\1", command)
+        commands.append(command.replace("path/to/", ""))
+    return [(path.stem, "\n".join(commands))]

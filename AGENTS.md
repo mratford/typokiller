@@ -23,7 +23,7 @@ The glossary terms in `CONTEXT.md` are for the code, the files in `docs/`, the c
 | Target | not named, or "practising" | status line: "drill · practising: e th ;" |
 | Symbol Drill | symbol drill | "symbol drills: lines of code with numbers and symbols" |
 | Introduction Drill | new key drill | "Unlocked e. Next come drills for e." |
-| symbol docs | Python and Gleam docs | "add the Python and Gleam docs (code for symbol drills)" |
+| symbol docs | Python, Gleam and shell docs | "add the Python, Gleam and shell docs (code for symbol drills)" |
 
 Labels describe the action where they can, so that most of them need no noun.
 

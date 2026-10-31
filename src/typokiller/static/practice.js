@@ -326,7 +326,7 @@ const importCode = () =>
 
 // The server clones the doc repos in the background and imports them as Symbol Sources.
 const importSymbolDocs = () =>
-  startImport('/api/symbol-docs', 'Importing the Python and Gleam docs in the background.', 'Could not import the Python and Gleam docs');
+  startImport('/api/symbol-docs', 'Importing the Python, Gleam and shell docs in the background.', 'Could not import the Python, Gleam and shell docs');
 
 // The Lesson languages: [the key that chooses it, its name, the server's name for it].
 const LANGUAGES = [['p', 'Python', 'python'], ['g', 'Gleam', 'gleam']];
@@ -362,7 +362,7 @@ const IMPORTS = [
   ['g', 'Project Gutenberg book', 'gutenberg'],
   ['c', 'Code from a git repo', 'code'],
   ['a', 'Article from the browser', 'article'],
-  ['s', 'Python and Gleam docs (code for symbol drills), added in the background', importSymbolDocs],
+  ['s', 'Python, Gleam and shell docs (code for symbol drills), added in the background', importSymbolDocs],
 ];
 
 // The text fields of the import panel, by screen: the title and what Enter does.

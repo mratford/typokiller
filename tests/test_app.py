@@ -577,7 +577,7 @@ def test_a_clone_that_fails_is_reported(running, tmp_path):
     assert notice.startswith(f"Could not clone {tmp_path / 'missing'}:")
 
 
-# Small copies of the layouts of the three doc repos, by path in the folder that they are cloned into.
+# Small copies of the layouts of the five doc repos, by path in the folder that they are cloned into.
 DOC_FILES = {
     "cpython/Doc/tutorial/index.rst": ".. toctree::\n   :numbered:\n\n   second.rst\n   first.rst\n",
     "cpython/Doc/tutorial/first.rst": (
@@ -623,12 +623,24 @@ DOC_FILES = {
         "pub fn get(box: Box(a)) -> a {\n  box.value\n}\n"
     ),
     "stdlib/src/gleam/box/inner.gleam": "/// ```gleam\n/// let inner = inner.wrap(box.new(1))\n/// ```\npub type Inner\n",
+    "bash/examples/scripts/greet.sh": (
+        '#! /bin/bash\n\n# Greet the world.\nname=${1:-world}\necho "hello $name" > /dev/null\n\n'
+        "for f in *.txt; do\n  echo $f | wc -l\ndone\n"
+    ),
+    "bash/examples/loadables/hello.c": "int main(void) {\n  return 0;\n}\n",
+    "tldr/pages/common/tar.md": (
+        "# tar\n\n> Archiving utility.\n\n- Create an archive:\n\n"
+        "`tar cf {{path/to/target.tar}} {{path/to/file1 path/to/file2 ...}}`\n\n"
+        "- Extract it:\n\n`tar xf {{path/to/source.tar}} {{[-C|--directory]}} {{path/to/directory}}`\n"
+    ),
+    "tldr/pages/osx/open.md": '# open\n\n> Open files.\n\n- Open a file:\n\n`open -a "{{Application}}" {{path/to/file}} > /dev/null`\n',
+    "tldr/pages/windows/dir.md": "# dir\n\n- List files:\n\n`dir {{path/to/folder}} /a:h`\n",
 }
 
 
 @pytest.fixture
 def docs(monkeypatch):
-    """Replaces cloning the three doc repos: writes DOC_FILES into the folder instead, and
+    """Replaces cloning the five doc repos: writes DOC_FILES into the folder instead, and
     records the Python branch asked for."""
     branches = []
 
@@ -652,7 +664,7 @@ def doc_passages(db_path):
     return found
 
 
-def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_with_headings(
+def test_the_symbol_docs_are_imported_in_the_background_as_six_code_sources_with_headings(
     running, db_path, docs, monkeypatch
 ):
     monkeypatch.setattr("random.shuffle", lambda files: files.reverse())
@@ -662,8 +674,9 @@ def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_wit
 
     assert response.status_code == 202
     assert wait_for_notice(running) == [
-        "Imported the Python and Gleam docs: Python 3.15 tutorial (3 parts), Python 3.15 library (2 parts),"
-        " Gleam tour (3 parts), Gleam stdlib (3 parts). Symbol drills can use 17 lines of code;"
+        "Imported the Python, Gleam and shell docs: Python 3.15 tutorial (3 parts), Python 3.15 library (2 parts),"
+        " Gleam tour (3 parts), Gleam stdlib (3 parts), GNU bash examples (2 parts), tldr pages (2 parts)."
+        " Symbol drills can use 23 lines of code;"
         " the rarest symbols, with their numbers of lines: 0 0, 4 0, 6 0, 7 0, 8 0. No symbol lessons queued."
     ]
     assert docs == ["3.15"]
@@ -691,6 +704,16 @@ def test_the_symbol_docs_are_imported_in_the_background_as_four_code_sources_wit
             ("box.new", 'let b = box.new("hello there")'),
             ("box.get", "assert box.new(1) |> box.get == 1"),
             ("inner.Inner", "let inner = inner.wrap(box.new(1))"),
+        ],
+        # The parts of each file, as for a code repo: the first is too short. Not the loadables.
+        "GNU bash examples": [
+            ("scripts/greet.sh", '# Greet the world.\nname=${1:-world}\necho "hello $name" > /dev/null'),
+            ("scripts/greet.sh", "for f in *.txt; do\n  echo $f | wc -l\ndone"),
+        ],
+        # One Passage for each page of common, linux and osx (here reversed), as cleaned commands.
+        "tldr pages": [
+            ("open", 'open -a "Application" file > /dev/null'),
+            ("tar", "tar cf target.tar file1 file2 ...\ntar xf source.tar -C directory"),
         ],
     }
     assert rows(db_path, "SELECT DISTINCT code FROM passage WHERE source IS NOT NULL") == [(1,)]
@@ -724,7 +747,7 @@ def test_a_symbol_docs_clone_that_fails_is_reported_and_adds_no_source(running, 
 
     running.post("/api/symbol-docs")
 
-    assert wait_for_notice(running) == ["Could not clone the Python and Gleam docs: fatal: Remote branch 9.99 not found"]
+    assert wait_for_notice(running) == ["Could not clone the Python, Gleam and shell docs: fatal: Remote branch 9.99 not found"]
     assert rows(db_path, "SELECT * FROM source") == []
 
 
@@ -734,16 +757,45 @@ def test_symbol_docs_whose_layout_is_not_known_are_reported_and_add_no_source(ru
     running.post("/api/symbol-docs")
 
     [notice] = wait_for_notice(running)
-    assert notice.startswith("Could not import the Python and Gleam docs: FileNotFoundError(")
+    assert notice.startswith("Could not import the Python, Gleam and shell docs: FileNotFoundError(")
     assert rows(db_path, "SELECT * FROM source") == []
 
 
+def test_a_symbol_doc_whose_title_is_already_stored_is_not_stored_again(running, db_path, docs):
+    running.put("/api/settings", json={"symbols": {"min_lines": 0}})  # no Symbol Lessons
+    running.post("/api/symbol-docs")
+    wait_for_notice(running)
+    # A database from before the shell docs: it holds the Python and Gleam docs only.
+    with sqlite3.connect(db_path) as db:
+        db.execute("DELETE FROM passage WHERE source IN (SELECT id FROM source WHERE title IN ('GNU bash examples', 'tldr pages'))")
+        db.execute("DELETE FROM source WHERE title IN ('GNU bash examples', 'tldr pages')")
+
+    running.post("/api/symbol-docs")
+
+    assert wait_for_notice(running, 2)[1].startswith(
+        "Imported the Python, Gleam and shell docs: GNU bash examples (2 parts), tldr pages (2 parts). Symbol drills"
+    )
+    titles = rows(db_path, "SELECT title FROM source ORDER BY id")
+    assert sorted(titles) == sorted(
+        (t,) for t in ["Python 3.15 tutorial", "Python 3.15 library", "Gleam tour", "Gleam stdlib", "GNU bash examples", "tldr pages"]
+    )
+    # A new Python branch has new titles, so only its two Sources are stored; the other four are skipped.
+    running.put("/api/settings", json={"symbols": {"python_branch": "3.14"}})
+    running.post("/api/symbol-docs")
+    assert wait_for_notice(running, 3)[2].startswith(
+        "Imported the Python, Gleam and shell docs: Python 3.14 tutorial (3 parts), Python 3.14 library (2 parts). Symbol drills"
+    )
+    assert len(rows(db_path, "SELECT title FROM source")) == 8
+    running.post("/api/symbol-docs")
+    assert wait_for_notice(running, 4)[3].startswith("Imported the Python, Gleam and shell docs: no new texts. Symbol drills")
+
+
 def add_symbol_lines(client, db_path, min_lines, max_lessons):
-    """Adds two pool lines: each holds every Symbol but ^ and ~, and only the second holds $.
-    With the doc files, ^ and ~ are then in no pool line, $ in 1 and 0 and 4 in 2. Sets
+    """Adds two pool lines: each holds every Symbol but ^, ~ and @, and only the second holds @.
+    With the doc files, ^ and ~ are then in no pool line, @ in 1 and the symbols after it in 2 or more. Sets
     [symbols] min_lines and max_lessons."""
-    most = SYMBOLS.replace("^", "").replace("~", "").replace("$", "")
-    add_passages(db_path, (f"{most}\n${most}", True))
+    most = SYMBOLS.replace("^", "").replace("~", "").replace("@", "")
+    add_passages(db_path, (f"{most}\n@{most}", True))
     client.put("/api/settings", json={"symbols": {"min_lines": min_lines, "max_lessons": max_lessons}})
 
 
@@ -769,21 +821,21 @@ def test_after_a_symbol_docs_import_each_symbol_in_fewer_than_min_lines_pool_lin
     provider.going.set()
     notices = wait_for_notice(running, 4)
     assert notices[0].endswith(
-        " Gleam stdlib (3 parts). Symbol drills can use 19 lines of code;"
-        " the rarest symbols, with their numbers of lines: ^ 0, ~ 0, $ 1, 0 2, 4 2."
-        " Symbol lessons queued for ^ ~ $."
+        " tldr pages (2 parts). Symbol drills can use 25 lines of code;"
+        " the rarest symbols, with their numbers of lines: ^ 0, ~ 0, @ 1, 0 2, 4 2."
+        " Symbol lessons queued for ^ ~ @."
     )
     # In the order queued, each written by the Python model with the Symbol Lesson prompt.
     # Unlike the notice of another Lesson, it does not point to the list of Sources (o).
     ready = "4 parts, 1 skipped; 0 of 1 code examples dropped."
     assert notices[1:] == [
         f"New lesson ready: Symbol {s}: Pattern Matching in Python: {ready} {s} is in {n} lines of code."
-        for s, n in zip("^~$", [0, 0, 1])
+        for s, n in zip("^~@", [0, 0, 1])
     ]
     assert [call["model"] for call in provider.calls] == ["anthropic/claude-haiku-5.5"] * 3
-    assert [f"the Symbol {s} " in lesson_asked(call) for call, s in zip(provider.calls, "^~$")] == [True] * 3
+    assert [f"the Symbol {s} " in lesson_asked(call) for call, s in zip(provider.calls, "^~@")] == [True] * 3
     assert rows(db_path, "SELECT topic, language, prompt FROM lesson ORDER BY id") == [
-        (f"Symbol {s}: Pattern Matching in Python", "python", "symbol-lesson-v1") for s in "^~$"
+        (f"Symbol {s}: Pattern Matching in Python", "python", "symbol-lesson-v1") for s in "^~@"
     ]
     # They are Symbol Sources, so they are not in the list of Sources (o).
     assert source_titles(running) == []
@@ -806,7 +858,7 @@ def test_each_symbol_lesson_is_checked_against_the_cap_and_one_that_is_refused_g
         db.execute(spend_row(0.05, month_start().astimezone(UTC).isoformat()))
     provider.going.set()
     assert notices[0].endswith(" Symbol lessons queued for ^.")
-    assert notices[1:] == [f"No symbol lesson for {s}: Cap reached: resets 1 {resets:%b}" for s in "~$"]
+    assert notices[1:] == [f"No symbol lesson for {s}: Cap reached: resets 1 {resets:%b}" for s in "~@"]
     # ^ is still rare, but one more Lesson for it is refused too, and not tried again.
     assert wait_for_notice(running, 4)[3].endswith(
         f" dropped. ^ is in 0 lines of code. No symbol lesson for ^: Cap reached: resets 1 {resets:%b}"
@@ -821,7 +873,7 @@ def test_an_import_queues_no_symbol_lesson_for_a_symbol_that_has_max_lessons_of_
 
     running.post("/api/symbol-docs")  # ^ and ~ are still in no pool line
 
-    assert wait_for_notice(running, 4)[3].endswith(" ^ 0, ~ 0, $ 1, 4 2, 6 2. No symbol lessons queued.")
+    assert wait_for_notice(running, 4)[3].endswith(" ^ 0, ~ 0, @ 1, 4 2, 6 2. No symbol lessons queued.")
     assert len(provider.calls) == 2
 
 

@@ -225,7 +225,10 @@ weak = 2
 under_measured = 2
 lines = 6
 # The import of the symbol docs (i then s in the Escape menu) takes the Python tutorial
-# and library from this branch of python/cpython. A change applies to the next import.
+# and library from this branch of python/cpython. It also takes the Gleam language tour and
+# standard library, the GNU bash examples and the tldr pages. A change of the branch applies
+# to the next import. A doc whose title is already stored is not stored again, so an import
+# adds only the docs that are new.
 python_branch = "3.15"
 # After that import, each Symbol that fewer than min_lines lines of the line pool hold gets one
 # Symbol Lesson: a Python Lesson, written by python_model, on a topic that uses the Symbol. Each
@@ -586,7 +589,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
         notices.append(f"Imported {title}: {len(passages)} parts, {skipped} functions skipped.")
 
     async def import_symbol_docs():
-        """Clones the doc repos and stores the four symbol doc Sources."""
+        """Clones the doc repos and stores the symbol doc Sources whose titles are not stored yet."""
         settings = read_settings(settings_path).unwrap()
         rule = settings["passages"]
         try:
@@ -598,11 +601,13 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 rule["code_chars"],
             )
         except subprocess.CalledProcessError as e:
-            notices.append(f"Could not clone the Python and Gleam docs: {e.stderr.strip()}")
+            notices.append(f"Could not clone the Python, Gleam and shell docs: {e.stderr.strip()}")
             return
         except Exception as e:  # such as a repo whose files are no longer where they were
-            notices.append(f"Could not import the Python and Gleam docs: {e!r}")
+            notices.append(f"Could not import the Python, Gleam and shell docs: {e!r}")
             return
+        stored = {title for (title,) in db.execute("SELECT title FROM source")}
+        found = [(title, text, parts) for title, text, parts in found if title not in stored]
         for title, text, parts in found:
             add_source(title, text, [p for _, p in parts], [h for h, _ in parts], [True] * len(parts), symbol_source=True)
         await symbol_docs_imported([(title, len(parts)) for title, _, parts in found])
@@ -626,11 +631,11 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                 refusals.append(refused)
             else:
                 queued.append(s)
-        listed = ", ".join(f"{title} ({n} parts)" for title, n in counts)
+        listed = ", ".join(f"{title} ({n} parts)" for title, n in counts) or "no new texts"
         fewest = ", ".join(f"{s} {held[s]}" for s in rarest[:5])
         queued_text = f"Symbol lessons queued for {' '.join(queued)}." if queued else "No symbol lessons queued."
         notices.append(
-            f"Imported the Python and Gleam docs: {listed}. Symbol drills can use {len(lines):,} lines of code;"
+            f"Imported the Python, Gleam and shell docs: {listed}. Symbol drills can use {len(lines):,} lines of code;"
             f" the rarest symbols, with their numbers of lines: {fewest}. {queued_text}"
         )
         notices.extend(refusals)
