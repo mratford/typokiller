@@ -1,5 +1,6 @@
 import os
 import plistlib
+import re
 import sqlite3
 import subprocess
 from contextlib import closing
@@ -144,7 +145,7 @@ def test_update_backs_up_the_database_keeps_the_10_newest_and_restarts(installed
     backups = sorted(path.name for path in (installed / "backups").iterdir())
     assert len(backups) == 10
     assert backups[0] == "typokiller-2026-01-03-1200-1234567.db"
-    assert backups[-1].startswith("typokiller-20") and backups[-1].endswith("-aaaaaaa.db")
+    assert re.fullmatch(r"typokiller-\d{4}-\d\d-\d\d-\d{6}-aaaaaaa\.db", backups[-1])
     assert fake.ran("launchctl", "kickstart", "-k", f"gui/{os.getuid()}/local.typokiller")
 
 

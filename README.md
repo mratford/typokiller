@@ -13,7 +13,7 @@ uv run typokiller-service logs        # the end of the log, as it grows (Ctrl-C 
 uv run typokiller-service stop        # stop it until the next login
 uv run typokiller-service start
 uv run typokiller-service restore     # list the backups, newest first
-uv run typokiller-service restore typokiller-2026-11-01-0930-abc1234.db
+uv run typokiller-service restore typokiller-2026-11-01-093015-abc1234.db
 uv run typokiller-service uninstall   # remove it, but keep the data and the log
 ```
 

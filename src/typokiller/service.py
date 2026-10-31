@@ -106,7 +106,7 @@ def backups() -> list[Path]:
 
 def backup(commit: str):
     """Copies the database into backups/, named with the time and `commit`."""
-    name = f"typokiller-{datetime.now():%Y-%m-%d-%H%M}-{commit[:7]}.db"
+    name = f"typokiller-{datetime.now():%Y-%m-%d-%H%M%S}-{commit[:7]}.db"
     with closing(sqlite3.connect(data_folder() / "typokiller.db")) as db:
         db.execute("VACUUM INTO ?", (str(data_folder() / "backups" / name),))
 
