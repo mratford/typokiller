@@ -3,6 +3,23 @@ export const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/
 // Typed characters as the page shows them outside the Passage text: a space as ␣, a newline as ↵.
 export const showChars = text => text.replaceAll(' ', '␣').replaceAll('\n', '↵');
 
+// The HTML of the text of a Passage after `typed` has been typed (null for a preview, which has no
+// cursor or typing). Each character is a span: ok, bad (it shows the wrong key) or cur. A space is
+// shown as ␣ and a newline as ↵ in a span with class mark, followed by the line break. A space
+// is followed by <wbr>, because ␣ is not a space and the browser would not wrap the line there.
+export function textHTML(text, typed = null) {
+  let h = '';
+  for (let j = 0; j < text.length; j++) {
+    const white = text[j] === ' ' || text[j] === '\n';
+    let cls = white ? 'mark' : '', shown = showChars(text[j]);
+    if (j === typed?.length) cls += ' cur';
+    else if (j < typed?.length && typed[j] === text[j]) cls += ' ok';
+    else if (j < typed?.length) { cls = 'bad'; shown = showChars(typed[j]); }
+    h += `<span class="${cls.trim()}">${esc(shown)}</span>${text[j] === '\n' ? '\n' : white ? '<wbr>' : ''}`;
+  }
+  return h;
+}
+
 // The message for a request that failed, such as "Could not clone <url>: 405 Method Not Allowed".
 // `answer` is the server's answer, or null when there was none. The server's `detail` is used
 // when it is text: a 422 answer has a list there, and an error page from a proxy is not JSON.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { applyKey, listLabels, requestError, showChars } from '../src/typokiller/static/typing.js';
+import { applyKey, listLabels, requestError, showChars, textHTML } from '../src/typokiller/static/typing.js';
 
 const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
 
@@ -53,6 +53,16 @@ test('Backspace after the filled-in indentation removes it with the newline', ()
 
 test('showChars shows a space as ␣ and a newline as ↵', () => {
   assert.equal(showChars(' e\n'), '␣e↵');
+});
+
+test('textHTML shows a space as ␣ and a newline as ↵, also under the cursor and as a wrong key', () => {
+  assert.equal(textHTML('a b\nc', 'a'),
+    '<span class="ok">a</span><span class="mark cur">␣</span><wbr><span class="">b</span><span class="mark">↵</span>\n<span class="">c</span>');
+  assert.equal(textHTML('a b\nc', 'a b\n'),
+    '<span class="ok">a</span><span class="mark ok">␣</span><wbr><span class="ok">b</span><span class="mark ok">↵</span>\n<span class="cur">c</span>');
+  assert.equal(textHTML('a b\nc', 'axb '),
+    '<span class="ok">a</span><span class="bad">x</span><wbr><span class="ok">b</span><span class="bad">␣</span>\n<span class="cur">c</span>');
+  assert.equal(textHTML('a b'), '<span class="">a</span><span class="mark">␣</span><wbr><span class="">b</span>');
 });
 
 test('requestError says why a request failed: no answer, the detail text, or the status', async () => {

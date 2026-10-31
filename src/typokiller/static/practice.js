@@ -1,4 +1,4 @@
-import { applyKey, esc, listLabels, requestError, showChars } from './typing.js';
+import { applyKey, esc, listLabels, requestError, showChars, textHTML } from './typing.js';
 import { openProgress, progressKey } from './progress.js';
 
 // Each menu item is [key, label, what choosing it does].
@@ -629,17 +629,7 @@ const label = k => (k === 'Escape' ? 'Esc' : k);
 
 function passageHTML() {
   if (!passage) return '<p>Making a drill…</p>';
-  const text = passage.text;
-  let h = '';
-  for (let j = 0; j < text.length; j++) {
-    // A newline is shown as a space before the line break, so the cursor or a wrong key there can be seen.
-    const newline = text[j] === '\n';
-    let cls = '', shown = newline ? ' ' : text[j];
-    if (j === typed.length) cls = 'cur';
-    else if (j < typed.length && typed[j] === text[j]) cls = 'ok';
-    else if (j < typed.length) { cls = 'bad'; shown = showChars(typed[j]); }
-    h += `<span class="${cls}">${esc(shown)}</span>${newline ? '\n' : ''}`;
-  }
+  const h = textHTML(passage.text, typed);
   // While the Keymap is drawn: a heading line, which may be empty, a box `keymap_lines` lines high, and
   // under it the drawing of the next character's layer. render() outlines the key to press.
   if (keymapShown()) {
@@ -648,7 +638,7 @@ function passageHTML() {
       + `<div class="drawing">${drawing.layers[nextKey()?.layer ?? 0] ?? ''}</div>`;
   }
   const heading = passage.heading ? `<h3 class="heading">${esc(passage.heading)}</h3>` : '';
-  return `${heading}<div class="p">${h}</div>${nextPassage ? `<div class="p next">${esc(nextPassage.text)}</div>` : ''}`;
+  return `${heading}<div class="p">${h}</div>${nextPassage ? `<div class="p next">${textHTML(nextPassage.text)}</div>` : ''}`;
 }
 
 // While the Keymap is drawn, moves the Passage up by whole lines, so that the cursor's line is the first in the box.
