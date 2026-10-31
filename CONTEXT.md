@@ -35,7 +35,7 @@ A Source the LLM writes on request about a programming topic in one language, su
 _Avoid_: using "lesson" for typing practice in general
 
 **Passage**:
-One chunk of text meant to be typed in one go: a paragraph or function taken from a Source, or a Drill. The same Passage can be typed many times.
+One chunk of text meant to be typed in one go: a paragraph or function taken from a Source, or a Drill. A paragraph or function that is too long for one go is cut into several Passages. The same Passage can be typed many times.
 _Avoid_: exercise, snippet, text
 
 **Attempt**:
