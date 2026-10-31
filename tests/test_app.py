@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from typokiller.analysis import WEAKNESS_MODELS, attempts, keystrokes, progress, weakness
-from typokiller.app import create_app
+from typokiller.app import create_app, options
 from typokiller.drawing import Heat, draw_keymap
 from typokiller.drills import SYMBOLS, WORD_LIST, line_pool, line_text, pool, symbol_unit
 from typokiller.keymap import qmk_settings, read_keymap
@@ -533,12 +533,21 @@ def running(db_path, settings_path, provider):
         yield client
 
 
-def wait_for_notice(client, n=1):
+def wait_until(check, what):
+    """Calls `check` until it returns something true, and returns that."""
     for _ in range(100):
-        if len(notices := client.get("/api/notices").json()) >= n:
-            return notices
+        if found := check():
+            return found
         time.sleep(0.05)
-    raise AssertionError("no notice")
+    raise AssertionError(f"no {what}")
+
+
+def wait_for_notice(client, n=1):
+    def notices():
+        found = client.get("/api/notices").json()
+        return found if len(found) >= n else None
+
+    return wait_until(notices, "notice")
 
 
 def test_a_git_repo_is_cloned_in_the_background_and_each_function_of_its_tracked_code_files_is_a_passage(
@@ -575,6 +584,35 @@ def test_a_clone_that_fails_is_reported(running, tmp_path):
 
     [notice] = wait_for_notice(running)
     assert notice.startswith(f"Could not clone {tmp_path / 'missing'}:")
+
+
+def test_the_options_give_the_port_and_whether_the_access_log_is_on():
+    assert vars(options([])) == {"port": 8000, "access_log": True}
+    assert vars(options(["--port", "8001", "--no-access-log"])) == {"port": 8001, "access_log": False}
+
+
+def test_nothing_is_busy_when_nothing_runs(running):
+    assert running.get("/api/busy").json() == []
+
+
+def test_clones_and_a_symbol_docs_import_are_busy_until_they_finish(running, monkeypatch):
+    going = threading.Event()
+
+    def waits(*args):
+        going.wait(5)
+        raise subprocess.CalledProcessError(128, "git", stderr="fatal: stopped by the test")
+
+    monkeypatch.setattr("typokiller.app.clone", waits)
+    monkeypatch.setattr("typokiller.app.symbol_docs", waits)
+
+    running.post("/api/code", json={"url": "first"})
+    running.post("/api/code", json={"url": "second"})
+    running.post("/api/symbol-docs")
+
+    assert running.get("/api/busy").json() == ["cloning 2 repos", "importing the Python, Gleam and shell docs"]
+    going.set()
+    wait_for_notice(running, 3)
+    assert running.get("/api/busy").json() == []
 
 
 # Small copies of the layouts of the five doc repos, by path in the folder that they are cloned into.
@@ -1869,6 +1907,20 @@ def test_a_lesson_is_written_in_the_background_in_the_order_asked_and_recorded_a
     assert running.get("/api/lessons/spend").json() == {"spent": 0.003 / 1.337, "cap": 5.0, "language": "python"}
     # Lesson text joins the Drill word pool.
     assert pool(sqlite3.connect(db_path), None, 0)[0]["wildcard"] == 2
+
+
+def test_lessons_are_busy_while_they_wait_and_while_one_is_written(running, provider):
+    provider.going.clear()
+
+    running.post("/api/lessons", json={"topic": "decorators"})
+    running.post("/api/lessons", json={"topic": "generators"})
+    running.post("/api/lessons", json={"topic": "closures"})
+    wait_until(lambda: provider.calls, "call")  # the first Lesson is being written
+
+    assert running.get("/api/busy").json() == ["writing a lesson", "2 lessons queued"]
+    provider.going.set()
+    wait_for_notice(running, 3)
+    assert running.get("/api/busy").json() == []
 
 
 def test_a_lesson_that_fails_says_why(running, db_path, provider):

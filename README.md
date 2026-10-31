@@ -4,6 +4,7 @@
 
 ```sh
 uv run typokiller          # serves http://<this Mac>:8000 on the LAN
+uv run typokiller --port 8001   # for development while the service runs on 8000
 uv run pytest              # server tests
 node --test tests/*.test.js   # typing rules tests
 uv run pyright src tests   # type check

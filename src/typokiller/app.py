@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import hashlib
 import json
@@ -9,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from collections import Counter
 from collections.abc import Coroutine, Sequence
 from contextlib import asynccontextmanager, suppress
 from itertools import zip_longest
@@ -550,9 +552,9 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
 
     tasks: set[asyncio.Task] = set()  # background work, kept here until it is done so Python does not delete it
 
-    def in_background(work: Coroutine):
-        """Runs the work in a task of its own, and returns at once."""
-        task = asyncio.create_task(work)
+    def in_background(work: Coroutine, kind: str):
+        """Runs the work in a task of its own, named `kind` for /api/busy, and returns at once."""
+        task = asyncio.create_task(work, name=kind)
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
@@ -762,14 +764,16 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     # case in dollars. `waiting` is the sum of those worst cases, which the cap counts.
     lesson_requests: asyncio.Queue[tuple[LessonRequest, float]] = asyncio.Queue()
     waiting = 0.0
+    writing = False  # whether a Lesson taken from the queue is being written
 
     async def write_lessons():
         """Writes the Lessons asked for, one at a time. A notice says when each is ready, or why not.
         The notice of a stored Symbol Lesson ends with `symbol_lesson_written`. It runs after the
         Lesson's worst case leaves `waiting`, so its cap check counts only what the Lesson cost."""
-        nonlocal waiting
+        nonlocal waiting, writing
         while True:
             request, worst = await lesson_requests.get()
+            writing = True
             try:
                 notice, stored = await write_lesson(request)
             except Exception as e:  # reported, so the next Lesson is still written
@@ -780,6 +784,7 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
                     notice += await symbol_lesson_written(request.symbol, read_settings(settings_path).unwrap())
                 except Exception as e:  # reported, so the next Lesson is still written
                     notice += f" Could not count the lines of code with {request.symbol} again: {e}"
+            writing = False
             notices.append(notice)
 
     async def queue_lesson(request: LessonRequest, lessons: dict):
@@ -1061,12 +1066,12 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     # Clones in the background. A notice says when it is done.
     @app.post("/api/code", status_code=202)
     async def import_code(repo: Repo):
-        in_background(import_repo(repo.url))
+        in_background(import_repo(repo.url), "clone")
 
     # i then s in the Escape menu. Clones in the background, and stores Symbol Sources. A notice says when it is done.
     @app.post("/api/symbol-docs", status_code=202)
     async def request_symbol_docs():
-        in_background(import_symbol_docs())
+        in_background(import_symbol_docs(), "symbol docs")
 
     # l in the Escape menu. The Lesson is written in the background after the ones asked for
     # before it, unless `queue_lesson` refuses it.
@@ -1097,6 +1102,20 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
             " It is first in the list of texts (o)."
         )
         return {"source": source}
+
+    # The background work that a restart would lose, in screen words. The catalogue refresh is
+    # not listed: it runs again when the server starts.
+    @app.get("/api/busy")
+    async def busy():
+        running = Counter(task.get_name() for task in tasks)
+        found = ["writing a lesson"] if writing else []
+        if n := lesson_requests.qsize():
+            found.append(f"{n} lesson{'s' if n > 1 else ''} queued")
+        if n := running["clone"]:
+            found.append(f"cloning {n} repo{'s' if n > 1 else ''}")
+        if running["symbol docs"]:
+            found.append("importing the Python, Gleam and shell docs")
+        return found
 
     @app.get("/api/notices")
     async def get_notices():
@@ -1144,6 +1163,15 @@ def create_app(db_path: Path, settings_path: Path, provider: Provider) -> FastAP
     return app
 
 
+def options(args: list[str] | None = None) -> argparse.Namespace:
+    """The command-line options: `port` and `access_log`. `args` is sys.argv[1:] when None."""
+    parser = argparse.ArgumentParser(prog="typokiller")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--no-access-log", dest="access_log", action="store_false", help="log only errors and start-up")
+    return parser.parse_args(args)
+
+
 def main():
+    opts = options()
     app = create_app(Path("typokiller.db"), Path("typokiller.toml"), OpenRouter(Path(".env")))
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=opts.port, access_log=opts.access_log)
