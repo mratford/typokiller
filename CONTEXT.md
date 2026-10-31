@@ -46,8 +46,12 @@ _Avoid_: try, run, rep
 A Python Lesson on a topic that the LLM chooses because it uses one rare Symbol, written when too few lines of code hold that Symbol.
 _Avoid_: symbol corpus, generated code
 
+**Symbol docs**:
+The Sources that one import takes from the Python and Gleam documentation, the GNU bash examples and the tldr pages, to give lines of code to Symbol Drills.
+_Avoid_: symbol corpus, background sources
+
 **Symbol Source**:
-A Source that exists to give lines of code to Symbol Drills: a Symbol Lesson, or a Source taken from the Python or Gleam documentation. It is never opened to type in order.
+A Source that exists to give lines of code to Symbol Drills: a Symbol Lesson, or one of the Symbol docs. It is never opened to type in order.
 _Avoid_: background source, symbol docs (for one of these Sources)
 
 **Drill**:
