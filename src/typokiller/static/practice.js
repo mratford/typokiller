@@ -219,7 +219,7 @@ function goBack() {
 // While Introduction Drills are due, the server makes one. With `introduction`, the page
 // asks only for an Introduction Drill: if none is due any more, the Passage comes back.
 // A Symbol Drill comes even while Introduction Drills are due. When the server cannot make a
-// Drill, its message is shown and the Passage comes back.
+// Drill, or does not answer, the message is shown and the Passage comes back.
 // The Passage is null until the Drill comes, and keys typed meanwhile do nothing, not even Esc.
 async function showDrill(endless, introduction = false) {
   drill = { endless, generator: null, targets: [], back: drill?.back ?? [passage, nextPassage], done: drill?.done ?? false };
@@ -227,14 +227,14 @@ async function showDrill(endless, introduction = false) {
   screen = 'typing';
   render();
   await flush();
-  const r = await send(`/api/sessions/${session}/drills`, { introduction, ...endless });
-  const made = await r.json();
-  if (!r.ok) {
-    message = made.detail;
+  const r = await send(`/api/sessions/${session}/drills`, { introduction, ...endless }).catch(() => null);
+  if (!r?.ok) {
+    message = await requestError('Could not make a drill', r);
     leaveDrill();
     nextAttempt();
     return render();
   }
+  const made = await r.json();
   await setUnlocking(made.unlocking);
   if (!made.id) return moveOn();
   passage = { id: made.id, text: made.text };
@@ -278,10 +278,9 @@ async function setUnlocking(state) {
 // u unlocks the next key at once. A notice from the server says which key, and
 // Introduction Drills of it come after this Attempt.
 async function unlockNext() {
-  const r = await send(`/api/sessions/${session}/unlocks`, {});
-  const answer = await r.json();
-  if (r.ok) await setUnlocking(answer);
-  else message = answer.detail;
+  const r = await send(`/api/sessions/${session}/unlocks`, {}).catch(() => null);
+  if (r?.ok) await setUnlocking(await r.json());
+  else message = await requestError('Could not unlock the next key', r);
 }
 
 async function chooseSource(s) {
@@ -293,8 +292,8 @@ async function chooseSource(s) {
 }
 
 async function search() {
-  const r = await fetch(`/api/gutenberg?q=${encodeURIComponent(query)}`);
-  if (!r.ok) { message = (await r.json()).detail; render(); return; }
+  const r = await fetch(`/api/gutenberg?q=${encodeURIComponent(query)}`).catch(() => null);
+  if (!r?.ok) { message = await requestError('Could not search Project Gutenberg', r); render(); return; }
   results = await r.json();
   sel = 0;
   screen = 'results';
@@ -351,8 +350,8 @@ function languageKey(e) {
 async function requestLesson() {
   const topic = query.trim();
   if (!topic) return;
-  const r = await send('/api/lessons', { topic, language });
-  if (!r.ok) { message = (await r.json()).detail; render(); return; }
+  const r = await send('/api/lessons', { topic, language }).catch(() => null);
+  if (!r?.ok) { message = await requestError('Could not ask for the lesson', r); render(); return; }
   message = `Writing a ${lessonLanguage()[1]} lesson on ${topic} in the background.`;
   screen = 'typing';
   render();

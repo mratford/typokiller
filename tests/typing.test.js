@@ -75,6 +75,11 @@ test('requestError says why a request failed: no answer, the detail text, or the
   assert.equal(await requestError(failed, answer('<html>')), 'Could not import the symbol docs: 405 Method Not Allowed');
 });
 
+test('practice.js reads the server\'s detail text only through requestError', async () => {
+  const code = await readFile(new URL('../src/typokiller/static/practice.js', import.meta.url), 'utf8');
+  assert.deepEqual(code.match(/\.detail\b/g), null);
+});
+
 test('with no more items than letters, every label is one letter, in the order of the letters', () => {
   assert.deepEqual(listLabels(3, 'sadflewcmpgh', 'jk'), ['s', 'a', 'd']);
   assert.equal(listLabels(12, 'sadflewcmpgh', 'jk').join(''), 'sadflewcmpgh');
