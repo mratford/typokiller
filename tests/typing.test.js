@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { applyKey, listLabels, requestError, showChars, textHTML } from '../src/typokiller/static/typing.js';
+import { applyKey, listLabels, MENU, previousAt, requestError, showChars, textHTML } from '../src/typokiller/static/typing.js';
 
 const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
 
@@ -88,6 +88,22 @@ test('with more items than letters, no label is the start of another, and the fi
 
 test('the keys that the list uses are never labels, even when the letters have them', () => {
   assert.deepEqual(listLabels(3, 'jsknad', 'jkn'), ['s', 'a', 'd']);
+});
+
+const menuItem = k => MENU.flatMap(([, items]) => items).find(([key]) => key === k);
+
+test('in the menu, s and S keep the menu open; Esc, r, m and u go back to typing', () => {
+  assert.deepEqual([menuItem('s')[2], menuItem('S')[2]], ['menu', 'menu']);
+  assert.deepEqual(['Escape', 'r', 'm', 'u'].map(k => menuItem(k)[2]), ['typing', 'typing', 'typing', 'typing']);
+  assert.deepEqual([menuItem('s')[1], menuItem('S')[1]],
+    ['skip this part (the menu stays open)', 'go back one part (the menu stays open)']);
+});
+
+test('S goes back one part, but not from the first part, during a drill, or with no text open', () => {
+  assert.equal(previousAt({ at: 112 }, false), 111);
+  assert.equal(previousAt({ at: 0 }, false), null);
+  assert.equal(previousAt({ at: 112 }, true), null);
+  assert.equal(previousAt(null, false), null);
 });
 
 // The screen uses plain words, not the glossary terms of CONTEXT.md (see "Words on screen" in AGENTS.md).

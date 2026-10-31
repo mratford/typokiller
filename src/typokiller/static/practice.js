@@ -1,33 +1,26 @@
-import { applyKey, esc, listLabels, requestError, showChars, textHTML } from './typing.js';
+import { applyKey, esc, listLabels, MENU, previousAt, requestError, showChars, textHTML } from './typing.js';
 import { openProgress, progressKey } from './progress.js';
 
-// Each menu item is [key, label, what choosing it does].
-const MENU = [
-  ['Practice', [
-    ['Escape', 'resume', () => { screen = 'typing'; }],
-    ['d', 'drill your weakest keys', () => showDrill(drill?.endless ?? false)],
-    ['e', 'endless drills', () => showDrill({})],
-    ['y', 'endless symbol drills', () => showDrill({ symbols: true })],
-    ['s', 'skip this part', () => { moveOn(); screen = 'typing'; }],
-    ['r', 'restart this part', () => { nextAttempt(); screen = 'typing'; }],
-    ['m', 'keyboard picture on/off', toggleKeymap],
-  ]],
-  ['Texts', [
-    ['o', 'open a text', async () => { await showSources(); screen = 'sources'; }],
-    ['l', 'new lesson (written by the AI)', openLessonForm],
-    ['i', 'add a text', () => { screen = 'import'; }],
-  ]],
-  ['Learning', [
-    ['u', 'unlock the next key (free-range only)', unlockNext],
-  ]],
-  ['Other', [
-    ['p', 'progress page', () => { screen = 'progress'; openProgress(board.name, keymap.letter_layout); }],
-    ['b', 'change keyboard', () => showBoards()],
-    ['q', 'stop', () => { screen = 'ended'; }],
-    [',', 'settings', openSettings],
-    ['?', 'all keys', () => { screen = 'help'; }],
-  ]],
-];
+// What choosing each menu item does, by its key; Esc does nothing more than go back to typing.
+// The menu's items are in typing.js.
+const ACTIONS = {
+  d: () => showDrill(drill?.endless ?? false),
+  e: () => showDrill({}),
+  y: () => showDrill({ symbols: true }),
+  s: moveOn,
+  S: goBack,
+  r: nextAttempt,
+  m: toggleKeymap,
+  o: async () => { await showSources(); screen = 'sources'; },
+  l: openLessonForm,
+  i: () => { screen = 'import'; },
+  u: unlockNext,
+  p: () => { screen = 'progress'; openProgress(board.name, keymap.letter_layout); },
+  b: () => showBoards(),
+  q: () => { screen = 'ended'; },
+  ',': openSettings,
+  '?': () => { screen = 'help'; },
+};
 const ITEMS = MENU.flatMap(([, items]) => items);
 
 // The values each choice setting can take. Enter on the settings page moves to the next one.
@@ -212,6 +205,14 @@ function advance() {
   openSource(id, at + 1).then(() => { if (!source) message = `Finished ${title}.`; render(); });
 }
 
+// S in the menu: the Passage before the current one, shown when the server answers. Like a skip,
+// it is ignored while a bookmark request has no answer.
+function goBack() {
+  const at = previousAt(source, drill);
+  if (at === null || bookmarkRequest) return;
+  openSource(source.id, at).then(() => { nextAttempt(); render(); });
+}
+
 // One Drill, or endless Drills with the Targets ranked again before each one. For endless Drills,
 // `endless` is what to ask the server for each time, such as { symbols: true } for Symbol Drills.
 // The server makes a Drill from the key events it has stored, so they are sent first.
@@ -281,7 +282,6 @@ async function unlockNext() {
   const answer = await r.json();
   if (r.ok) await setUnlocking(answer);
   else message = answer.detail;
-  screen = 'typing';
 }
 
 async function chooseSource(s) {
@@ -468,7 +468,6 @@ function toggleKeymap() {
   const shown = !old.typing.show_keymap;
   attempts[ord].settings = { ...old, typing: { ...old.typing, show_keymap: shown } };
   saveSetting(['typing', 'show_keymap'], shown);
-  screen = 'typing';
 }
 
 function record(e, attempt) {
@@ -545,15 +544,19 @@ async function menuKey(e) {
   else if (FIELDS[screen]) { if (e.key === 'Enter') FIELDS[screen].enter(); else query = edit(query, e); }
   else if (screen === 'progress') progressKey(e);
   else if (screen === 'menu' && !moveSel(e, ITEMS.length)) {
-    await (e.key === 'Enter' ? ITEMS[sel] : ITEMS.find(([k]) => k === e.key))?.[2]();
+    const item = e.key === 'Enter' ? ITEMS[sel] : ITEMS.find(([k]) => k === e.key);
+    if (item) {
+      screen = item[2] ?? screen; // before the action, which may change it, as showDrill does
+      await ACTIONS[item[0]]?.();
+    }
   }
   render();
 }
 
 // Keys used on the start screens and in the menu are not key events of any Attempt,
 // so they are not recorded.
-// An Attempt that is left without finishing (d, e, y, s, r, o, b, q, closing or reloading) stays
-// abandoned. Only finishing and s move the Source's bookmark on.
+// An Attempt that is left without finishing (d, e, y, s, S, r, o, b, q, closing or reloading) stays
+// abandoned. Only finishing, s and S move the Source's bookmark.
 addEventListener('keydown', e => {
   if (screen === 'ended') return;
   if (!e.metaKey) e.preventDefault(); // let Cmd shortcuts such as Cmd-R work

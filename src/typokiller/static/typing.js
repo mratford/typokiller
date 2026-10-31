@@ -68,3 +68,37 @@ export function listLabels(count, letters, keys) {
   const single = Math.max(0, Math.floor((n * n - count) / (n - 1)));
   return [...free.slice(0, single), ...free.slice(single).flatMap(a => free.map(b => a + b))].slice(0, count);
 }
+
+// The Escape menu. Each item is [key, label, the screen after choosing it]. The screen is 'menu'
+// or 'typing'; an item that has none opens a screen of its own, so its action sets the screen.
+export const MENU = [
+  ['Practice', [
+    ['Escape', 'resume', 'typing'],
+    ['d', 'drill your weakest keys', 'typing'],
+    ['e', 'endless drills', 'typing'],
+    ['y', 'endless symbol drills', 'typing'],
+    ['s', 'skip this part (the menu stays open)', 'menu'],
+    ['S', 'go back one part (the menu stays open)', 'menu'],
+    ['r', 'restart this part', 'typing'],
+    ['m', 'keyboard picture on/off', 'typing'],
+  ]],
+  ['Texts', [
+    ['o', 'open a text'],
+    ['l', 'new lesson (written by the AI)'],
+    ['i', 'add a text'],
+  ]],
+  ['Learning', [
+    ['u', 'unlock the next key (free-range only)', 'typing'],
+  ]],
+  ['Other', [
+    ['p', 'progress page'],
+    ['b', 'change keyboard'],
+    ['q', 'stop'],
+    [',', 'settings'],
+    ['?', 'all keys'],
+  ]],
+];
+
+// The bookmark that S goes back to: the one before the open text's bookmark, or null at its first
+// part, during a drill, or with no text open.
+export const previousAt = (source, inDrill) => (source && !inDrill && source.at > 0 ? source.at - 1 : null);
