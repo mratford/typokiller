@@ -39,7 +39,7 @@ One chunk of text meant to be typed in one go: a paragraph or function taken fro
 _Avoid_: exercise, snippet, text
 
 **Attempt**:
-One typing of a Passage within a Session, finished or abandoned; every keystroke belongs to exactly one Attempt.
+One typing of a Passage within a Session, finished or abandoned; every keystroke belongs to exactly one Attempt. It is finished when the last character is typed, whether or not Errors are left in the text.
 _Avoid_: try, run, rep
 
 **Symbol Lesson**:
