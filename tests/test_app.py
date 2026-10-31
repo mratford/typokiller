@@ -96,7 +96,7 @@ LESSONS = {
     "dollars_per_pound": 1.337,
 }
 SETTINGS = {
-    "typing": {"wrong_key_mode": "keep typing", "show_keymap": False, "keymap_lines": 3},
+    "typing": {"wrong_key_mode": "keep typing", "show_keymap": False},
     "passages": {"max_dropped": 0.05, "min_length": 20, "prose_chars": 400, "code_chars": 200, "code_extensions": [".py", ".gleam"]},
     "weakness": WEAKNESS,
     "drills": {"generator": "density-v1", "weak": 2, "under_measured": 1, "min_seen": 20, "words": 40},
@@ -189,7 +189,7 @@ def test_settings_are_read_again_after_the_file_is_edited_and_missing_tables_and
     client.get("/api/settings")
     settings_path.write_text('[typing]\nwrong_key_mode = "locked until fixed"\n')
 
-    typing = {"wrong_key_mode": "locked until fixed", "show_keymap": False, "keymap_lines": 3}
+    typing = {"wrong_key_mode": "locked until fixed", "show_keymap": False}
     assert client.get("/api/settings").json() == {**SETTINGS, "typing": typing}
     assert "min_length = 20" in settings_path.read_text()
 
@@ -210,7 +210,7 @@ def test_saving_settings_keeps_comments_and_formatting(client, settings_path):
     rest += '\n[lessons]\n' + "".join(f"{k} = {json.dumps(v)}\n" for k, v in LESSONS.items())
     rest += '\n[lists]\nletters = "sadflewcmpgh"\n'
     rest += '\n[keymaps.Sweep.QWERTY]\nlayers = ["Base", "Sym"]\n'
-    rest = 'show_keymap = false\nkeymap_lines = 3\n' + rest
+    rest = 'show_keymap = false\n' + rest
     settings_path.write_text('# My notes\n\n[typing]\n# a comment\nwrong_key_mode   =  "keep typing"  # why\n' + rest)
 
     response = client.put("/api/settings", json={"typing": {"wrong_key_mode": "locked until fixed"}})

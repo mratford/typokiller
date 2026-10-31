@@ -17,7 +17,7 @@ Code from a git repo (`i` then `c` in the Escape menu) is cloned with the `git` 
 
 Articles (`i` then `a` in the Escape menu) are sent with a bookmarklet. Drag the link in that panel to the bookmarks bar. The link opens `/send` on the address that typokiller was loaded from. So open typokiller at the address that the reading browser uses to reach this Mac, and drag the link from there.
 
-Press `m` in the Escape menu to show a faint picture of the keyboard's layout under the text. While the picture is shown, the text shows only `keymap_lines` lines (3 by default), from the cursor's line, directly above the picture. Layer names come from `[keymaps]` in `typokiller.toml`, for example:
+Press `m` in the Escape menu to show a faint picture of the keyboard's layout under the text. Layer names come from `[keymaps]` in `typokiller.toml`, for example:
 
 ```toml
 [keymaps.Sweep.QWERTY]

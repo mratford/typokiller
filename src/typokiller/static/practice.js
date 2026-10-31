@@ -38,7 +38,6 @@ const CHOICES = { 'typing.wrong_key_mode': ['keep typing', 'locked until fixed']
 const SETTING_LABELS = {
   'typing.wrong_key_mode': 'What a wrong key does',
   'typing.show_keymap': 'Show the keyboard picture',
-  'typing.keymap_lines': 'Lines of text shown above the keyboard picture',
   'passages.max_dropped': 'Share of characters that may be lost to ASCII',
   'passages.min_length': 'Shortest part to type, in characters',
   'passages.prose_chars': 'Longest part of text, in characters',
@@ -631,25 +630,8 @@ const label = k => (k === 'Escape' ? 'Esc' : k);
 function passageHTML() {
   if (!passage) return '<p>Making a drill…</p>';
   const h = textHTML(passage.text, typed);
-  // While the Keymap is drawn: a heading line, which may be empty, a box `keymap_lines` lines high, and
-  // under it the drawing of the next character's layer. render() outlines the key to press.
-  if (keymapShown()) {
-    return `<h3 class="heading line">${esc(passage.heading ?? '')}</h3>`
-      + `<div class="p lines" style="--lines: ${attempts[ord].settings.typing.keymap_lines}"><div>${h}</div></div>`
-      + `<div class="drawing">${drawing.layers[nextKey()?.layer ?? 0] ?? ''}</div>`;
-  }
   const heading = passage.heading ? `<h3 class="heading">${esc(passage.heading)}</h3>` : '';
   return `${heading}<div class="p">${h}</div>${nextPassage ? `<div class="p next">${textHTML(nextPassage.text)}</div>` : ''}`;
-}
-
-// While the Keymap is drawn, moves the Passage up by whole lines, so that the cursor's line is the first in the box.
-function showCursorLine() {
-  const shown = document.querySelector('main .lines > div');
-  const lineHeight = parseFloat(getComputedStyle(shown).lineHeight);
-  const cur = shown.querySelector('.cur'); // none at the end of the text
-  if (!cur) return;
-  const line = Math.round((cur.offsetTop - shown.firstChild.offsetTop) / lineHeight);
-  shown.style.transform = `translateY(${-line * lineHeight}px)`;
 }
 
 // A Passage taller than the screen scrolls to keep the cursor's line a third of the way down.
@@ -763,8 +745,12 @@ function startHTML() {
 // The key to press for the next character of the Passage, as { layer, key }, if the Keymap has one.
 const nextKey = () => drawing.keys[passage?.text[typed.length]];
 
-// Whether the Keymap is drawn: while typing, when the setting is on.
-const keymapShown = () => screen === 'typing' && passage && attempts[ord].settings.typing.show_keymap;
+// The Keymap drawn faintly under the Passage while typing, when the setting is on. It shows the
+// layer of the next character; render() outlines the key to press.
+function keymapHTML() {
+  if (screen !== 'typing' || !passage || !attempts[ord].settings.typing.show_keymap) return '';
+  return `<div class="drawing">${drawing.layers[nextKey()?.layer ?? 0] ?? ''}</div>`;
+}
 
 // The status line's Drill part: the Targets, as showChars shows them.
 const drillLabel = () => ({ introduction: 'new key drill', 'symbols-v1': 'symbol drill' }[drill.generator]
@@ -783,7 +769,7 @@ function render() {
   document.getElementById('progress').hidden = screen !== 'progress';
   document.getElementById('app').innerHTML = `
     <main>${screen === 'ended' ? '<p>Stopped. Reload the page to start again.</p>' : starting ? startHTML() : passageHTML()}</main>
-    ${PANELS[screen]?.() ?? ''}
+    ${keymapHTML()}${PANELS[screen]?.() ?? ''}
     <div class="status"><span class="mode">${mode}</span><span>${starting ? 'choosing a keyboard' : esc(`${board.name} · ${keymap.letter_layout}`)}</span>
       <span class="grow">${starting ? '' : esc(drill ? drillLabel() : source ? sourceLabel(source) : 'sample text')}</span>
       ${!starting && unlocking ? `<span>${esc(unlockLabel())}</span>` : ''}
@@ -791,8 +777,7 @@ function render() {
     <div class="msg">${esc([summary, message].filter(Boolean).join(' · '))}</div>`;
   // Look only in this page's Keymap drawing: the progress page's drawing uses the same key ids.
   document.querySelector(`#app .drawing [id="k${nextKey()?.key}"]`)?.classList.add('next');
-  if (keymapShown()) showCursorLine();
-  else scrollToCursor();
+  scrollToCursor();
 }
 
 showBoards();
