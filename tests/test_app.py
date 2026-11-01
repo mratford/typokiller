@@ -1603,18 +1603,30 @@ def test_the_progress_page_has_the_trend_chart_the_heat_drawing_and_the_weakest_
     assert [a.get("data-pair") for a in layers[0].findall(".//*[@class='arc']")] == ["ab"]
 
 
-def test_the_notebook_shows_the_progress_pages_numbers_and_splits_the_weakness_costs_by_layer(client, db_path):
+def typed_twice(client, db_path, text):
+    """The QWERTY Sweep with `text` typed right twice as Passage 3, each key 1000 ms after the one
+    before, and a Weakness `min_seen` of 2. Returns the Keymap version."""
     qwerty, _ = sweep_versions(client, db_path)
     with sqlite3.connect(db_path) as db:
-        db.execute("INSERT INTO passage (id, source, ord, text, normaliser) VALUES (3, NULL, 0, 'ab(', 'ascii-v1')")
-    typed_session(client, qwerty, *[["a", "b", "("]] * 2, finished=[0, 1], attempt={"passage": 3, "settings": SETTINGS})
+        db.execute("INSERT INTO passage (id, source, ord, text, normaliser) VALUES (3, NULL, 0, ?, 'ascii-v1')", [text])
+    typed_session(client, qwerty, list(text), list(text), finished=[0, 1], attempt={"passage": 3, "settings": SETTINGS})
     client.put("/api/settings", json={"weakness": {"min_seen": 2}})
+    return qwerty
+
+
+def run_notebook(db_path):
+    """Runs every cell of the progress notebook on the database, top to bottom. Raises if a cell fails."""
     spec = importlib.util.spec_from_file_location("progress_notebook", Path(__file__).parents[1] / "notebooks" / "progress.py")
     assert spec and spec.loader
     notebook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(notebook)
+    return notebook.app.run(defs={"path": db_path})
 
-    outputs, defs = notebook.app.run(defs={"path": db_path})  # runs every cell, top to bottom
+
+def test_the_notebook_shows_the_progress_pages_numbers_and_splits_the_weakness_costs_by_layer(client, db_path):
+    qwerty = typed_twice(client, db_path, "ab(")
+
+    outputs, defs = run_notebook(db_path)
 
     page = client.get(f"/api/keymaps/{qwerty}/progress").json()
     weakest = ["unit", "cost", "seen"]
@@ -1629,6 +1641,14 @@ def test_the_notebook_shows_the_progress_pages_numbers_and_splits_the_weakness_c
     ]
     text = " ".join(str(getattr(output, "text", "")) for output in outputs)
     assert "first-error-v1" in text and "recent-cost-v1" in text
+
+
+def test_the_notebook_runs_every_cell_when_the_weakest_pair_has_a_space(client, db_path):
+    typed_twice(client, db_path, "a b")
+
+    _, defs = run_notebook(db_path)
+
+    assert defs["pair"].value == defs["found"].pairs["unit"].first() == " b"
 
 
 REA = {"passage": 3, "settings": SETTINGS}  # "rea": plain keys on both free-range Boards

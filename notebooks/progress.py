@@ -111,11 +111,8 @@ def _(found):
 
 @app.cell
 def _(found):
-    pair = mo.ui.dropdown(
-        {show_chars(p): p for p in found.pairs["unit"]},
-        value=found.pairs["unit"].first(),
-        label="Pair drawn as an arc",
-    )
+    _options = {show_chars(p): p for p in found.pairs["unit"]}
+    pair = mo.ui.dropdown(_options, value=next(iter(_options), None), label="Pair drawn as an arc")
     pair
     return (pair,)
 
