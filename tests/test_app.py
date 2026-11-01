@@ -1614,19 +1614,20 @@ def typed_twice(client, db_path, text):
     return qwerty
 
 
-def run_notebook(db_path):
-    """Runs every cell of the progress notebook on the database, top to bottom. Raises if a cell fails."""
+def run_notebook(**defs):
+    """Runs every cell of the progress notebook, top to bottom, with `defs` set in place of the cells
+    that define them. Raises if a cell fails."""
     spec = importlib.util.spec_from_file_location("progress_notebook", Path(__file__).parents[1] / "notebooks" / "progress.py")
     assert spec and spec.loader
     notebook = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(notebook)
-    return notebook.app.run(defs={"path": db_path})
+    return notebook.app.run(defs=defs)
 
 
 def test_the_notebook_shows_the_progress_pages_numbers_and_splits_the_weakness_costs_by_layer(client, db_path):
     qwerty = typed_twice(client, db_path, "ab(")
 
-    outputs, defs = run_notebook(db_path)
+    outputs, defs = run_notebook(path=db_path)
 
     page = client.get(f"/api/keymaps/{qwerty}/progress").json()
     weakest = ["unit", "cost", "seen"]
@@ -1646,9 +1647,23 @@ def test_the_notebook_shows_the_progress_pages_numbers_and_splits_the_weakness_c
 def test_the_notebook_runs_every_cell_when_the_weakest_pair_has_a_space(client, db_path):
     typed_twice(client, db_path, "a b")
 
-    _, defs = run_notebook(db_path)
+    _, defs = run_notebook(path=db_path)
 
     assert defs["pair"].value == defs["found"].pairs["unit"].first() == " b"
+
+
+def test_the_notebook_opens_the_database_given_with_db_otherwise_the_service_database(tmp_path, settings_path, provider, monkeypatch):
+    # other.db does not exist, so the notebook stops after the cell that sets `path`.
+    monkeypatch.setattr(sys, "argv", ["progress.py", "--db", str(tmp_path / "other.db")])
+    _, defs = run_notebook()
+    assert defs["path"] == tmp_path / "other.db"
+
+    create_app(tmp_path / "typokiller.db", settings_path, provider)  # a database with no Boards: the notebook stops
+    monkeypatch.setattr(sys, "argv", ["progress.py"])
+    # run_notebook loads the notebook again, so its setup imports this patched data_folder.
+    monkeypatch.setattr("typokiller.service.data_folder", lambda: tmp_path)
+    _, defs = run_notebook()
+    assert defs["path"] == tmp_path / "typokiller.db"
 
 
 REA = {"passage": 3, "settings": SETTINGS}  # "rea": plain keys on both free-range Boards

@@ -34,7 +34,8 @@ def _():
 def _():
     # To use another database: uv run marimo edit notebooks/progress.py -- --db other.db
     # The settings are typokiller.toml next to it, as for the server.
-    path = Path(mo.cli_args().get("db") or notebook_db(data_folder()))
+    # str(): the type of a command-line value is a string, a number, a boolean or a list.
+    path = Path(str(mo.cli_args().get("db") or notebook_db(data_folder())))
     print(f"Database: {path.resolve()}")
     return (path,)
 
