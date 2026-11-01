@@ -34,6 +34,13 @@ def data_folder() -> Path:
     return Path.home() / ".local/share/typokiller/data"
 
 
+def notebook_db(data: Path) -> Path:
+    """The database that the notebooks open with no --db: the service's database in `data` when
+    it exists, otherwise typokiller.db in the current folder."""
+    service_db = data / "typokiller.db"
+    return service_db if service_db.exists() else Path("typokiller.db")
+
+
 def plist_path() -> Path:
     return Path.home() / f"Library/LaunchAgents/{LABEL}.plist"
 

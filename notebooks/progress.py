@@ -16,6 +16,7 @@ with app.setup:
     from typokiller.app import layer_names, read_settings
     from typokiller.drawing import draw_layers, layer_name, show_chars
     from typokiller.keymap import keymap_letters
+    from typokiller.service import data_folder, notebook_db
 
 
 @app.cell
@@ -31,10 +32,10 @@ def _():
 
 @app.cell
 def _():
-    # The database that the server uses: typokiller.db in the working directory. To use
-    # another one: uv run marimo edit notebooks/progress.py -- --db other.db
+    # To use another database: uv run marimo edit notebooks/progress.py -- --db other.db
     # The settings are typokiller.toml next to it, as for the server.
-    path = Path(mo.cli_args().get("db") or "typokiller.db")
+    path = Path(mo.cli_args().get("db") or notebook_db(data_folder()))
+    print(f"Database: {path.resolve()}")
     return (path,)
 
 

@@ -54,10 +54,12 @@ Press `p` in the Escape menu for the progress page of the keyboard and layout th
 The notebook `notebooks/progress.py`, shows the progress page again, made with the same functions as the app, so the numbers are the same. It also ranks your weakest keys in each layer, with the keystrokes of each layer on their own. Open it in marimo from this folder:
 
 ```sh
-uv run marimo edit notebooks/progress.py                     # typokiller.db in this folder
+uv run marimo edit notebooks/progress.py                     # the service's database
 uv run marimo edit notebooks/progress.py -- --db other.db    # another database
 uv run python notebooks/progress.py --db other.db            # run every cell once, with no browser
 ```
+
+With no `--db`, it opens the service's database, `~/.local/share/typokiller/data/typokiller.db`. When that file does not exist, it opens `typokiller.db` in this folder. It prints the path of the database that it opened.
 
 Like the server, it reads the settings in `typokiller.toml` next to the database, and adds any missing settings to that file. It opens the database read only, so the server can run at the same time. A new notebook can import the same functions from `typokiller.analysis` and `typokiller.drawing`.
 

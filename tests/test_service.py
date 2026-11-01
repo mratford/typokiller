@@ -200,3 +200,9 @@ def test_uninstall_removes_the_plist_and_the_worktree_and_keeps_the_data(home, i
     assert fake.ran("git", "worktree", "remove", "--force", str(home / ".local/share/typokiller/app"))
     assert (installed / "typokiller.db").exists()
     assert str(installed) in capsys.readouterr().out
+
+
+def test_notebook_db_is_the_service_database_when_it_exists_otherwise_the_local_one(tmp_path):
+    assert service.notebook_db(tmp_path) == Path("typokiller.db")
+    (tmp_path / "typokiller.db").touch()
+    assert service.notebook_db(tmp_path) == tmp_path / "typokiller.db"
