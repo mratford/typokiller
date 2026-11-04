@@ -1,5 +1,7 @@
 # keybr recordings have their own analysis method, keybr-input-v1
 
+Partly replaced by [ADR 0004](0004-keybr-is-the-typing-app.md): typokiller no longer has a typing page, so there are no typokiller numbers to keep apart from keybr's.
+
 The keybr fork records typing in detail (#71, and keybr issues #2 to #5). We analyse these records in Python, next to typokiller's own history. typokiller's method, `first-error-v1`, replays the keydowns with `apply_key`, which copies the typing rules of typokiller's page. keybr has other rules: it can forgive a wrong character, skip a word with Space, accept a character by itself to recover, stop on an error, and emulate a layout. Replaying keybr's keys with typokiller's rules would put Errors and positions where keybr's page did not have them.
 
 So keybr records get their own method, `keybr-input-v1` (`src/typokiller/keybr_analysis.py`). It reads what keybr's engine recorded instead of replaying keys:
