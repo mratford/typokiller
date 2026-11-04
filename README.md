@@ -63,6 +63,40 @@ With no `--db`, it opens the service's database, `~/.local/share/typokiller/data
 
 Like the server, it reads the settings in `typokiller.toml` next to the database, and adds any missing settings to that file. It opens the database read only, so the server can run at the same time. A new notebook can import the same functions from `typokiller.analysis` and `typokiller.drawing`.
 
+### Typing in keybr
+
+The keybr fork (github.com/mratford/keybr.com) records in detail everything that you type there, for the keyboard and layout that you choose there. The notebook `notebooks/keybr.py` reads these recordings. It keeps them apart from typokiller's own history: keybr has different typing rules, so its numbers are measured in a different way (`keybr-input-v1`) and are never mixed with typokiller's. keybr's own speed and accuracy are shown apart, labelled "keybr". See keybr's [docs/detailed_recording.md](https://github.com/mratford/keybr.com/blob/master/docs/detailed_recording.md) for how to turn recording on.
+
+1. Write your keyboards and their saved layouts to a file, here in this folder:
+
+   ```sh
+   uv run typokiller-export-keyboards keyboards.json
+   ```
+
+   It reads the service's database (or `typokiller.db` in this folder), or the one given with `--db`, and the layer names from `typokiller.toml` next to it (or the file given with `--settings`). It opens the database read only and changes neither file, and it does not need the server. It writes only the keyboards and layouts: no typing history, no API keys. It does not overwrite a file.
+
+2. Import the file in the keybr folder. Importing the same file again adds nothing:
+
+   ```sh
+   node root/keybr.js recording import-keyboards /path/to/keyboards.json
+   ```
+
+   Do this again after you add a layout to a keyboard in typokiller, or change its layer names. Then reload keybr's practice page, and choose the keyboard and layout there.
+
+3. After typing in keybr, write a snapshot of the recordings, in the keybr folder. Use a new file name:
+
+   ```sh
+   node root/keybr.js recording export /path/to/keybr-recordings.sqlite
+   ```
+
+4. Open the notebook on the snapshot, in this folder:
+
+   ```sh
+   uv run marimo edit notebooks/keybr.py -- --snapshot /path/to/keybr-recordings.sqlite
+   ```
+
+   With no `--snapshot`, it opens `keybr-recordings.sqlite` in this folder. It opens the snapshot read only and never opens the typokiller database. It has filters for the keyboard, the layout, the saved version of the layout and the days. It shows keybr's own progress, the first-input accuracy, the weakest characters and pairs, fix times, timings, the keyboard picture with heat, and how complete the recordings are.
+
 On free-range (the `[unlocking]` settings name the layout being learned), only four keys are unlocked at the start (`t s r e`), and drills use only the unlocked keys. Their words come from a fixed list of common British English words (SCOWL, size 35, in `src/typokiller/words.txt`), not from your texts. While the list has fewer than `min_words` (200) words for the unlocked keys, made-up words fill it up. A made-up word is not a real word, but its letter pairs are common in the word list. The status line shows the progress, such as `4/30 keys · next a`. After each finished part, the next key unlocks when each unlocked key is fast enough; `u` in the Escape menu unlocks it at once. After an unlock, the next drills are new key drills of the new key. Keyboard pictures show locked keys dashed and faint, with a ring on the next one.
 
 Press `d` in the Escape menu for one drill of your weakest keys, `e` for endless drills, and `y` for endless symbol drills. Symbol drills practise only symbols (the digits and ``!"#$%&()*+-/:;<=>?@[\]^`{|}~``) and symbol pairs (pairs with a symbol and no space or newline), and their text is whole lines of code from the code texts and the code of lessons. They may use every key, locked or not, and no new key drill breaks into them. The `[symbols]` settings hold how many symbols and lines each one has.
