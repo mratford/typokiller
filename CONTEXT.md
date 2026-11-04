@@ -103,3 +103,11 @@ _Avoid_: error (for these keystrokes)
 **Fix**:
 Getting from an Error back to the right character in its place; its duration is the fix time.
 _Avoid_: correction
+
+**Analysis method**:
+The named rules that turn recorded typing into positions, Errors, Fixes and timings: `first-error-v1` for typokiller's own history, and `keybr-input-v1` for keybr recordings. Each table says which one made it. The metrics of different methods must not be pooled.
+_Avoid_: alignment (for keybr-input-v1), scorer
+
+**keybr recording**:
+A snapshot of the detailed records that the keybr fork keeps of typing there, written by `keybr recording export` as an SQLite file. Each of its Attempts names an imported Board and Keymap version. It is read by `typokiller.recording`, never written.
+_Avoid_: keybr history, keybr export (for the snapshot)
