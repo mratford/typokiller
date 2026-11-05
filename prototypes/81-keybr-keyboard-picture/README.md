@@ -15,3 +15,7 @@ A rough copy of keybr's practice page with the Sweep free-range pictures that ty
 
 To build again: `uv run python prototypes/81-keybr-keyboard-picture/gen.py > data.json` from the
 repo root, then put the contents of `data.json` in place of `/*DATA*/` in `page.template.html`.
+
+Verdict: A, but faint and on the page background as in B (the current state of A in this file).
+typokiller draws the picture and keybr gets it when the typing page loads. See the resolution
+comment on #81.
