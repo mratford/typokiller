@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE #80: typokiller pages after the cut</title>
+<!--
+  PROTOTYPE for issue #80, "How do typokiller's pages look and work after the cut?". Throw it away.
+  Three variants of typokiller's pages, switched with ?variant=A|B|C (or the arrow keys):
+    A  home menu: a small first page, then separate keyboard and analysis pages; Esc goes back one page.
+    B  analysis first: the analysis page is the first page; the keyboards are a panel over it (b).
+    C  two columns: a list of keyboards and layouts on the left, the chosen layout on the right.
+  ?data=full|nolessons|nokeyboards shows the empty states. ?page=keybr shows a stand-in for keybr's page
+  with the link to the analysis page. Nothing is saved: files are not really read, and a reload starts again.
+  The keyboard pictures are real: drawn by drawing.py from the test keyboards (tests/fixtures).
+-->
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #23221f; --dim: #a29e94; --faint: #d9d5cc; --bad: #c62828;
+  --line: #e5e1d8; --panel: #ffffff; --next: #2456a6;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16171a; --fg: #e8e6e1; --dim: #75726b; --faint: #3a3a3d; --bad: #ff7070; --line: #2d2e33; --panel: #1f2024; --next: #7fb0ff; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+kbd { font: 12px var(--mono); border: 1px solid var(--faint); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+a { color: var(--next); }
+#app { min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 56px; }
+main { flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; padding: 16px 24px; }
+h1 { font-size: 18px; margin: 8px 0 16px; }
+h4 { margin: 12px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+.item { display: flex; gap: 8px; padding: 1px 6px; border-radius: 4px; }
+.item.sel { background: var(--faint); }
+.item .dim, .dim { color: var(--dim); }
+.hint { font-size: 12px; color: var(--dim); margin-top: 8px; }
+.pic svg { display: block; width: 100%; max-width: 640px; height: auto; }
+.arc:not(.on) { display: none; }
+.tabs { display: flex; gap: 14px; font: 13px var(--mono); color: var(--dim); margin: 8px 0; }
+.tabs .on { color: var(--fg); font-weight: 600; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 24px; align-items: start; }
+table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+td { padding: 1px 8px 1px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td + td { text-align: right; color: var(--dim); }
+tr.sel td { background: var(--faint); color: var(--fg); }
+.mono { font-family: var(--mono); }
+.form { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 10px 14px; margin: 12px 0; font-family: var(--mono); }
+.cur { box-shadow: inset 0 -2px 0 var(--fg); }
+.panel { position: fixed; left: 0; right: 0; bottom: 56px; background: var(--panel); border-top: 1px solid var(--line); padding: 10px 24px; max-height: 60vh; overflow-y: auto; }
+.panelgrid { display: grid; grid-template-columns: 300px 1fr; gap: 24px; }
+.status { position: fixed; left: 0; right: 0; bottom: 30px; display: flex; border-top: 1px solid var(--line); background: var(--bg); font: 13px var(--mono); color: var(--dim); }
+.status span { padding: 3px 12px; white-space: nowrap; }
+.status .mode { color: var(--fg); }
+.msg { position: fixed; left: 0; right: 0; bottom: 6px; height: 22px; padding: 0 12px; font: 13px var(--mono); color: var(--dim); }
+.cols { display: grid; grid-template-columns: 240px 1fr; gap: 0; min-height: calc(100vh - 80px); }
+.cols > .left { border-right: 1px solid var(--line); padding: 16px 12px; }
+.cols > .right { padding: 16px 24px; }
+.focus { outline: 2px solid var(--faint); outline-offset: -2px; }
+.tree .board { margin-top: 8px; font-weight: 600; padding: 0 6px; }
+.tree .item { padding-left: 18px; }
+/* The stand-in for keybr: only there to show where the link to the analysis page is. */
+.keybr { max-width: 900px; margin: 24px auto; border: 2px dashed var(--faint); border-radius: 8px; padding: 16px 24px; }
+.keybr .bar { display: flex; gap: 16px; align-items: center; font-size: 13px; color: var(--dim); border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.keybr .bar .grow { flex: 1; }
+.keybr .text { font: 22px var(--mono); margin: 32px 0; color: var(--dim); }
+.tag { font: 11px var(--mono); background: #ffe9a8; color: #5a4400; border-radius: 3px; padding: 0 4px; }
+/* The prototype's own switcher: not part of the design. */
+#switch { position: fixed; bottom: 70px; right: 16px; background: #111; color: #fff; border-radius: 10px; padding: 8px 12px;
+  font: 12px var(--mono); box-shadow: 0 4px 14px rgba(0,0,0,.35); z-index: 9; display: flex; flex-direction: column; gap: 4px; max-width: 360px; }
+#switch button { background: #333; color: #fff; border: 0; border-radius: 4px; font: 12px var(--mono); padding: 2px 8px; cursor: pointer; }
+#switch button.on { background: #2f8a4c; }
+#switch .row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#switch .state { color: #aaa; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="switch"></div>
+<script>
+/*DATA*/
+</script>
+<script>
+// ---------- prototype controls ----------
+const params = new URLSearchParams(location.search);
+const VARIANTS = { A: 'home menu', B: 'analysis first', C: 'two columns' };
+let variant = VARIANTS[params.get('variant')] ? params.get('variant') : 'A';
+let dataMode = params.get('data') ?? 'full'; // full | nolessons | nokeyboards
+let where = params.get('page') ?? 'typokiller'; // typokiller | keybr
+function setParam() {
+  const p = new URLSearchParams({ variant, data: dataMode, page: where });
+  history.replaceState(null, '', '?' + p);
+}
+
+// ---------- the model (in memory only) ----------
+let keyboards; // [{ name, layouts: [{ d (index in DATA), layout, names, versions }] }]
+let entries;   // the analysis entries, the last typed first: [{ label, d | null }]
+function reset() {
+  const kb = name => ({ name, layouts: [] });
+  const sweep = kb('Sweep'), cheapino = kb('Cheapino');
+  DATA.forEach((e, d) => {
+    const lay = { d, layout: e.layout, names: [...e.layers], versions: [{ date: '2026-10-' + (10 + d) }] };
+    if (e.board === 'Sweep') sweep.layouts.push(lay);
+    if (e.board === 'Cheapino') cheapino.layouts.push(lay);
+  });
+  sweep.layouts[0].versions.push({ date: '2026-10-28' }, { date: '2026-11-02' });
+  keyboards = dataMode === 'nokeyboards' ? [] : [sweep, cheapino];
+  entries = dataMode === 'full'
+    ? [{ label: 'Sweep · free-range', d: 0 }, { label: 'Sweep · QWERTY', d: 1 }, { label: 'no keyboard · en-us', d: null }, { label: 'Cheapino · QWERTY', d: 2 }]
+    : [];
+}
+const allLayouts = () => keyboards.flatMap(k => k.layouts.map(l => ({ kb: k, lay: l })));
+const layoutName = (lay, d = lay.d) => lay ? lay.names : DATA[d].layers;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const LETTERS = 'sadflewcmpgh';
+const labels = (n, used) => [...LETTERS].filter(c => !used.includes(c)).slice(0, n);
+
+// ---------- shared pieces ----------
+let message = '';
+function picture(d, layer, heat, pairSel) {
+  const svg = (heat ? DATA[d].heat : DATA[d].plain)[layer] ?? '';
+  return `<div class="pic" data-pair="${pairSel ?? ''}">${svg}</div>`;
+}
+function layerTabs(d, names, layer) {
+  return `<div class="tabs">${names.map((n, i) => `<span class="${i === layer ? 'on' : ''}">${i + 1} ${esc(n)}</span>`).join('')}</div>`;
+}
+// A rough 13-week trend chart: two small line charts side by side.
+function trend(seed) {
+  const pts = (base, spread, up) => Array.from({ length: 60 }, (_, i) => base + up * i / 60 + Math.sin(i * 1.7 + seed) * spread);
+  const line = (vals, lo, hi) => vals.map((v, i) => `${(i * 300 / 59).toFixed(1)},${(110 - (v - lo) / (hi - lo) * 100).toFixed(1)}`).join(' ');
+  const chart = (title, vals, lo, hi, unit) => `<svg width="320" height="140" viewBox="-10 -20 320 140">
+    <text x="0" y="-6" font-size="12" fill="currentColor">${title}</text>
+    <line x1="0" y1="110" x2="300" y2="110" stroke="var(--line)"/>
+    <polyline points="${line(vals, lo, hi)}" fill="none" stroke="var(--next)" stroke-width="1.5"/>
+    <text x="0" y="124" font-size="10" fill="var(--dim)">13 weeks ago</text><text x="270" y="124" font-size="10" fill="var(--dim)">today</text>
+    <text x="300" y="${110 - (vals[59] - lo) / (hi - lo) * 100}" font-size="10" fill="var(--dim)">${vals[59].toFixed(0)}${unit}</text></svg>`;
+  return chart('WPM (daily median)', pts(32, 3, 14), 20, 55, '') + chart('first-input accuracy (daily median)', pts(93, 1.2, 3), 85, 100, '%');
+}
+// The analysis page's body for one entry: decided in #77.
+function analysisBody(i, layer, pair) {
+  if (!entries.length) {
+    return `<p>No lessons recorded yet. Type in keybr, then reload this page. <a href="?${new URLSearchParams({ variant, data: dataMode, page: 'keybr' })}">open keybr</a></p>`;
+  }
+  const e = entries[i];
+  const d = e.d ?? 0;
+  const rows = (list, sel) => list.map(([u, ms, n], j) => `<tr class="${j === sel ? 'sel' : ''}"><td class="mono">${esc(u)}</td><td>${ms} ms</td><td>${n}×</td></tr>`).join('');
+  const names = e.d === null ? [] : layoutOf(e.d)?.names ?? DATA[d].layers;
+  return `<div class="tabs">${entries.map((x, j) => `<span class="${j === i ? 'on' : ''}">${esc(x.label)}</span>`).join('')}</div>
+    <div>${trend(i)}</div>
+    <div class="split">
+      <div>${e.d === null ? '<p class="dim">No keyboard chosen in keybr: no keyboard picture.</p>' : layerTabs(d, names, layer) + picture(d, layer, true, DATA[d].pairs[pair]?.[0])}</div>
+      <div><h4>weakest characters</h4><table>${rows(DATA[d].chars, -1)}</table></div>
+      <div><h4>weakest pairs</h4><table>${rows(DATA[d].pairs, pair)}</table></div>
+    </div>`;
+}
+const layoutOf = d => allLayouts().find(x => x.lay.d === d)?.lay;
+
+// The forms: add a keyboard, save a layout, rename a layer. File choosing is stubbed.
+let form = null;
+function startAdd() { form = { kind: 'add', step: 'vial', name: '' }; }
+function startSave(kb) { form = { kind: 'save', kb }; }
+function startRename(lay, layer) { form = { kind: 'rename', lay, layer, text: lay.names[layer] }; }
+function startRenameAll(lay) { form = { kind: 'renameAll', lay, text: lay.names.join(' ') }; }
+const editText = (t, e) => e.key === 'Backspace' ? t.slice(0, -1) : e.key.length === 1 && !e.metaKey && !e.ctrlKey ? t + e.key : t;
+function formKey(e) {
+  if (!form) return false;
+  if (e.key === 'Escape') { form = null; message = 'Nothing saved.'; return true; }
+  const f = form;
+  if (f.kind === 'add') {
+    if (f.step === 'vial' && e.key === 'Enter') { f.step = 'name'; f.name = 'Keychron Q4'; f.file = 'q4/vial.json'; }
+    else if (f.step === 'name' && e.key === 'Enter' && f.name) f.step = 'vil';
+    else if (f.step === 'name') f.name = editText(f.name, e);
+    else if (f.step === 'vil' && e.key === 'Enter') {
+      const d = DATA.findIndex(x => x.board === 'Q4');
+      keyboards.push({ name: f.name, layouts: [{ d, layout: DATA[d].layout, names: [...DATA[d].layers], versions: [{ date: '2026-11-04' }] }] });
+      message = `Added ${f.name} with the layout ${DATA[d].layout}. keybr shows it the next time its typing page loads.`;
+      form = null;
+      onAdded?.();
+    }
+  } else if (f.kind === 'save' && e.key === 'Enter') {
+    const lay = f.kb.layouts[0];
+    lay.versions.push({ date: '2026-11-04' });
+    message = `Saved a new version of ${f.kb.name} · ${lay.layout} (a .vil with other letters becomes a new layout).`;
+    form = null;
+  } else if (f.kind === 'rename') {
+    if (e.key === 'Enter') { f.lay.names[f.layer] = f.text || DATA[f.lay.d].layers[f.layer]; message = 'Layer name saved.'; form = null; }
+    else f.text = editText(f.text, e);
+  } else if (f.kind === 'renameAll') {
+    if (e.key === 'Enter') { f.text.split(/\s+/).filter(Boolean).forEach((n, i) => { if (i < f.lay.names.length) f.lay.names[i] = n; }); message = 'Layer names saved.'; form = null; }
+    else f.text = editText(f.text, e);
+  }
+  return true;
+}
+let onAdded = null;
+function formHTML() {
+  if (!form) return '';
+  const f = form, cur = '<span class="cur"> </span>';
+  const stub = ' <span class="tag">prototype: no real file is read</span>';
+  if (f.kind === 'add') {
+    const steps = {
+      vial: `Press <kbd>Enter</kbd> to choose the keyboard's <code>vial.json</code>.${stub}`,
+      name: `Name: ${esc(f.name)}${cur}<div class="hint">From ${esc(f.file)}. Change it, or press <kbd>Enter</kbd>.</div>`,
+      vil: `Press <kbd>Enter</kbd> to choose a layout saved in Vial (<code>.vil</code>).${stub}`,
+    };
+    return `<div class="form"><h4>add a keyboard · step ${['vial', 'name', 'vil'].indexOf(f.step) + 1} of 3</h4>${steps[f.step]}<div class="hint"><kbd>Esc</kbd> stops.</div></div>`;
+  }
+  if (f.kind === 'save') return `<div class="form"><h4>save a layout on ${esc(f.kb.name)}</h4>Press <kbd>Enter</kbd> to choose the <code>.vil</code> saved in Vial.${stub}<div class="hint">The same letters as a saved layout: a new version of it. Other letters: a new layout. <kbd>Esc</kbd> stops.</div></div>`;
+  if (f.kind === 'rename') return `<div class="form"><h4>name of layer ${f.layer + 1}</h4>${esc(f.text)}${cur}<div class="hint"><kbd>Enter</kbd> saves. Empty: named after the key that opens it. <kbd>Esc</kbd> stops.</div></div>`;
+  return `<div class="form"><h4>layer names, from layer 1</h4>${esc(f.text)}${cur}<div class="hint">Separate them with spaces. <kbd>Enter</kbd> saves. <kbd>Esc</kbd> stops.</div></div>`;
+}
+const versionsLine = lay => `${lay.versions.length} saved version${lay.versions.length > 1 ? 's' : ''}, the newest from ${lay.versions.at(-1).date}`;
+const keybrLink = () => `<a href="?${new URLSearchParams({ variant, data: dataMode, page: 'keybr' })}">type in keybr</a>`;
+function status(mode, parts, keys) {
+  return `<div class="status"><span class="mode">${mode}</span>${parts.map(p => `<span>${p}</span>`).join('')}<span style="flex:1"></span><span>${keys}</span></div>
+    <div class="msg">${esc(message)}</div>`;
+}
+
+// ---------- Variant A: home menu ----------
+const A = {
+  screen: 'home', sel: 0, kb: null, laySel: 0, layer: 0, entry: 0, pair: 0,
+  key(e) {
+    if (formKey(e)) return;
+    const s = this;
+    message = '';
+    if (s.screen === 'home') {
+      if (e.key === 'a') { s.screen = 'analysis'; s.layer = 0; s.pair = 0; }
+      else if (e.key === 'b') { s.screen = 'keyboards'; s.sel = 0; }
+      else if (e.key === 't') { where = 'keybr'; }
+    } else if (s.screen === 'keyboards') {
+      const ls = labels(keyboards.length, 'jkn');
+      if (e.key === 'j') s.sel = Math.min(s.sel + 1, keyboards.length - 1);
+      else if (e.key === 'k') s.sel = Math.max(s.sel - 1, 0);
+      else if (e.key === 'n') { startAdd(); onAdded = () => { s.sel = keyboards.length - 1; }; }
+      else if (e.key === 'Escape') s.screen = 'home';
+      else if (e.key === 'Enter' && keyboards[s.sel] || ls.includes(e.key)) {
+        if (e.key !== 'Enter') s.sel = ls.indexOf(e.key);
+        s.kb = keyboards[s.sel]; s.screen = 'keyboard'; s.laySel = 0; s.layer = 0;
+      }
+    } else if (s.screen === 'keyboard') {
+      const lay = s.kb.layouts[s.laySel];
+      if (e.key === 'j') { s.laySel = Math.min(s.laySel + 1, s.kb.layouts.length - 1); s.layer = 0; }
+      else if (e.key === 'k') { s.laySel = Math.max(s.laySel - 1, 0); s.layer = 0; }
+      else if (/^[1-9]$/.test(e.key) && +e.key <= lay.names.length) s.layer = +e.key - 1;
+      else if (e.key === 'r') startRename(lay, s.layer);
+      else if (e.key === 'v') startSave(s.kb);
+      else if (e.key === 'a') { const i = entries.findIndex(x => x.d === lay.d); if (i < 0) message = 'No lessons on this layout yet.'; else { s.entry = i; s.screen = 'analysis'; s.layer = 0; s.pair = 0; } }
+      else if (e.key === 'Escape') s.screen = 'keyboards';
+    } else if (s.screen === 'analysis') {
+      anaKey(s, e, () => { s.screen = 'home'; });
+      if (e.key === 'b') { s.screen = 'keyboards'; s.sel = 0; }
+    }
+  },
+  html() {
+    const s = this;
+    if (s.screen === 'home') {
+      const last = entries[0];
+      return `<main><h1>typokiller</h1>
+        <div class="item"><kbd>a</kbd> analysis <span class="dim">${last ? '· last typed: ' + esc(last.label) : '· no lessons yet'}</span></div>
+        <div class="item"><kbd>b</kbd> keyboards <span class="dim">· ${keyboards.length ? keyboards.map(k => esc(k.name)).join(', ') : 'none yet: add one first'}</span></div>
+        <div class="item"><kbd>t</kbd> ${keybrLink()}</div>
+        <p class="hint">Typing is in keybr. This app keeps your keyboards and shows the analysis of what you type there.</p>
+        ${formHTML()}</main>${status('home', [], '')}`;
+    }
+    if (s.screen === 'keyboards') {
+      const ls = labels(keyboards.length, 'jkn');
+      return `<main><h1>keyboards</h1>${keyboards.map((k, i) => `<div class="item ${i === s.sel ? 'sel' : ''}"><kbd>${ls[i]}</kbd> ${esc(k.name)} <span class="dim">· ${k.layouts.map(l => esc(l.layout)).join(', ')}</span></div>`).join('') || '<p class="dim">No keyboards yet.</p>'}
+        <p class="hint">Type a label, or press <kbd>j</kbd>/<kbd>k</kbd> and <kbd>Enter</kbd>. <kbd>n</kbd> adds a keyboard. <kbd>Esc</kbd> goes back.</p>${formHTML()}</main>
+        ${status('keyboards', [], 'n add · Esc back')}`;
+    }
+    if (s.screen === 'keyboard') {
+      const lay = s.kb.layouts[s.laySel];
+      return `<main><h1>${esc(s.kb.name)}</h1>
+        <h4>layouts</h4>${s.kb.layouts.map((l, i) => `<div class="item ${i === s.laySel ? 'sel' : ''}">${esc(l.layout)} <span class="dim">· ${versionsLine(l)}</span></div>`).join('')}
+        ${layerTabs(lay.d, lay.names, s.layer)}${picture(lay.d, s.layer, false)}${formHTML()}
+        <p class="hint"><kbd>j</kbd>/<kbd>k</kbd> layout · a number shows a layer · <kbd>r</kbd> renames the layer shown · <kbd>v</kbd> saves a layout from a <code>.vil</code> · <kbd>a</kbd> analysis of this layout · <kbd>Esc</kbd> goes back</p></main>
+        ${status('keyboard', [esc(s.kb.name + ' · ' + lay.layout)], 'r rename · v save layout · a analysis')}`;
+    }
+    return `<main><h1>analysis</h1>${analysisBody(s.entry, s.layer, s.pair)}</main>
+      ${status('analysis', [], 'h/l entry · 1-9 layer · j/k pair · b keyboards · Esc home')}`;
+  },
+};
+function anaKey(s, e, onEsc) {
+  if (!entries.length) { if (e.key === 'Escape') onEsc(); return; }
+  const d = entries[s.entry].d;
+  if (e.key === 'h' || e.key === 'l') { s.entry = (s.entry + (e.key === 'l' ? 1 : entries.length - 1)) % entries.length; s.layer = 0; s.pair = 0; }
+  else if (/^[1-9]$/.test(e.key) && d !== null && +e.key <= DATA[d].layers.length) s.layer = +e.key - 1;
+  else if (e.key === 'j') s.pair = Math.min(s.pair + 1, 9);
+  else if (e.key === 'k') s.pair = Math.max(s.pair - 1, 0);
+  else if (e.key === 'Escape') onEsc();
+}
+
+// ---------- Variant B: analysis first, keyboards in a panel ----------
+const B = {
+  panel: false, sel: 0, entry: 0, layer: 0, pair: 0,
+  key(e) {
+    if (formKey(e)) return;
+    const s = this;
+    message = '';
+    if (s.panel) {
+      const items = allLayouts();
+      if (e.key === 'j') s.sel = Math.min(s.sel + 1, items.length - 1);
+      else if (e.key === 'k') s.sel = Math.max(s.sel - 1, 0);
+      else if (e.key === 'n') { startAdd(); onAdded = () => { s.sel = allLayouts().length - 1; }; }
+      else if (e.key === 'v' && items[s.sel]) startSave(items[s.sel].kb);
+      else if (e.key === 'r' && items[s.sel]) startRenameAll(items[s.sel].lay);
+      else if (e.key === 'Enter' && items[s.sel]) {
+        const i = entries.findIndex(x => x.d === items[s.sel].lay.d);
+        if (i < 0) message = 'No lessons on this layout yet.'; else { s.entry = i; s.panel = false; s.layer = 0; s.pair = 0; }
+      } else if (e.key === 'Escape' || e.key === 'b') s.panel = false;
+      return;
+    }
+    if (e.key === 'b') { s.panel = true; s.sel = 0; }
+    else if (e.key === 't') where = 'keybr';
+    else anaKey(s, e, () => {});
+  },
+  html() {
+    const s = this;
+    const noKb = !keyboards.length ? '<p>No keyboards yet. Press <kbd>b</kbd>, then <kbd>n</kbd> to add one. keybr shows them once added.</p>' : '';
+    let panel = '';
+    if (s.panel) {
+      const items = allLayouts();
+      const it = items[s.sel];
+      panel = `<div class="panel"><div class="panelgrid"><div><h4>keyboards and layouts</h4>
+        ${items.map((x, i) => `<div class="item ${i === s.sel ? 'sel' : ''}">${esc(x.kb.name)} · ${esc(x.lay.layout)}</div>`).join('') || '<p class="dim">none yet</p>'}
+        <p class="hint"><kbd>j</kbd>/<kbd>k</kbd> choose · <kbd>Enter</kbd> its analysis · <kbd>n</kbd> add a keyboard · <kbd>v</kbd> save a layout · <kbd>r</kbd> layer names · <kbd>Esc</kbd> closes</p></div>
+        <div>${it ? `<h4>${esc(it.kb.name)} · ${esc(it.lay.layout)}</h4><div class="dim">${versionsLine(it.lay)}</div>
+          <div class="dim">layers: ${it.lay.names.map((n, i) => `${i + 1} ${esc(n)}`).join(' · ')}</div>${picture(it.lay.d, 0, false)}` : ''}${formHTML()}</div></div></div>`;
+    }
+    return `<main>${noKb}${analysisBody(s.entry, s.layer, s.pair)}${s.panel ? '' : formHTML()}</main>${panel}
+      ${status(s.panel ? 'keyboards' : 'analysis', [], s.panel ? 'Esc closes' : `h/l entry · 1-9 layer · j/k pair · b keyboards · t ${keybrLink()}`)}`;
+  },
+};
+
+// ---------- Variant C: two columns ----------
+const C = {
+  sel: 0, focus: 'left', tab: 'analysis', layer: 0, pair: 0,
+  items() { // keyboards with their layouts, then the analysis entries with no keyboard
+    return [...allLayouts().map(x => ({ ...x, entry: entries.findIndex(en => en.d === x.lay.d) })),
+      ...entries.map((en, i) => en.d === null ? { kb: { name: 'no keyboard' }, lay: { layout: 'en-us' }, entry: i } : null).filter(Boolean)];
+  },
+  key(e) {
+    if (formKey(e)) return;
+    const s = this, items = s.items(), it = items[s.sel];
+    message = '';
+    if (e.key === 'n') { startAdd(); onAdded = () => { s.sel = allLayouts().length - 1; }; return; }
+    if (e.key === 'Tab') { e.preventDefault(); s.tab = s.tab === 'analysis' ? 'keyboard' : 'analysis'; s.layer = 0; return; }
+    if (e.key === 't') { where = 'keybr'; return; }
+    if (s.focus === 'left') {
+      if (e.key === 'j') { s.sel = Math.min(s.sel + 1, items.length - 1); s.layer = 0; s.pair = 0; }
+      else if (e.key === 'k') { s.sel = Math.max(s.sel - 1, 0); s.layer = 0; s.pair = 0; }
+      else if (e.key === 'l' || e.key === 'Enter') s.focus = 'right';
+      else if (e.key === 'v' && it?.lay.d !== undefined) startSave(it.kb);
+      return;
+    }
+    if (e.key === 'h' || e.key === 'Escape') { s.focus = 'left'; return; }
+    if (!it) return;
+    const n = (it.lay.names ?? []).length;
+    if (/^[1-9]$/.test(e.key) && +e.key <= n) s.layer = +e.key - 1;
+    else if (s.tab === 'analysis' && e.key === 'j') s.pair = Math.min(s.pair + 1, 9);
+    else if (s.tab === 'analysis' && e.key === 'k') s.pair = Math.max(s.pair - 1, 0);
+    else if (s.tab === 'keyboard' && e.key === 'r' && it.lay.names) startRename(it.lay, s.layer);
+    else if (s.tab === 'keyboard' && e.key === 'v' && it.lay.names) startSave(it.kb);
+  },
+  html() {
+    const s = this, items = s.items(), it = items[s.sel];
+    let lastBoard = null;
+    const tree = items.map((x, i) => {
+      const head = x.kb.name !== lastBoard ? `<div class="board">${esc(x.kb.name)}</div>` : '';
+      lastBoard = x.kb.name;
+      return `${head}<div class="item ${i === s.sel ? 'sel' : ''}">${esc(x.lay.layout)} <span class="dim">${x.entry >= 0 ? '' : '· no lessons'}</span></div>`;
+    }).join('');
+    let right = '<p>No keyboards yet. Press <kbd>n</kbd> to add one.</p>';
+    if (it) {
+      const tabs = `<div class="tabs"><span class="${s.tab === 'analysis' ? 'on' : ''}">analysis</span><span class="${s.tab === 'keyboard' ? 'on' : ''}">keyboard</span><span>(Tab switches)</span></div>`;
+      if (s.tab === 'analysis') {
+        right = tabs + (it.entry >= 0 ? analysisBodyOne(it.entry, s.layer, s.pair) : `<p>No lessons on this layout yet. Choose it in keybr and type. ${keybrLink()}</p>`);
+      } else if (it.lay.names) {
+        right = `${tabs}<h1>${esc(it.kb.name)} · ${esc(it.lay.layout)}</h1><div class="dim">${versionsLine(it.lay)}</div>
+          ${layerTabs(it.lay.d, it.lay.names, s.layer)}${picture(it.lay.d, s.layer, false)}${formHTML()}
+          <p class="hint">a number shows a layer · <kbd>r</kbd> renames it · <kbd>v</kbd> saves a layout from a <code>.vil</code></p>`;
+      } else right = tabs + '<p class="dim">No keyboard was chosen in keybr for these lessons.</p>';
+    }
+    return `<div class="cols"><div class="left ${s.focus === 'left' ? 'focus' : ''}"><h4>keyboards</h4><div class="tree">${tree}</div>
+        <p class="hint"><kbd>j</kbd>/<kbd>k</kbd> choose · <kbd>l</kbd> or <kbd>Enter</kbd> goes right · <kbd>n</kbd> add a keyboard</p>
+        ${s.focus === 'left' || s.tab === 'analysis' ? formHTML() : ''}<p class="hint">${keybrLink()} (<kbd>t</kbd>)</p></div>
+      <div class="right ${s.focus === 'right' ? 'focus' : ''}">${right}</div></div>
+      ${status(s.focus === 'left' ? 'list' : s.tab, [], s.focus === 'left' ? 'j/k · l right · n add · Tab' : 'h left · 1-9 layer · ' + (s.tab === 'analysis' ? 'j/k pair' : 'r rename · v save'))}`;
+  },
+};
+// The analysis of one entry, without the list of entries at the top (C has its own list).
+function analysisBodyOne(i, layer, pair) { return analysisBody(i, layer, pair).replace(/^<div class="tabs">.*?<\/div>/s, ''); }
+
+// ---------- the stand-in for keybr's typing page ----------
+function keybrHTML() {
+  const back = `?${new URLSearchParams({ variant, data: dataMode, page: 'typokiller' })}`;
+  return `<div class="keybr">
+    <div class="bar"><b>keybr</b><span class="tag">stand-in: not keybr's look, only where the link goes</span><span class="grow"></span>
+      <span>keyboard: Sweep · free-range ▾</span><a href="${back}">analysis</a></div>
+    <div class="text">the quick brown fox ...</div>
+    <div class="dim">[keyboard picture under the text: issue #81]</div>
+    <p class="hint">The link "analysis" opens typokiller's page at <code>http://&lt;this host&gt;:&lt;typokiller port&gt;/analysis</code>
+      in the same tab, on the entry typed last. keybr takes its keys for typing, so the link is clicked, not typed.</p></div>`;
+}
+
+// ---------- wiring ----------
+const V = { A, B, C };
+function render() {
+  setParam();
+  document.getElementById('app').innerHTML = where === 'keybr' ? keybrHTML() : V[variant].html();
+  document.querySelectorAll('.pic[data-pair]').forEach(p => p.querySelectorAll('.arc').forEach(a => a.classList.toggle('on', a.dataset.pair === p.dataset.pair)));
+  const s = V[variant];
+  const state = { variant, data: dataMode, page: where, form: form ? form.kind + (form.step ? ':' + form.step : '') : null,
+    ...Object.fromEntries(Object.entries(s).filter(([, v]) => typeof v !== 'function' && typeof v !== 'object')),
+    keyboards: keyboards.map(k => `${k.name}(${k.layouts.map(l => l.layout + ' v' + l.versions.length + ' [' + l.names.join(',') + ']').join('; ')})`) };
+  document.getElementById('switch').innerHTML = `
+    <div class="row">PROTOTYPE · ← → variant:
+      ${Object.entries(VARIANTS).map(([k, n]) => `<button class="${k === variant ? 'on' : ''}" data-v="${k}">${k} ${n}</button>`).join('')}</div>
+    <div class="row">data: ${['full', 'nolessons', 'nokeyboards'].map(m => `<button class="${m === dataMode ? 'on' : ''}" data-d="${m}">${m}</button>`).join('')}</div>
+    <div class="row">page: ${['typokiller', 'keybr'].map(m => `<button class="${m === where ? 'on' : ''}" data-p="${m}">${m}</button>`).join('')}</div>
+    <div class="state">${esc(JSON.stringify(state, null, 1))}</div>`;
+}
+document.getElementById('switch').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.v) variant = b.dataset.v;
+  if (b.dataset.d) { dataMode = b.dataset.d; reset(); }
+  if (b.dataset.p) where = b.dataset.p;
+  form = null; message = '';
+  b.blur();
+  render();
+});
+document.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !form) {
+    const ks = Object.keys(VARIANTS);
+    variant = ks[(ks.indexOf(variant) + (e.key === 'ArrowRight' ? 1 : ks.length - 1)) % ks.length];
+    form = null; message = '';
+  } else if (where === 'keybr') return;
+  else V[variant].key(e);
+  render();
+});
+reset();
+render();
+</script>
+</body>
+</html>
