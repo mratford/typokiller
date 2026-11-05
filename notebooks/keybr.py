@@ -31,10 +31,8 @@ def _():
     # keybr recordings
 
     The detailed recordings of the keybr fork, from a snapshot that `keybr recording export`
-    wrote. The Attempts are read with the analysis method `keybr-input-v1`. Its numbers are not
-    the numbers of typokiller's own history (`first-error-v1`), so the two are never pooled, and
-    this notebook does not open the typokiller database. keybr's own scores are shown apart,
-    labelled "keybr".
+    wrote. The Attempts are read with the analysis method `keybr-input-v1`. This notebook does
+    not open the typokiller database. keybr's own scores are shown apart, labelled "keybr".
     """)
     return
 

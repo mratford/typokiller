@@ -948,7 +948,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "polars" },
     { name = "tomlkit" },
-    { name = "truststore" },
     { name = "uvicorn" },
 ]
 
@@ -966,7 +965,6 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.162.0" },
     { name = "polars", specifier = ">=2.1.0" },
     { name = "tomlkit", specifier = ">=0.15.2" },
-    { name = "truststore", specifier = ">=0.10.5" },
     { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 

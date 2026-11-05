@@ -1,10 +1,20 @@
 # typokiller
 
-A personal typing trainer that records detailed data on every keystroke, uses it to target practice at weaknesses, and feeds it back into keyboard and editor design.
+Two apps that work together. keybr is where you type, and it records every keystroke in detail. typokiller holds the keyboards and their layouts and analyses keybr's recordings, so that the results can feed back into keyboard and editor design.
 
 ## Language
 
 These terms are for the code, the files in `docs/`, the settings file and tickets. The app's screen and the README use plain words instead; `AGENTS.md` lists them.
+
+### The apps
+
+**keybr**:
+The typing app in `keybr/`, a changed copy of keybr.com.
+_Avoid_: the keybr fork, keybr.com (the name keybr.com means only the original)
+
+**typokiller**:
+Only the Python app: the keyboards, the analysis page and the drawing. For both apps together, say "both apps" or "the repo".
+_Avoid_: partner app, server (when the app is meant)
 
 ### Keyboards
 
@@ -14,86 +24,35 @@ _Avoid_: keyboard (when a specific device is meant), device
 
 **Letter layout**:
 Which letters sit on the 30 main keys, such as QWERTY or free-range.
-_Avoid_: layout, alphas
+_Avoid_: layout, alphas, keybr layout
 
 **Keymap**:
 Every layer of keys on one Board, imported from its `.vil`; it includes exactly one Letter layout.
 _Avoid_: layout, vil
 
-### Practice
+**Keymap drawing**:
+A picture of one layer of one Keymap version, drawn by typokiller. Heat colours, the weakest-pair arc and the next-key outline are things a drawing can show. They are not separate terms.
 
-**Session**:
-One sitting at one Board, from choosing the Board until stopping.
-_Avoid_: run, sitting
-
-**Source**:
-Somewhere text comes from: a Gutenberg book, a code repo or folder, an article sent from the browser, or a Lesson.
-_Avoid_: content, material, feed
-
-**Lesson**:
-A Source the LLM writes on request about a programming topic in one language, such as "async with examples", mixing explanation with examples that have been checked to run.
-_Avoid_: using "lesson" for typing practice in general
-
-**Passage**:
-One chunk of text meant to be typed in one go: a paragraph or function taken from a Source, or a Drill. A paragraph or function that is too long for one go is cut into several Passages. The same Passage can be typed many times.
-_Avoid_: exercise, snippet, text
-
-**Attempt**:
-One typing of a Passage within a Session, finished or abandoned; every keystroke belongs to exactly one Attempt. It is finished when the last character is typed, whether or not Errors are left in the text.
-_Avoid_: try, run, rep
-
-**Symbol Lesson**:
-A Python Lesson on a topic that the LLM chooses because it uses one rare Symbol, written when too few lines of code hold that Symbol.
-_Avoid_: symbol corpus, generated code
-
-**Symbol docs**:
-The Sources that one import takes from the Python and Gleam documentation, the GNU bash examples and the tldr pages, to give lines of code to Symbol Drills.
-_Avoid_: symbol corpus, background sources
-
-**Symbol Source**:
-A Source that exists to give lines of code to Symbol Drills: a Symbol Lesson, or one of the Symbol docs. It is never opened to type in order.
-_Avoid_: background source, symbol docs (for one of these Sources)
-
-**Drill**:
-A Passage that typokiller generates around chosen Targets rather than taking from a Source; used to practise weaknesses, gather data, or simply practise.
-_Avoid_: exercise, lesson
-
-**Target**:
-A character or pair of characters that a Drill focuses on, because it is measured as weak or has not been measured enough yet.
-_Avoid_: weak spot, focus
-
-**Symbol**:
-A digit, or one of ``!"#$%&()*+-/:;<=>?@[\]^`{|}~``. A pair is a symbol pair when at least one of its characters is a Symbol and neither is a space or newline. `' , . _` are not Symbols.
-_Avoid_: special character, punctuation (for this set)
-
-**Unlocked keys**:
-The keys of a Letter layout that Drills may use while that layout is being learned; the set only ever grows.
-_Avoid_: unlocked letters (punctuation keys count too), level
-
-**Symbol Drill**:
-A Drill whose Targets are only Symbols and symbol pairs, made of whole lines of code from the Sources; it may use every key, locked or not.
-_Avoid_: symbol exercise
-
-**Introduction Drill**:
-A Drill built around a key that has just been unlocked.
-_Avoid_: intro, warm-up
-
-**Word list**:
-The fixed list of common British English words (SCOWL, size 35) that Drills use instead of the Sources while a Letter layout has locked keys.
-_Avoid_: dictionary, SCOWL (for the list in use), WORDS
-
-**Made-up word**:
-A string of Unlocked keys that is not a real word, made from the letter pairs of the Word list, so that Drills have enough words when only a few keys are unlocked.
-_Avoid_: pseudo-word, nonsense word, fake word
+**Keyboard export**:
+The Boards, their Keymap versions and their Keymap drawings that typokiller gives keybr when keybr's typing page loads. keybr keeps the last one it got, so its copy can be older than typokiller's keyboards.
+_Avoid_: sync, import file, export file
 
 ### Analysis
+
+**Attempt**:
+One keybr lesson, finished or abandoned. Every keystroke belongs to exactly one Attempt.
+_Avoid_: try, run, rep
+
+**keybr recordings**:
+The SQLite database in which keybr keeps detailed records of every Attempt. Each Attempt names a Board and a Keymap version. typokiller reads it while keybr runs, and never writes it.
+_Avoid_: snapshot, keybr history, recordings.sqlite (the file name)
 
 **Weakness model**:
 A named, swappable method that ranks the characters and pairs typed on one Board with one Letter layout by cost, so different methods can be compared.
 _Avoid_: scorer, algorithm
 
 **Error**:
-The first keystroke in a run that doesn't match the Passage at the cursor; it is charged to the character that should have been typed.
+The first keystroke in a run that does not match the Attempt's text at the cursor. It is charged to the character that should have been typed.
 _Avoid_: typo, mispress, mistake (when the counted thing is meant)
 
 **Off-track**:
@@ -105,9 +64,5 @@ Getting from an Error back to the right character in its place; its duration is 
 _Avoid_: correction
 
 **Analysis method**:
-The named rules that turn recorded typing into positions, Errors, Fixes and timings: `first-error-v1` for typokiller's own history, and `keybr-input-v1` for keybr recordings. Each table says which one made it. The metrics of different methods must not be pooled.
+The named rules that turn recorded typing into positions, Errors, Fixes and timings. There is one so far: `keybr-input-v1` for keybr recordings. Each table says which one made it. The metrics of different methods must not be pooled.
 _Avoid_: alignment (for keybr-input-v1), scorer
-
-**keybr recording**:
-A snapshot of the detailed records that the keybr fork keeps of typing there, written by `keybr recording export` as an SQLite file. Each of its Attempts names an imported Board and Keymap version. It is read by `typokiller.recording`, never written.
-_Avoid_: keybr history, keybr export (for the snapshot)

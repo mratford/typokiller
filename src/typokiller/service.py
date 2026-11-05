@@ -2,7 +2,6 @@
 with its data outside the repo (ADR 0002). Its messages are screen text, so they use plain words."""
 
 import argparse
-import json
 import os
 import plistlib
 import re
@@ -20,7 +19,7 @@ LABEL = "local.typokiller"
 DOMAIN = f"gui/{os.getuid()}"
 TARGET = f"{DOMAIN}/{LABEL}"
 URL = "http://127.0.0.1:8000"
-# The server runs git, gleam, erl and sandbox-exec.
+# The PATH of the server: launchd gives a much shorter one.
 PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 
@@ -30,7 +29,7 @@ def app_folder() -> Path:
 
 
 def data_folder() -> Path:
-    """The service's working folder: its database, settings, .env, catalogue and backups."""
+    """The service's working folder: its database, settings and backups."""
     return Path.home() / ".local/share/typokiller/data"
 
 
@@ -99,13 +98,6 @@ def tests_pass() -> bool:
     return True
 
 
-def busy_check(force: bool):
-    """Stops when the server lists background work that a restart would lose, unless `force`."""
-    work = json.loads(get("/api/busy") or "[]")
-    if work and not force:
-        sys.exit(f"The server is busy: {'; '.join(work)}. A restart would lose this work. Wait, or add --force.")
-
-
 def backups() -> list[Path]:
     """The backups, newest first. Their names start with the time, so they sort by time."""
     return sorted((data_folder() / "backups").glob("typokiller-*.db"), reverse=True)
@@ -153,16 +145,14 @@ def install():
     (data / "backups").mkdir(parents=True, exist_ok=True)
     if (checkout / "typokiller.db").exists() and not (data / "typokiller.db").exists():
         shutil.move(checkout / "typokiller.db", data / "typokiller.db")
-    for name in ["typokiller.toml", ".env", "pg_catalog.csv"]:
-        if (checkout / name).exists() and not (data / name).exists():
-            shutil.copy2(checkout / name, data / name)
+    if (checkout / "typokiller.toml").exists() and not (data / "typokiller.toml").exists():
+        shutil.copy2(checkout / "typokiller.toml", data / "typokiller.toml")
     plist_path().parent.mkdir(parents=True, exist_ok=True)
     plist_path().write_bytes(plist())
     start()
 
 
-def update(commit: str, force: bool):
-    busy_check(force)
+def update(commit: str):
     app = app_folder()
     old = must("git", "-C", app, "rev-parse", "HEAD")
     new = must("git", "-C", app, "rev-parse", f"{commit}^{{commit}}")
@@ -180,8 +170,7 @@ def update(commit: str, force: bool):
     wait_for_server()
 
 
-def stop(force: bool):
-    busy_check(force)
+def stop():
     must("launchctl", "bootout", TARGET)
     print("Stopped. The service starts again at the next login, or with: uv run typokiller-service start")
 
@@ -197,7 +186,7 @@ def status():
     print(f"Newest backup: {newest[0].name if newest else 'none'}")
 
 
-def restore(name: str | None, force: bool):
+def restore(name: str | None):
     if name is None:
         for path in backups():
             print(path.name)
@@ -205,7 +194,6 @@ def restore(name: str | None, force: bool):
     chosen = data_folder() / "backups" / name
     if not chosen.exists():
         sys.exit(f"No backup {chosen}. See the list with: uv run typokiller-service restore")
-    busy_check(force)
     run("launchctl", "bootout", TARGET)
     backup(must("git", "-C", app_folder(), "rev-parse", "HEAD"))
     shutil.copy(chosen, data_folder() / "typokiller.db")
@@ -213,8 +201,7 @@ def restore(name: str | None, force: bool):
     start()
 
 
-def uninstall(force: bool):
-    busy_check(force)
+def uninstall():
     run("launchctl", "bootout", TARGET)
     plist_path().unlink(missing_ok=True)
     run("git", "worktree", "remove", "--force", app_folder())
@@ -224,10 +211,8 @@ def uninstall(force: bool):
 def main(args: list[str] | None = None):
     parser = argparse.ArgumentParser(prog="typokiller-service", description="Runs typokiller as a service on port 8000. See the README.")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ["install", "start", "status", "logs"]:
+    for name in ["install", "update", "start", "stop", "status", "logs", "restore", "uninstall"]:
         commands.add_parser(name)
-    for name in ["update", "stop", "restore", "uninstall"]:
-        commands.add_parser(name).add_argument("--force", action="store_true", help="continue even when the server is busy")
     commands.choices["update"].add_argument("commit", nargs="?", default="main")
     commands.choices["restore"].add_argument("backup", nargs="?", help="the file name of a backup; none lists them")
     opts = parser.parse_args(args)
@@ -235,16 +220,16 @@ def main(args: list[str] | None = None):
         case "install":
             install()
         case "update":
-            update(opts.commit, opts.force)
+            update(opts.commit)
         case "start":
             start()
         case "stop":
-            stop(opts.force)
+            stop()
         case "status":
             status()
         case "logs":
             os.execvp("tail", ["tail", "-n", "50", "-f", str(log_path())])
         case "restore":
-            restore(opts.backup, opts.force)
+            restore(opts.backup)
         case "uninstall":
-            uninstall(opts.force)
+            uninstall()

@@ -6,24 +6,20 @@ In all messages to the user, documentation and code comments, use plain technica
 
 ## Words on screen
 
-The glossary terms in `CONTEXT.md` are for the code, the files in `docs/`, the comments in `typokiller.toml` and tickets. Screen text (the page, the server notices and error messages, the settings page labels) and the README use these plain words, never the capitalised glossary terms. A test in `tests/typing.test.js` checks the page files.
+The glossary terms in `CONTEXT.md` are for the code, the files in `docs/`, the comments in `typokiller.toml` and tickets. Screen text (the pages and the server's error messages) and the README use these plain words, never the capitalised glossary terms. A test in `tests/pages.test.js` checks the page files.
 
 | Glossary term | On screen | Example |
 |---|---|---|
+| keybr | typing page | "Type on the typing page, then reload this page." |
+| typokiller | analysis page (and "typokiller" as the name on both apps) | `t` opens the typing page |
 | Board | keyboard | "change keyboard", "add a keyboard" |
 | Letter layout / Keymap | layout | "Sweep · free-range", "choose a layout" |
-| Keymap drawing (`m`) | keyboard picture | "keyboard picture on/off" |
-| Session | not named | "stop", "Stopped. Reload the page to start again." |
-| Source | text | "open a text", "add a text", "My book · part 3 of 40" |
-| Passage | part | "skip this part", "restart this part" |
-| Built-in Passage | sample text | "No text open: typing the sample text." |
-| Attempt | not named | "Settings saved. They apply from the next part you start." |
-| Lesson | lesson (lowercase) | "new lesson (written by the AI)" |
-| Drill | drill (lowercase) | "drill your weakest keys" |
-| Target | not named, or "practising" | status line: "drill · practising: e th ;" |
-| Symbol Drill | symbol drill | "symbol drills: lines of code with numbers and symbols" |
-| Introduction Drill | new key drill | "Unlocked e. Next come drills for e." |
-| symbol docs | Python, Gleam and shell docs | "add the Python, Gleam and shell docs (code for symbol drills)" |
+| Keymap drawing | keyboard picture | keybr's "change view" turns the keyboard picture off (in place of `m`) |
+| Attempt | lesson | "No lessons recorded yet." |
+| keybr recordings | recorded lessons | "The recorded lessons are newer than this version of typokiller." |
+| Keyboard export | not named; "keyboards" | "keyboards added since it last ran are missing" |
+
+The name "keybr" appears on screen only in the credit (the footer and the README). The terminal output of `typokiller-service` still says "keybr", because the service labels and the log files use that name.
 
 Labels describe the action where they can, so that most of them need no noun.
 

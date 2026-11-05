@@ -1,10 +1,9 @@
 """The analysis method keybr-input-v1: character observations from keybr recordings.
 
-keybr's typing rules are not typokiller's. keybr can forgive a wrong character, skip a word,
-recover by itself and stop on an error, and it records what its engine accepted. So this method
-does not replay key events with `analysis.apply_key` and `analysis.first_error_v1`. It reads the
-recorded input outcomes and state changes instead (see docs/adr/0003-keybr-input-v1.md). Its numbers
-must not be pooled with those of first-error-v1.
+keybr can forgive a wrong character, skip a word, recover by itself and stop on an error, and it
+records what its engine accepted. So this method does not replay key events with typing rules of
+its own. It reads the recorded input outcomes and state changes instead (see
+docs/adr/0003-keybr-input-v1.md).
 
 A real input is a processed appendChar or appendLineBreak input that has a state record. Its time
 is the timeStamp of its original event. The order of cause of the inputs is their sequence order.
@@ -183,13 +182,12 @@ def key_events(found: list[dict[str, Any]]) -> list[Event]:
     for r in found:
         if r["type"] == "processed" and r["event"]["type"] == "keydown":
             original = by_sequence.get(r["originalSequence"], {}).get("event") or r["event"]
-            e, mods = r["event"], r["event"]["modifiers"]
-            repeat = bool(original.get("repeat"))
-            events.append(Event(r["sequence"], original["timeStamp"], "keydown", e["code"], e["key"], "Control" in mods, "Meta" in mods, repeat))
+            e = r["event"]
+            events.append(Event(r["sequence"], original["timeStamp"], "keydown", e["code"], e["key"], bool(original.get("repeat"))))
         elif r["type"] == "original" and r["event"]["type"] == "keyup" and r["pressSequence"] is not None:
             press = processed_down.get(r["pressSequence"])
             code = press["event"]["code"] if press else r["event"]["code"]
-            events.append(Event(r["sequence"], r["event"]["timeStamp"], "keyup", code, r["event"]["key"] or "", False, False, False))
+            events.append(Event(r["sequence"], r["event"]["timeStamp"], "keyup", code, r["event"]["key"] or "", False))
     return sorted(events, key=lambda e: e.seq)
 
 
@@ -308,7 +306,7 @@ def analysed(recording: Recording) -> list[AttemptResult]:
     results = []
     for attempt in recording.attempts.filter(pl.col("status") != "unreadable").iter_rows(named=True):
         records = sorted(found.get(attempt["attempt"], []), key=lambda r: r["sequence"])
-        results.append(analyse_attempt(attempt, records, keymaps.get(attempt["keymap_version"], NO_BOARD[2])))
+        results.append(analyse_attempt(attempt, records, keymaps.get(attempt["keymap_version"], NO_BOARD)))
     return results
 
 
@@ -361,8 +359,8 @@ def exclusions(recording: Recording) -> pl.DataFrame:
 
 def units(observations: pl.DataFrame) -> pl.DataFrame:
     """The observations with one row for each unit: the character, and the pair when there is one.
-    The columns of `observations`, and unit. `analysis.rank_units` ranks these rows, as it ranks
-    the rows of `analysis.units`; unresolved fix times stay None."""
+    The columns of `observations`, and unit. `analysis.rank_units` ranks these rows; unresolved
+    fix times stay None."""
     return observations.with_columns(unit=pl.concat_list("char", "pair")).explode("unit").drop_nulls("unit")
 
 

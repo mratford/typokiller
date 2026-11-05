@@ -18,7 +18,7 @@ class FakeRun:
     def __init__(self, results: dict[tuple, tuple[int, str]]):
         self.results = results
         self.calls: list[tuple[str, ...]] = []
-        self.busy: str | None = "[]"
+        self.asked: list[str] = []  # the paths asked of the server
 
     def __call__(self, *args, cwd=None):
         args = tuple(str(arg) for arg in args)
@@ -46,11 +46,11 @@ def checkout(tmp_path) -> Path:
 
 @pytest.fixture
 def fake(home, checkout, monkeypatch) -> FakeRun:
-    """The checkout is found with git rev-parse. The server answers only /api/busy, with
-    `fake.busy` (None: no answer), and the commands do not wait for it to start."""
+    """The checkout is found with git rev-parse. The server does not answer, and the commands
+    do not wait for it to start."""
     fake = FakeRun({("git", "rev-parse", "--path-format=absolute", "--git-common-dir"): (0, f"{checkout}/.git\n")})
     monkeypatch.setattr(service, "run", fake)
-    monkeypatch.setattr(service, "get", lambda path: fake.busy if path == "/api/busy" else None)
+    monkeypatch.setattr(service, "get", lambda path: fake.asked.append(path))
     monkeypatch.setattr(service, "wait_for_server", lambda: None)
     return fake
 
@@ -69,17 +69,15 @@ def test_install_writes_the_plist_for_launchd(home, fake):
     assert plist["StandardOutPath"] == plist["StandardErrorPath"] == f"{home}/Library/Logs/typokiller.log"
 
 
-def test_install_moves_the_database_and_copies_the_other_files(home, checkout, fake):
+def test_install_moves_the_database_and_copies_only_the_settings(home, checkout, fake):
     for name in ["typokiller.db", "typokiller.toml", ".env", "pg_catalog.csv"]:
         (checkout / name).write_text(name)
     service.main(["install"])
     data = home / ".local/share/typokiller/data"
     assert not (checkout / "typokiller.db").exists()
-    for name in ["typokiller.db", "typokiller.toml", ".env", "pg_catalog.csv"]:
-        assert (data / name).read_text() == name
-    for name in ["typokiller.toml", ".env", "pg_catalog.csv"]:
-        assert (checkout / name).exists()
-    assert (data / "backups").is_dir()
+    assert sorted(path.name for path in data.iterdir()) == ["backups", "typokiller.db", "typokiller.toml"]
+    assert (data / "typokiller.db").read_text() == "typokiller.db"
+    assert (data / "typokiller.toml").read_text() == (checkout / "typokiller.toml").read_text() == "typokiller.toml"
 
 
 def test_install_keeps_a_database_already_in_the_data_folder(home, checkout, fake):
@@ -156,18 +154,12 @@ def test_update_to_the_commit_already_running_changes_nothing(home, installed, f
     assert not fake.ran("launchctl")
 
 
-def test_the_busy_check_stops_update_while_the_server_lists_work(installed, fake, capsys):
-    fake.busy = '["writing a lesson", "cloning 1 repo"]'
-    with pytest.raises(SystemExit, match="writing a lesson; cloning 1 repo"):
-        service.main(["update"])
-    assert not fake.ran("git", "-C")
-
-
-@pytest.mark.parametrize("busy, args", [('["writing a lesson"]', ["--force"]), (None, [])], ids=["force", "no answer"])
-def test_update_goes_on_with_force_or_when_the_server_does_not_answer(installed, fake, busy, args):
-    fake.busy = busy
-    service.main(["update", *args])
-    assert fake.ran("launchctl", "kickstart")
+@pytest.mark.parametrize("command", ["update", "stop", "restore", "uninstall"])
+def test_no_command_asks_the_server_whether_it_is_busy_or_takes_force(installed, fake, command):
+    service.main([command])
+    assert fake.asked == []
+    with pytest.raises(SystemExit):
+        service.main([command, "--force"])
 
 
 def test_restore_lists_the_backups_newest_first(installed, fake, capsys):

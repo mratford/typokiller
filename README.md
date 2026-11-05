@@ -2,7 +2,7 @@
 
 ## Running
 
-typokiller runs all the time on this Mac as a launchd service, on port 8000 (http://<this Mac>:8000 on the LAN). The service does not run the code in this folder. It runs its own copy, a git worktree in `~/.local/share/typokiller/app`, which changes only when you update it. Its database, settings, `.env` and backups are in `~/.local/share/typokiller/data`. Its log is `~/Library/Logs/typokiller.log`. The reasons are in `docs/adr/0002-local-service.md`.
+typokiller runs all the time on this Mac as a launchd service, on port 8000 (http://<this Mac>:8000 on the LAN). The service does not run the code in this folder. It runs its own copy, a git worktree in `~/.local/share/typokiller/app`, which changes only when you update it. Its database, settings and backups are in `~/.local/share/typokiller/data`. Its log is `~/Library/Logs/typokiller.log`. The reasons are in `docs/adr/0002-local-service.md`.
 
 ```sh
 uv run typokiller-service install     # set it up and start it
@@ -17,11 +17,9 @@ uv run typokiller-service restore typokiller-2026-11-01-093015-abc1234.db
 uv run typokiller-service uninstall   # remove it, but keep the data and the log
 ```
 
-`install` runs the tests in the new worktree, moves `typokiller.db` from this folder to the data folder, and copies `typokiller.toml`, `.env` and `pg_catalog.csv` there. It refuses while something answers on port 8000, so stop a server that runs from this folder first. After an `uninstall`, `install` keeps the database that is in the data folder already.
+`install` runs the tests in the new worktree, moves `typokiller.db` from this folder to the data folder, and copies `typokiller.toml` there. It refuses while something answers on port 8000, so stop a server that runs from this folder first. After an `uninstall`, `install` keeps the database that is in the data folder already.
 
 `update` moves the worktree to the commit, installs its packages and runs the tests. If they fail, it goes back to the old commit and the service continues with the old code. If they pass, it backs up the database to `backups/` in the data folder, keeps the 10 newest backups, and restarts the service.
-
-A restart stops the work that the server does in the background: lessons that are being written or are queued, repos being cloned and the import of the Python, Gleam and shell docs. So `update`, `stop`, `restore` and `uninstall` first ask the server for that work, and stop if there is any. Add `--force` to continue.
 
 To go back to a backup, list them with `restore`, then give one file name. The service stops, the database is backed up first (so you can undo the restore with the same command), the chosen backup becomes the database, and the service starts again. The code does not change.
 
@@ -30,42 +28,22 @@ For development, run a server from this folder on another port. It uses `typokil
 ```sh
 uv run typokiller --port 8001
 uv run pytest              # server tests
-node --test tests/*.test.js   # typing rules tests
+node --test tests/*.test.js   # page tests
 uv run pyright             # type check
 ```
 
-The database is `typokiller.db` in the folder that the server runs in. The Gutenberg catalogue, `pg_catalog.csv`, is downloaded next to it in the background when the server starts, and again when it is a week old. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor, or press `,` in the Escape menu.
+The database is `typokiller.db` in the folder that the server runs in. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor.
 
-In a list, such as the list of keyboards or the list of texts (`o`), type an item's label of one or two letters to choose it, or select it with `j`/`k` and press Enter. After the first letter of a two-letter label, Esc or Backspace removes it. The letters are the `[lists]` setting `letters`.
-
-Code from a git repo (`i` then `c` in the Escape menu) is cloned with the `git` command, so it uses the Mac's own git credentials and private repos work. git must not need to ask for a password.
-
-Articles (`i` then `a` in the Escape menu) are sent with a bookmarklet. Drag the link in that panel to the bookmarks bar. The link opens `/send` on the address that typokiller was loaded from. So open typokiller at the address that the reading browser uses to reach this Mac, and drag the link from there.
-
-Press `m` in the Escape menu to show a faint picture of the keyboard's layout under the text. Layer names come from `[keymaps]` in `typokiller.toml`, for example:
+The keyboard pictures name the layers of a layout with the names in `[keymaps]` in `typokiller.toml`, for example:
 
 ```toml
 [keymaps.Sweep.QWERTY]
 layers = ["Base", "Sym", "Nav", "Stack", "Num"]
 ```
 
-Press `p` in the Escape menu for the progress page of the keyboard and layout that you are typing on. `h` and `l` show the previous and next keyboard and layout, a number shows that layer of the layout, and `j`/`k` select one of the weakest pairs, which is drawn as an arc. Esc goes back. The page loads `vega-embed` from cdn.jsdelivr.net to draw the trend chart, so the chart needs the internet; the rest of the page does not.
-
-The notebook `notebooks/progress.py`, shows the progress page again, made with the same functions as the app, so the numbers are the same. It also ranks your weakest keys in each layer, with the keystrokes of each layer on their own. Open it in marimo from this folder:
-
-```sh
-uv run marimo edit notebooks/progress.py                     # the service's database
-uv run marimo edit notebooks/progress.py -- --db other.db    # another database
-uv run python notebooks/progress.py --db other.db            # run every cell once, with no browser
-```
-
-With no `--db`, it opens the service's database, `~/.local/share/typokiller/data/typokiller.db`. When that file does not exist, it opens `typokiller.db` in this folder. It prints the path of the database that it opened.
-
-Like the server, it reads the settings in `typokiller.toml` next to the database, and adds any missing settings to that file. It opens the database read only, so the server can run at the same time. A new notebook can import the same functions from `typokiller.analysis` and `typokiller.drawing`.
-
 ### Typing in keybr
 
-The keybr fork (github.com/mratford/keybr.com) records in detail everything that you type there, for the keyboard and layout that you choose there. The notebook `notebooks/keybr.py` reads these recordings. It keeps them apart from typokiller's own history: keybr has different typing rules, so its numbers are measured in a different way (`keybr-input-v1`) and are never mixed with typokiller's. keybr's own speed and accuracy are shown apart, labelled "keybr". See keybr's [docs/detailed_recording.md](https://github.com/mratford/keybr.com/blob/master/docs/detailed_recording.md) for how to turn recording on.
+keybr (github.com/mratford/keybr.com) records in detail everything that you type there, for the keyboard and layout that you choose there. The notebook `notebooks/keybr.py` reads these recordings. keybr has its own typing rules, so its numbers are measured in a way of their own (`keybr-input-v1`). keybr's own speed and accuracy are shown apart, labelled "keybr". See keybr's [docs/detailed_recording.md](https://github.com/mratford/keybr.com/blob/master/docs/detailed_recording.md) for how to turn recording on.
 
 1. Write your keyboards and their saved layouts to a file, here in this folder:
 
@@ -96,19 +74,5 @@ The keybr fork (github.com/mratford/keybr.com) records in detail everything that
    ```
 
    With no `--snapshot`, it opens `keybr-recordings.sqlite` in this folder. It opens the snapshot read only and never opens the typokiller database. It has filters for the keyboard, the layout, the saved version of the layout and the days. It shows keybr's own progress, the first-input accuracy, the weakest characters and pairs, fix times, timings, the keyboard picture with heat, and how complete the recordings are.
-
-On free-range (the `[unlocking]` settings name the layout being learned), only four keys are unlocked at the start (`t s r e`), and drills use only the unlocked keys. Their words come from a fixed list of common British English words (SCOWL, size 35, in `src/typokiller/words.txt`), not from your texts. While the list has fewer than `min_words` (200) words for the unlocked keys, made-up words fill it up. A made-up word is not a real word, but its letter pairs are common in the word list. The status line shows the progress, such as `4/30 keys · next a`. After each finished part, the next key unlocks when each unlocked key is fast enough; `u` in the Escape menu unlocks it at once. After an unlock, the next drills are new key drills of the new key. Keyboard pictures show locked keys dashed and faint, with a ring on the next one.
-
-Press `d` in the Escape menu for one drill of your weakest keys, `e` for endless drills, and `y` for endless symbol drills. Symbol drills practise only symbols (the digits and ``!"#$%&()*+-/:;<=>?@[\]^`{|}~``) and symbol pairs (pairs with a symbol and no space or newline), and their text is whole lines of code from the code texts and the code of lessons. They may use every key, locked or not, and no new key drill breaks into them. The `[symbols]` settings hold how many symbols and lines each one has.
-
-Press `i` then `s` in the Escape menu to add the Python, Gleam and shell docs. This clones the Python and Gleam documentation, the GNU bash repo and the tldr pages from the internet in the background and makes six code texts from their examples: the Python tutorial and library (the branch is the `[symbols]` setting `python_branch`), the Gleam language tour and the Gleam standard library, the GNU bash examples (all files of `examples/` except the C code in `loadables/`) and the tldr pages (the commands of the pages for all systems, for Linux and for macOS, with the placeholders and the `path/to/` removed). A notice says when they are imported. Their text is kept only in the database. A text that is already in the database is not added again, so adding the docs again adds only the texts that are new. After that, each symbol that fewer than `min_lines` (50) lines of code for symbol drills hold gets a symbol lesson: a Python lesson (see `l` below) on a topic that the AI chooses because it uses that symbol, titled "Symbol ^: <topic>". The notice lists the rarest symbols and the symbol lessons queued. When a symbol lesson is written, the lines that hold its symbol are counted again, and the symbol gets one more symbol lesson while it is still in fewer than `min_lines` lines, up to `max_lessons` (3) for each symbol. Each is checked against the monthly cap like any lesson. Add the docs again only for a new `python_branch`, or to get the shell docs into a database that has the Python and Gleam docs. The symbol lessons and the Python, Gleam and shell docs give lines of code to symbol drills and, once all keys are unlocked, words to drills, but they are not in the list of texts (`o`), and typokiller does not go on with them when it starts.
-
-Press `l` in the Escape menu for a new lesson, written by the AI: type a topic, such as `decorators`, then Enter. The form shows what lessons cost this month. First press `p` for Python or `g` for Gleam; Enter chooses the language used last. A model writes the lesson through OpenRouter in the background (Python: Claude Haiku 5.5, about $0.002 a lesson; Gleam: Claude Sonnet 5.5, about $0.05 a lesson), and a notice says when it is ready. It is then first in the list of texts (`o`). The API key is `OPENROUTER_API_KEY`, from the environment or from a `.env` file in the folder that the server runs in (it is gitignored), for example `OPENROUTER_API_KEY=sk-or-...`. The `[lessons]` settings hold the model, the length and level, and the monthly cap (£5); a request that could make the month's cost more than the cap is refused. Each code example is run on this Mac under `sandbox-exec`, in a new temp folder, with no network and no writes outside that folder. An example that fails is sent back to the model for a repair, at most twice, and is then dropped. A lesson with too many dropped examples is written once again, and then rejected.
-
-Gleam examples need `gleam` and Erlang on this Mac. Each one is built and run in a copy of the pre-made project in `src/typokiller/gleam/`, where `manifest.toml` pins the library versions. When you ask for a Gleam lesson, typokiller first runs `gleam build` there. The first time, this downloads the libraries (it needs the internet) and compiles them into `src/typokiller/gleam/build/`; after that it does nothing. If it fails, the request is refused with gleam's error, and nothing is sent to the model. To make that folder again, delete it; the next Gleam lesson request makes it. The Gleam tests are skipped while the folder is missing, because tests do not use the network. To make it at once:
-
-```sh
-rm -rf src/typokiller/gleam/build && (cd src/typokiller/gleam && gleam build)
-```
 
 The server tests read copies of real `.vil` and `vial.json` files, kept in `tests/fixtures/`. They come from the `sweep-layouts` repo (commit 67c9332), which the tests do not need. They do not follow that repo. To refresh them, copy the files that a test needs from `sweep-layouts`, then change the commit in this line and in `tests/test_app.py`.
