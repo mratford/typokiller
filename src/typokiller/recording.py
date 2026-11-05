@@ -1,8 +1,8 @@
-"""Reads the snapshot files that the keybr fork writes with `keybr recording export <file>`.
+"""Reads the snapshot files that keybr writes with `keybr recording export <file>`.
 
 A snapshot is an SQLite copy of keybr's recording database. Its layout is in
-packages/keybr-recording-store/lib/index.ts of the keybr fork, and the records are defined in
-packages/keybr-recording/lib/index.ts (see keybr's docs/typing-recordings.md):
+keybr/packages/keybr-recording-store/lib/index.ts, and the records are defined in
+keybr/packages/keybr-recording/lib/index.ts (see keybr/docs/typing-recordings.md):
 
 - `PRAGMA user_version` is the database version, 1 or 2. Version 2 adds `keyboard_sources`.
 - `metadata` has `schemaVersion`, the version of the record contract, which must be "1".

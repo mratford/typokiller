@@ -1,0 +1,7 @@
+This folder is a changed copy of keybr.com by Aliaksandr Radzivanovich
+(https://github.com/aradzie/keybr.com), under the GNU Affero General Public
+License 3.0 (see LICENSE).
+
+It was changed by Mike Ratford since upstream commit
+05a37bc5265f65ff538c59c613db29442f345d51 of aradzie/keybr.com.
+See the git history for the changes.

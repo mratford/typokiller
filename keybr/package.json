@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "homepage": "https://www.keybr.com",
-  "license": "GPL-3",
+  "license": "AGPL-3.0-or-later",
   "author": "Aliaksandr Radzivanovich <aradzivanovich@gmail.com>",
   "repository": {
     "type": "git",
@@ -15,7 +15,7 @@
     "scripts"
   ],
   "scripts": {
-    "postinstall": "husky && patch-package",
+    "postinstall": "(cd .. && husky keybr/.husky) && patch-package",
     "config-lint": "node scripts/config-lint.js",
     "translate": "node scripts/translate.js",
     "clean": "lage clean --no-cache",

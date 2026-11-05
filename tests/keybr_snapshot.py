@@ -1,9 +1,7 @@
 """Test helpers for keybr recordings: the shared fixtures, and snapshot files built from them.
 
-The files in fixtures/keybr/ are copies of keybr's shared fixtures, from
-packages/keybr-recording/fixtures/ of the keybr fork (github.com/mratford/keybr.com) at its
-commit c1e1c8d5 (branch feat/5-free-range). They are copies, so that a change there does not
-change the tests. Copy them again after an intended change to keybr's recording contract.
+The fixtures are keybr's own files in keybr/packages/keybr-recording/fixtures/. The tests of both
+apps read these same files, so a change on one side that breaks the other side fails a test.
 
 keybr has no fixture snapshot file, so `build_snapshot` writes one, as `keybr recording export`
 would: with keybr's own tables (STORE_SCHEMA), the keyboards imported from a keyboard export, and
@@ -16,10 +14,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-KEYBR_FIXTURES = Path(__file__).parent / "fixtures" / "keybr"
+KEYBR_FIXTURES = Path(__file__).parents[1] / "keybr" / "packages" / "keybr-recording" / "fixtures"
 
 # The tables of keybr's recording database: migrations 0 and 1 in
-# packages/keybr-recording-store/lib/index.ts at the same commit c1e1c8d5.
+# keybr/packages/keybr-recording-store/lib/index.ts, copied from there.
 STORE_SCHEMA_V1 = """
 CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 INSERT INTO metadata VALUES ('schemaVersion', '1');

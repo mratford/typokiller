@@ -1,6 +1,6 @@
 """typokiller-export-keyboards: writes the Boards and Keymap versions of a typokiller database in
-the import format of the keybr fork (`keybr recording import-keyboards`). The format is defined in
-keybr's packages/keybr-recording/lib/keyboards.ts and docs/detailed_recording.md.
+the import format of keybr (`keybr recording import-keyboards`). The format is defined in
+keybr/packages/keybr-recording/lib/keyboards.ts and keybr/docs/detailed_recording.md.
 
 It exports configuration only: no typing history, secrets or environment settings. It opens the
 database read-only and only reads the settings file, so it does not need the server, and it

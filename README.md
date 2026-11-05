@@ -1,5 +1,8 @@
 # typokiller
 
+typokiller's typing page is a changed copy of [keybr.com](https://www.keybr.com/) by Aliaksandr Radzivanovich ([aradzie/keybr.com](https://github.com/aradzie/keybr.com)), under the AGPL 3.0.
+The code in `keybr/` is under the AGPL 3.0 (see `keybr/LICENSE` and `keybr/NOTICE`). The rest of this repo is also under the AGPL 3.0 (see `LICENSE`).
+
 ## Running
 
 typokiller runs all the time on this Mac as a launchd service, on port 8000 (http://<this Mac>:8000 on the LAN). The service does not run the code in this folder. It runs its own copy, a git worktree in `~/.local/share/typokiller/app`, which changes only when you update it. Its database, settings and backups are in `~/.local/share/typokiller/data`. Its log is `~/Library/Logs/typokiller.log`. The reasons are in `docs/adr/0002-local-service.md`.
@@ -43,7 +46,7 @@ layers = ["Base", "Sym", "Nav", "Stack", "Num"]
 
 ### Typing in keybr
 
-keybr (github.com/mratford/keybr.com) records in detail everything that you type there, for the keyboard and layout that you choose there. The notebook `notebooks/keybr.py` reads these recordings. keybr has its own typing rules, so its numbers are measured in a way of their own (`keybr-input-v1`). keybr's own speed and accuracy are shown apart, labelled "keybr". See keybr's [docs/detailed_recording.md](https://github.com/mratford/keybr.com/blob/master/docs/detailed_recording.md) for how to turn recording on.
+keybr (in `keybr/`) records in detail everything that you type there, for the keyboard and layout that you choose there. The notebook `notebooks/keybr.py` reads these recordings. keybr has its own typing rules, so its numbers are measured in a way of their own (`keybr-input-v1`). keybr's own speed and accuracy are shown apart, labelled "keybr". See [keybr/docs/detailed_recording.md](keybr/docs/detailed_recording.md) for how to turn recording on.
 
 1. Write your keyboards and their saved layouts to a file, here in this folder:
 
@@ -53,7 +56,7 @@ keybr (github.com/mratford/keybr.com) records in detail everything that you type
 
    It reads the service's database (or `typokiller.db` in this folder), or the one given with `--db`, and the layer names from `typokiller.toml` next to it (or the file given with `--settings`). It opens the database read only and changes neither file, and it does not need the server. It writes only the keyboards and layouts: no typing history, no API keys. It does not overwrite a file.
 
-2. Import the file in the keybr folder. Importing the same file again adds nothing:
+2. Import the file in `keybr/`. Importing the same file again adds nothing:
 
    ```sh
    node root/keybr.js recording import-keyboards /path/to/keyboards.json
@@ -61,7 +64,7 @@ keybr (github.com/mratford/keybr.com) records in detail everything that you type
 
    Do this again after you add a layout to a keyboard in typokiller, or change its layer names. Then reload keybr's practice page, and choose the keyboard and layout there.
 
-3. After typing in keybr, write a snapshot of the recordings, in the keybr folder. Use a new file name:
+3. After typing in keybr, write a snapshot of the recordings, in `keybr/`. Use a new file name:
 
    ```sh
    node root/keybr.js recording export /path/to/keybr-recordings.sqlite

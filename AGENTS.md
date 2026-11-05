@@ -23,6 +23,18 @@ The name "keybr" appears on screen only in the credit (the footer and the README
 
 Labels describe the action where they can, so that most of them need no noun.
 
+## keybr
+
+keybr, the typing app, is in `keybr/`. Before you change its code, read `keybr/AGENTS.md`. Run its tests in `keybr/`, with its own `node_modules`:
+
+```sh
+npm ci && npm run build && env DATABASE_CLIENT=sqlite npm test
+```
+
+`npm ci` sets the git hooks to `keybr/.husky`. Both apps' tests read keybr's fixtures in `keybr/packages/keybr-recording/fixtures/`.
+
+keybr was added with `git subtree add`, so `git log -- keybr` shows only that commit. Its older history is in the second parent of that commit: `git log a18c2bd8^2 -- <path without keybr/>`.
+
 ## Agent skills
 
 ### Issue tracker

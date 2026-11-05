@@ -228,3 +228,9 @@ __marimo__/
 # typokiller settings and the downloaded Gutenberg catalogue
 typokiller.toml
 pg_catalog.csv
+
+# macOS folder settings
+.DS_Store
+
+# Local work files, such as the logo drafts
+/output/

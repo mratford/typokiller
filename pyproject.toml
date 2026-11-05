@@ -3,6 +3,7 @@ name = "typokiller"
 version = "0.1.0"
 description = "Keyboards and their layouts, and the analysis of keybr's recordings"
 requires-python = ">=3.14"
+license = "AGPL-3.0-or-later"
 dependencies = [
     "altair>=6.3.0",
     "fastapi>=0.162.0",
@@ -27,3 +28,10 @@ dev = [
     "pyright>=1.1.414",
     "pytest>=9.1.1",
 ]
+
+# keybr/ holds keybr's code; the Python tools check only typokiller's own folders.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyright]
+include = ["src", "tests", "notebooks"]
