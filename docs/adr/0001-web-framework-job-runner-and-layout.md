@@ -1,5 +1,7 @@
 # Web framework, job runner and project layout
 
+Partly replaced by [ADR 0004](0004-keybr-is-the-typing-app.md): typokiller no longer has a typing page, so it has no background work and no job runner.
+
 The spec (#17, §2) left three choices to the first build ticket (#18). typokiller has one user on a LAN, so each choice takes the simplest option that will still work when later tickets add Lessons, imports and charts.
 
 ## Web framework: FastAPI on uvicorn

@@ -1,5 +1,7 @@
 # The service runs from its own worktree, with its data outside the repo
 
+Partly replaced by [ADR 0004](0004-keybr-is-the-typing-app.md): typokiller no longer has background work, so the service has no busy check and no `--force`.
+
 typokiller runs all the time as a launchd agent on this Mac (#64). The agent does not run the code in the checkout, and its database is not the one in the checkout. Another session commits to `main` in the checkout while the service is in use. So a half-finished change in the checkout could break the service at its next restart, and testing by hand could write to the real database.
 
 - The code is a git worktree at `~/.local/share/typokiller/app`. It has a fixed commit checked out, with no branch. It changes only when `update` is run.
