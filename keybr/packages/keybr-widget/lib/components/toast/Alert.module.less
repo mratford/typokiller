@@ -1,0 +1,16 @@
+.alert {
+  composes: fadeIn from "animations.module.less";
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+  align-items: center;
+  max-inline-size: 50rem;
+  padding: 1rem;
+  color: var(--Popup__color);
+  background-color: var(--Popup__background-color);
+  box-shadow: var(--Popup__box-shadow);
+}
+
+.message {
+  flex: 1;
+}

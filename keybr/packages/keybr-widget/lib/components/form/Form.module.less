@@ -1,0 +1,32 @@
+@import "../../styles/components.less";
+
+.form {
+  cursor: default;
+}
+
+.fieldSet {
+  display: block;
+  min-inline-size: auto;
+  max-inline-size: 100%;
+  margin-inline: 0;
+  margin-block: 0;
+  padding-inline: 1rem;
+  padding-block: 1rem;
+  border: var(--separator-border);
+}
+
+.fieldSet:not(:first-child) {
+  margin-block-start: 1rem;
+}
+
+.fieldSet:not(:last-child) {
+  margin-block-end: 1rem;
+}
+
+.legend {
+  color: var(--text-color-f1);
+}
+
+.legend + :is(h1, h2, h3, p, dl, ol, ul, figure, div) {
+  margin-block-start: 0 !important;
+}

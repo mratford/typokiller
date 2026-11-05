@@ -1,0 +1,136 @@
+start -> python_statement ;
+
+python_statement ->
+    { :if(defs) python_function_definition }
+  | { :if(defs) python_class_definition }
+  | python_assign
+  | python_return
+  | { :if(comments) python_comment }
+  ;
+
+python_function_definition -> kw_def _ python_function_name "(" python_arguments ")" { :if(types) _ "->" _ python_type } ":" ;
+
+python_class_definition -> kw_class _ python_class_name [ "(" python_class_name ")" ] ":" ;
+
+python_assign -> python_variable_name [ "[" python_literal "]" ] _ "=" _ python_expression ;
+
+python_return -> kw_return _ python_expression ;
+
+python_arguments -> python_argument [ "," _ python_argument [ "," _ python_argument ] ] ;
+
+python_argument -> python_variable_name { :if(types) ":" _ python_type } ;
+
+python_expression ->
+    python_literal
+  | python_unary_operation
+  | python_binary_operation
+  | ( "(" python_expression ")" )
+  | python_list_definition
+  | python_dict_definition
+  | python_function_call
+  ;
+
+python_unary_operation ->
+    ( python_expression _ kw_is _ [ kw_not _ ] kw_None )
+  | ( kw_not _ python_expression )
+  | ( "~" python_expression )
+  ;
+
+python_binary_operation -> python_expression _ python_binary_operator _ python_expression ;
+
+python_function_call -> python_function_name "(" python_function_arg [ "," _ python_function_arg ] ;
+
+python_function_arg -> python_variable_name _ "=" _ python_expression ;
+
+python_type ->
+    python_class_name
+  | python_class_name
+  | python_class_name
+  | python_primitive_type
+  | python_primitive_type
+  | ( "list[" python_primitive_type "]" )
+  | ( "dict[" python_primitive_type "," _ python_primitive_type "]" )
+  | ( "tuple[" python_primitive_type "," _ "...]" )
+  | ( python_primitive_type _ "|" _ python_primitive_type )
+  ;
+
+python_primitive_type ->
+    kw_int
+  | kw_str
+  | kw_bool
+  | kw_float
+  | kw_None
+  ;
+
+python_binary_operator ->
+    "+"
+  | "-"
+  | "*"
+  | "/"
+  | "//"
+  | "%"
+  | "**"
+  | "@"
+  | "&"
+  | "|"
+  | ">"
+  | "<"
+  | ">="
+  | "<="
+  | "=="
+  | [ kw_not _ ] kw_in
+  | "^"
+  ;
+
+python_list_definition -> "[" python_expression [ "," _ python_expression ] "]" ;
+
+python_dict_definition -> "{" python_dict_key_value_pair [ "," _ python_dict_key_value_pair ] "}" ;
+
+python_dict_key_value_pair -> python_literal ":" _ python_expression ;
+
+python_literal ->
+    kw_None
+  | ( kw_True | kw_False )
+  | { :if(numbers) python_number_literal }
+  | { :if(strings) python_string_literal }
+  ;
+
+python_number_literal -> { :class(number) numeric_literal } ;
+
+python_string_literal ->
+    { :class(string) ("\"" generic_string_content "\"") }
+  | { :class(string) ("'" generic_string_content "'" ) }
+  | { :class(string) ("\"\"\"" generic_string_content "\"\"\"") }
+  | { :class(string) ("'''" generic_string_content "'''" ) }
+  ;
+
+python_variable_name -> generic_variable_name ;
+
+python_function_name ->
+    python_builtin_function_name
+  | generic_function_name
+  | generic_function_name
+  | generic_function_name
+  ;
+
+python_builtin_function_name ->
+    "__call__"
+  | "__enter__"
+  | "__eq__"
+  | "__exit__"
+  | "__getattr__"
+  | "__getitem__"
+  | "__init__"
+  | "__iter__"
+  | "__len__"
+  | "__ne__"
+  | "__new__"
+  | "__repr__"
+  | "__setattr__"
+  | "__setitem__"
+  | "__str__"
+  ;
+
+python_class_name -> generic_class_name ;
+
+python_comment -> { :class(comment) "# " comment_text } ;

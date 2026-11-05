@@ -1,0 +1,31 @@
+# Configs
+.env*
+
+# Keys
+id_*
+
+# Compiled output
+packages/*/.types/
+root/public/assets/
+root/lib/
+
+# Coding Agents
+
+.claude/
+.codex/
+
+# Other
+node_modules/
+build/
+out/
+tmp/
+sandbox/
+.vscode/
+.idea/
+*.tsbuildinfo
+*.log
+*.bak
+*~
+
+# Custom scripts
+deploy.sh

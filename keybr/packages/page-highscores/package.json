@@ -1,0 +1,21 @@
+{
+  "private": true,
+  "name": "@keybr/page-highscores",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "lib/index.ts",
+  "types": ".types/index.d.ts",
+  "dependencies": {
+    "@keybr/intl": "*",
+    "@keybr/keyboard": "*",
+    "@keybr/pages-shared": "*",
+    "@keybr/result": "*",
+    "@keybr/widget": "*"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "clean": "rm -fr .types",
+    "compile": "tsc",
+    "test": "tstest --import=@keybr/test-env-browser --import=@keybr/test-env-bundler --test 'lib/**/*.test.{ts,tsx}'"
+  }
+}

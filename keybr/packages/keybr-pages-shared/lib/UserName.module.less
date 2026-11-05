@@ -1,0 +1,21 @@
+@import "@keybr/widget/lib/index.less";
+
+.root {
+  display: flex;
+  align-items: center;
+  max-inline-size: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.anonymous {
+  font-style: italic;
+}
+
+.name {
+  .text-truncate();
+}
+
+.avatar + .name {
+  margin-inline-start: 0.5rem;
+}

@@ -1,0 +1,36 @@
+@import "../../styles/components.less";
+@import "../../styles/text.less";
+
+.nameValue {
+  .text-no-wrap();
+  display: inline-block;
+}
+
+.name {
+  .text-no-wrap();
+  display: inline-block;
+  color: var(--Name-color);
+}
+
+.value {
+  .text-no-wrap();
+  display: inline-block;
+  color: var(--Value-color);
+  font-family: var(--value-font-family);
+}
+
+.value_more {
+  color: var(--Value--more__color);
+}
+
+.value_less {
+  color: var(--Value--less__color);
+}
+
+.nameValue + .nameValue {
+  margin-inline-start: 0.4rem;
+}
+
+.name + .value {
+  margin-inline-start: 0.2rem;
+}

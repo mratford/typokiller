@@ -1,0 +1,40 @@
+@import "../../styles/components.less";
+
+.root {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  min-block-size: @field-height;
+  margin-inline: 0;
+  margin-block: 0;
+  padding-inline: 0;
+  padding-block: 0;
+}
+
+.root:not(:first-child) {
+  margin-block-start: 1rem;
+}
+
+.root:not(:last-child) {
+  margin-block-end: 1rem;
+}
+
+.flexGrow1 {
+  flex: 1;
+}
+
+.flexGrow2 {
+  flex: 2;
+}
+
+.flexGrow3 {
+  flex: 3;
+}
+
+.flexGrow4 {
+  flex: 4;
+}
+
+.flexGrow5 {
+  flex: 5;
+}

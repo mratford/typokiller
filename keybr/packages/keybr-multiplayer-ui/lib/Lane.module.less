@@ -1,0 +1,85 @@
+@height: 3rem;
+@width: 12rem;
+
+.player {
+  position: relative;
+  inline-size: 100%;
+  block-size: @height;
+  border-block-start: var(--separator-border);
+  background-color: var(--Player__background-color);
+}
+
+.isFiller {
+  /* Empty. */
+}
+
+.isMe {
+  background-color: var(--Player--me__background-color);
+}
+
+.isSpectator {
+  animation: pulseAnimation 0.6s infinite ease-in-out;
+}
+
+.isFinished {
+  background-color: var(--Player--finished__background-color);
+}
+
+.name {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  inline-size: @width;
+  block-size: @height;
+}
+
+.details {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  padding-inline: 1em;
+  padding-block: 0.5em;
+  color: var(--PlayerDetails__color);
+  background-color: var(--PlayerDetails__background-color);
+  font-size: 0.8rem;
+  line-height: 0.8rem;
+}
+
+.lane {
+  position: absolute;
+  inset-inline-start: @width;
+  inset-inline-end: 0;
+  inset-block-start: 0;
+  block-size: @height;
+  border-inline-start: var(--separator-border);
+}
+
+.car {
+  position: absolute;
+}
+
+.car:dir(rtl) {
+  transform: scaleX(-1);
+}
+
+.carImage {
+  display: block;
+  inline-size: @height * 1.66;
+  block-size: @height;
+}
+
+.wideValue {
+  min-inline-size: 4rem;
+}
+
+@keyframes pulseAnimation {
+  from {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.5;
+  }
+}

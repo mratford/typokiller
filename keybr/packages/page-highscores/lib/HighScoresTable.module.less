@@ -1,0 +1,39 @@
+@import "@keybr/widget/lib/index.less";
+
+.figure {
+  padding-inline: 2rem;
+  padding-block: 2rem;
+  border-radius: 2rem;
+}
+
+.table {
+  inline-size: 100%;
+
+  th {
+    text-transform: uppercase;
+  }
+
+  td,
+  th {
+    .text-truncate();
+    padding-inline: 0.75rem;
+    padding-block: 0.25rem;
+    border-block-end: var(--separator-border);
+    text-align: start;
+  }
+}
+
+.userColumn {
+  text-align: start;
+}
+
+.layoutColumn {
+  text-align: start;
+}
+
+.positionColumn,
+.speedColumn,
+.scoreColumn,
+.extraColumn {
+  text-align: end;
+}

@@ -1,0 +1,42 @@
+@import "../../styles/components.less";
+
+.root {
+  .is-blurred();
+  margin: 0;
+  border: 1px solid var(--TextField__border-color);
+  color: var(--TextField__color);
+  background-color: var(--TextField__background-color);
+  font-family: var(--default-font-family);
+  font-size: 0.85rem;
+}
+
+.root:focus {
+  border: 1px solid var(--TextField--focused__border-color);
+  color: var(--TextField--focused__color);
+  background-color: var(--TextField--focused__background-color);
+  outline: none;
+}
+
+.root:invalid {
+  color: var(--error);
+}
+
+input.root {
+  display: inline-block;
+  min-block-size: @field-height;
+  padding-inline: 1rem;
+  padding-block: 0;
+}
+
+textarea.root {
+  display: block;
+  inline-size: 100%;
+  min-block-size: 10em;
+  padding-inline: 1rem;
+  padding-block: 0.5rem;
+  resize: block;
+}
+
+.disabled {
+  .is-disabled();
+}

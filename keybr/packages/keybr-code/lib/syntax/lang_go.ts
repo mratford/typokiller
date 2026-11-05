@@ -1,0 +1,1134 @@
+// Generated file, do not edit.
+
+import { type Rules } from "../ast.ts";
+
+export default {
+  "start": {
+    "ref": "golang_statement"
+  },
+  "golang_statement": {
+    "alt": [
+      {
+        "ref": "package_declaration"
+      },
+      {
+        "ref": "import_declaration"
+      },
+      {
+        "ref": "function_declaration"
+      },
+      {
+        "ref": "struct_declaration"
+      },
+      {
+        "ref": "interface_declaration"
+      },
+      {
+        "ref": "variable_declaration"
+      },
+      {
+        "ref": "constant_declaration"
+      },
+      {
+        "ref": "type_declaration"
+      },
+      {
+        "flag": "comments",
+        "inv": false,
+        "cond": {
+          "ref": "comment"
+        }
+      }
+    ]
+  },
+  "package_declaration": {
+    "seq": [
+      {
+        "ref": "kw_package"
+      },
+      " ",
+      {
+        "ref": "golang_package_name"
+      }
+    ]
+  },
+  "import_declaration": {
+    "alt": [
+      {
+        "seq": [
+          {
+            "ref": "kw_import"
+          },
+          " ",
+          "(",
+          " ",
+          {
+            "ref": "import_list"
+          },
+          " ",
+          ")"
+        ]
+      },
+      {
+        "seq": [
+          {
+            "ref": "kw_import"
+          },
+          " ",
+          {
+            "ref": "import_spec"
+          }
+        ]
+      }
+    ]
+  },
+  "import_list": {
+    "seq": [
+      {
+        "ref": "import_spec"
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            {
+              "ref": "import_spec"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "import_spec": {
+    "alt": [
+      {
+        "ref": "golang_string_literal"
+      },
+      {
+        "seq": [
+          {
+            "ref": "golang_import_alias"
+          },
+          " ",
+          {
+            "ref": "golang_string_literal"
+          }
+        ]
+      }
+    ]
+  },
+  "golang_import_alias": {
+    "ref": "golang_identifier"
+  },
+  "function_declaration": {
+    "seq": [
+      {
+        "ref": "kw_func"
+      },
+      " ",
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            {
+              "ref": "receiver"
+            },
+            " "
+          ]
+        }
+      },
+      {
+        "ref": "golang_function_name"
+      },
+      " ",
+      "(",
+      " ",
+      {
+        "ref": "parameter_list"
+      },
+      " ",
+      ")",
+      " ",
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            {
+              "ref": "return_spec"
+            },
+            " "
+          ]
+        }
+      },
+      {
+        "ref": "function_body"
+      }
+    ]
+  },
+  "receiver": {
+    "seq": [
+      "(",
+      " ",
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            {
+              "ref": "golang_identifier"
+            },
+            " "
+          ]
+        }
+      },
+      {
+        "ref": "golang_type"
+      },
+      " ",
+      ")"
+    ]
+  },
+  "return_spec": {
+    "alt": [
+      {
+        "ref": "golang_type"
+      },
+      {
+        "seq": [
+          "(",
+          " ",
+          {
+            "ref": "return_params"
+          },
+          " ",
+          ")"
+        ]
+      }
+    ]
+  },
+  "return_params": {
+    "seq": [
+      {
+        "ref": "golang_type"
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            ",",
+            " ",
+            {
+              "ref": "golang_type"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "function_body": {
+    "seq": [
+      "{",
+      " ",
+      {
+        "ref": "golang_statement_list"
+      },
+      " ",
+      "}"
+    ]
+  },
+  "golang_statement_list": {
+    "f": 0.5,
+    "opt": {
+      "seq": [
+        {
+          "ref": "golang_statement"
+        },
+        {
+          "f": 0.5,
+          "opt": {
+            "seq": [
+              " ",
+              {
+                "ref": "golang_statement"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "struct_declaration": {
+    "seq": [
+      {
+        "ref": "kw_type"
+      },
+      " ",
+      {
+        "ref": "golang_type_name"
+      },
+      " ",
+      {
+        "ref": "kw_struct"
+      },
+      " ",
+      "{",
+      " ",
+      {
+        "ref": "struct_field_list"
+      },
+      " ",
+      "}"
+    ]
+  },
+  "struct_field_list": {
+    "f": 0.5,
+    "opt": {
+      "seq": [
+        {
+          "ref": "struct_field"
+        },
+        {
+          "f": 0.5,
+          "opt": {
+            "seq": [
+              " ",
+              {
+                "ref": "struct_field"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "struct_field": {
+    "seq": [
+      {
+        "ref": "golang_identifier_list"
+      },
+      " ",
+      {
+        "ref": "golang_type"
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            {
+              "ref": "struct_tag"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "struct_tag": {
+    "ref": "golang_string_literal"
+  },
+  "golang_identifier_list": {
+    "seq": [
+      {
+        "ref": "golang_identifier"
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            ",",
+            " ",
+            {
+              "ref": "golang_identifier"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "interface_declaration": {
+    "seq": [
+      {
+        "ref": "kw_type"
+      },
+      " ",
+      {
+        "ref": "golang_type_name"
+      },
+      " ",
+      {
+        "ref": "kw_interface"
+      },
+      " ",
+      "{",
+      " ",
+      {
+        "ref": "interface_method_list"
+      },
+      " ",
+      "}"
+    ]
+  },
+  "interface_method_list": {
+    "f": 0.5,
+    "opt": {
+      "seq": [
+        {
+          "ref": "interface_method_spec"
+        },
+        {
+          "f": 0.5,
+          "opt": {
+            "seq": [
+              " ",
+              {
+                "ref": "interface_method_spec"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "interface_method_spec": {
+    "seq": [
+      {
+        "ref": "golang_method_name"
+      },
+      " ",
+      "(",
+      " ",
+      {
+        "ref": "parameter_list"
+      },
+      " ",
+      ")",
+      " ",
+      {
+        "f": 0.5,
+        "opt": {
+          "ref": "return_spec"
+        }
+      }
+    ]
+  },
+  "variable_declaration": {
+    "alt": [
+      {
+        "seq": [
+          {
+            "ref": "kw_var"
+          },
+          " ",
+          {
+            "ref": "variable_spec"
+          }
+        ]
+      },
+      {
+        "ref": "short_variable_declaration"
+      }
+    ]
+  },
+  "variable_spec": {
+    "seq": [
+      {
+        "ref": "golang_identifier_list"
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            {
+              "ref": "golang_type"
+            }
+          ]
+        }
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            "=",
+            " ",
+            {
+              "ref": "expression_list"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "short_variable_declaration": {
+    "seq": [
+      {
+        "ref": "golang_identifier_list"
+      },
+      " ",
+      ":=",
+      " ",
+      {
+        "ref": "expression_list"
+      }
+    ]
+  },
+  "expression_list": {
+    "seq": [
+      {
+        "ref": "golang_expression"
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            ",",
+            " ",
+            {
+              "ref": "golang_expression"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "constant_declaration": {
+    "seq": [
+      {
+        "ref": "kw_const"
+      },
+      " ",
+      {
+        "ref": "constant_spec"
+      }
+    ]
+  },
+  "constant_spec": {
+    "seq": [
+      {
+        "ref": "golang_identifier_list"
+      },
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            " ",
+            {
+              "ref": "golang_type"
+            }
+          ]
+        }
+      },
+      " ",
+      "=",
+      " ",
+      {
+        "ref": "expression_list"
+      }
+    ]
+  },
+  "type_declaration": {
+    "seq": [
+      {
+        "ref": "kw_type"
+      },
+      " ",
+      {
+        "ref": "type_spec"
+      }
+    ]
+  },
+  "type_spec": {
+    "seq": [
+      {
+        "ref": "golang_type_name"
+      },
+      " ",
+      {
+        "ref": "golang_type"
+      }
+    ]
+  },
+  "parameter_list": {
+    "f": 0.5,
+    "opt": {
+      "seq": [
+        {
+          "ref": "parameter"
+        },
+        {
+          "f": 0.5,
+          "opt": {
+            "seq": [
+              " ",
+              ",",
+              " ",
+              {
+                "ref": "parameter"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "parameter": {
+    "seq": [
+      {
+        "f": 0.5,
+        "opt": {
+          "seq": [
+            {
+              "ref": "golang_identifier_list"
+            },
+            " "
+          ]
+        }
+      },
+      {
+        "ref": "golang_type"
+      }
+    ]
+  },
+  "golang_type": {
+    "alt": [
+      {
+        "ref": "golang_basic_type"
+      },
+      {
+        "ref": "golang_reference_type"
+      },
+      {
+        "ref": "golang_struct_type"
+      },
+      {
+        "ref": "golang_interface_type"
+      },
+      {
+        "ref": "golang_array_type"
+      },
+      {
+        "ref": "golang_slice_type"
+      },
+      {
+        "ref": "golang_map_type"
+      },
+      {
+        "ref": "golang_channel_type"
+      },
+      {
+        "ref": "golang_function_type"
+      }
+    ]
+  },
+  "golang_basic_type": {
+    "alt": [
+      {
+        "ref": "kw_bool"
+      },
+      {
+        "ref": "kw_byte"
+      },
+      {
+        "ref": "kw_int"
+      },
+      {
+        "ref": "kw_uint"
+      },
+      {
+        "ref": "kw_rune"
+      },
+      {
+        "ref": "kw_string"
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_int8"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_int16"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_int32"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_int64"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_uint8"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_uint16"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_uint32"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_uint64"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_float32"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_float64"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_complex64"
+        }
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "kw_complex128"
+        }
+      }
+    ]
+  },
+  "golang_reference_type": {
+    "seq": [
+      "*",
+      " ",
+      {
+        "ref": "golang_type"
+      }
+    ]
+  },
+  "golang_struct_type": {
+    "seq": [
+      {
+        "ref": "kw_struct"
+      },
+      " ",
+      "{",
+      " ",
+      {
+        "ref": "struct_field_list"
+      },
+      " ",
+      "}"
+    ]
+  },
+  "golang_interface_type": {
+    "seq": [
+      {
+        "ref": "kw_interface"
+      },
+      " ",
+      "{",
+      " ",
+      {
+        "ref": "interface_method_list"
+      },
+      " ",
+      "}"
+    ]
+  },
+  "golang_array_type": {
+    "seq": [
+      "[",
+      " ",
+      {
+        "ref": "golang_expression"
+      },
+      " ",
+      "]",
+      " ",
+      {
+        "ref": "golang_type"
+      }
+    ]
+  },
+  "golang_slice_type": {
+    "seq": [
+      "[]",
+      " ",
+      {
+        "ref": "golang_type"
+      }
+    ]
+  },
+  "golang_map_type": {
+    "seq": [
+      {
+        "ref": "kw_map"
+      },
+      " ",
+      "[",
+      " ",
+      {
+        "ref": "golang_type"
+      },
+      " ",
+      "]",
+      " ",
+      {
+        "ref": "golang_type"
+      }
+    ]
+  },
+  "golang_channel_type": {
+    "alt": [
+      {
+        "seq": [
+          {
+            "ref": "kw_chan"
+          },
+          " ",
+          {
+            "ref": "golang_type"
+          }
+        ]
+      },
+      {
+        "seq": [
+          "<-",
+          " ",
+          {
+            "ref": "kw_chan"
+          },
+          " ",
+          {
+            "ref": "golang_type"
+          }
+        ]
+      },
+      {
+        "seq": [
+          {
+            "ref": "kw_chan"
+          },
+          " ",
+          "<-",
+          " ",
+          {
+            "ref": "golang_type"
+          }
+        ]
+      }
+    ]
+  },
+  "golang_function_type": {
+    "seq": [
+      {
+        "ref": "kw_func"
+      },
+      " ",
+      "(",
+      " ",
+      {
+        "ref": "parameter_list"
+      },
+      " ",
+      ")",
+      " ",
+      {
+        "f": 0.5,
+        "opt": {
+          "ref": "return_spec"
+        }
+      }
+    ]
+  },
+  "golang_expression": {
+    "alt": [
+      {
+        "ref": "golang_identifier"
+      },
+      {
+        "ref": "golang_literal"
+      },
+      {
+        "ref": "golang_function_call"
+      },
+      {
+        "ref": "unary_expression"
+      },
+      {
+        "ref": "binary_expression"
+      }
+    ]
+  },
+  "unary_expression": {
+    "seq": [
+      {
+        "ref": "unary_operator"
+      },
+      " ",
+      {
+        "ref": "golang_expression"
+      }
+    ]
+  },
+  "unary_operator": {
+    "alt": [
+      "&",
+      "*",
+      "+",
+      "-",
+      "!",
+      "^",
+      "<-"
+    ]
+  },
+  "binary_expression": {
+    "seq": [
+      {
+        "ref": "golang_expression"
+      },
+      " ",
+      {
+        "ref": "binary_operator"
+      },
+      " ",
+      {
+        "ref": "golang_expression"
+      }
+    ]
+  },
+  "binary_operator": {
+    "alt": [
+      "+",
+      "-",
+      "*",
+      "/",
+      "%",
+      "&",
+      "|",
+      "^",
+      "<<",
+      ">>",
+      "&&",
+      "||",
+      "==",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+    ]
+  },
+  "golang_literal": {
+    "alt": [
+      {
+        "cls": "keyword",
+        "span": "nil"
+      },
+      {
+        "alt": [
+          {
+            "ref": "kw_true"
+          },
+          {
+            "ref": "kw_false"
+          }
+        ]
+      },
+      {
+        "flag": "numbers",
+        "inv": false,
+        "cond": {
+          "ref": "golang_number_literal"
+        }
+      },
+      {
+        "flag": "strings",
+        "inv": false,
+        "cond": {
+          "ref": "golang_string_literal"
+        }
+      }
+    ]
+  },
+  "golang_number_literal": {
+    "cls": "number",
+    "span": {
+      "ref": "numeric_literal"
+    }
+  },
+  "golang_string_literal": {
+    "cls": "string",
+    "span": {
+      "seq": [
+        "\"",
+        {
+          "ref": "generic_string_content"
+        },
+        "\""
+      ]
+    }
+  },
+  "golang_function_call": {
+    "seq": [
+      {
+        "ref": "golang_identifier"
+      },
+      " ",
+      "(",
+      " ",
+      {
+        "ref": "argument_list"
+      },
+      " ",
+      ")"
+    ]
+  },
+  "argument_list": {
+    "f": 0.5,
+    "opt": {
+      "seq": [
+        {
+          "ref": "golang_expression"
+        },
+        {
+          "f": 0.5,
+          "opt": {
+            "seq": [
+              " ",
+              ",",
+              " ",
+              {
+                "ref": "golang_expression"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "golang_identifier": {
+    "alt": [
+      "x",
+      "y",
+      "z",
+      "result",
+      "data",
+      "input",
+      "err",
+      "val"
+    ]
+  },
+  "golang_function_name": {
+    "alt": [
+      "main",
+      "calculate",
+      "setValue",
+      "getResult",
+      "init",
+      "String",
+      "Error"
+    ]
+  },
+  "golang_type_name": {
+    "alt": [
+      {
+        "ref": "golang_primitive_type_name"
+      },
+      {
+        "ref": "generic_class_name"
+      }
+    ]
+  },
+  "golang_primitive_type_name": {
+    "alt": [
+      "string",
+      "int",
+      "bool",
+      "float64"
+    ]
+  },
+  "golang_package_name": {
+    "alt": [
+      "main",
+      "fmt",
+      "strings",
+      "math",
+      "os",
+      "io",
+      "net/http",
+      "encoding/json"
+    ]
+  },
+  "golang_method_name": {
+    "alt": [
+      "Read",
+      "Write",
+      "String",
+      "Error",
+      "Close",
+      "Parse"
+    ]
+  },
+  "comment": {
+    "cls": "comment",
+    "span": {
+      "alt": [
+        {
+          "seq": [
+            "//",
+            " ",
+            {
+              "ref": "comment_text"
+            }
+          ]
+        },
+        {
+          "seq": [
+            "/*",
+            " ",
+            {
+              "ref": "comment_text"
+            },
+            " ",
+            "*/"
+          ]
+        }
+      ]
+    }
+  }
+} as Rules;

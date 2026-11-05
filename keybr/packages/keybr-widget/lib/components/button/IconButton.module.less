@@ -1,0 +1,25 @@
+@import "../../styles/components.less";
+
+.root {
+  .is-blurred();
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+  min-inline-size: @field-height;
+  min-block-size: @field-height;
+  margin: 0;
+  padding: 0;
+  border: none;
+  color: var(--text-color);
+  background: none;
+  line-height: @field-height;
+  cursor: pointer;
+}
+
+.root:focus-visible {
+  .is-focused();
+}
+
+.disabled {
+  .is-disabled();
+}

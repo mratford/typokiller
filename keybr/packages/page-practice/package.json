@@ -1,0 +1,43 @@
+{
+  "private": true,
+  "name": "@keybr/page-practice",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "lib/index.ts",
+  "types": ".types/index.d.ts",
+  "dependencies": {
+    "@keybr/chart": "*",
+    "@keybr/code": "*",
+    "@keybr/content": "*",
+    "@keybr/debug": "*",
+    "@keybr/intl": "*",
+    "@keybr/keyboard": "*",
+    "@keybr/keyboard-ui": "*",
+    "@keybr/lang": "*",
+    "@keybr/lesson": "*",
+    "@keybr/lesson-loader": "*",
+    "@keybr/lesson-ui": "*",
+    "@keybr/math": "*",
+    "@keybr/pages-shared": "*",
+    "@keybr/phonetic-model": "*",
+    "@keybr/phonetic-model-loader": "*",
+    "@keybr/rand": "*",
+    "@keybr/recording-browser": "*",
+    "@keybr/result": "*",
+    "@keybr/settings": "*",
+    "@keybr/textinput": "*",
+    "@keybr/textinput-events": "*",
+    "@keybr/textinput-sounds": "*",
+    "@keybr/textinput-ui": "*",
+    "@keybr/unicode": "*",
+    "@keybr/widget": "*"
+  },
+  "devDependencies": {
+    "@keybr/recording": "*"
+  },
+  "scripts": {
+    "clean": "rm -fr .types",
+    "compile": "tsc",
+    "test": "tstest --import=@keybr/test-env-browser --import=@keybr/test-env-bundler --test 'lib/**/*.test.{ts,tsx}'"
+  }
+}

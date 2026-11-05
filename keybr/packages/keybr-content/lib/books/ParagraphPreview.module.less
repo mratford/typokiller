@@ -1,0 +1,40 @@
+@import "@keybr/widget/lib/index.less";
+
+.root:not(:first-child) {
+  margin-block-start: 1rem;
+}
+
+.root:not(:last-child) {
+  margin-block-end: 1rem;
+}
+
+.item {
+  display: flex;
+}
+
+.item_active {
+  border-block-end: var(--separator-border);
+  color: var(--text-color);
+}
+
+.item_inactive {
+  color: var(--text-color-f2);
+}
+
+.index {
+  display: inline-block;
+  min-inline-size: 3rem;
+  text-align: end;
+}
+
+.content {
+  .text-truncate();
+  display: inline-block;
+  font-style: italic;
+}
+
+.separator {
+  display: inline-block;
+  min-inline-size: 2rem;
+  text-align: center;
+}

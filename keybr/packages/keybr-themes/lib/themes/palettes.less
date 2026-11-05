@@ -1,0 +1,55 @@
+@chart-speed: #6fb48c;
+@chart-accuracy: #ef522f;
+@chart-complexity: #ac71d0;
+@chart-threshold: #d2649a;
+@chart-hist-h: #5f6cb4;
+@chart-hist-m: #b43f3e;
+@chart-hist-r: #b140b4;
+
+@zone-pinky: #8ec07c;
+@zone-ring: #b8bb26;
+@zone-middle: #fabd2f;
+@zone-leftIndex: #83a698;
+@zone-rightIndex: #d3869b;
+@zone-thumb: #d66354;
+
+.use-textinput-colors(@colors) {
+  --textinput__color: @colors[@secondary];
+  --textinput--special__color: mix(@colors[@primary], @colors[@secondary], 50);
+  --textinput--hit__color: mix(@colors[@primary], @colors[@secondary], 40);
+  --textinput--miss__color: @colors[@error];
+}
+
+.use-interface-colors(@colors) {
+  --Name-color: lighten(@colors[@secondary], 20);
+  --Value-color: darken(@colors[@secondary], 10);
+  --Value--more__color: #2a7e21;
+  --Value--less__color: #a1464e;
+}
+
+.use-chart-colors(@colors, @mix) {
+  --Chart-speed__color: mix(@colors[@primary], @chart-speed, @mix);
+  --Chart-accuracy__color: mix(@colors[@primary], @chart-accuracy, @mix);
+  --Chart-complexity__color: mix(@colors[@primary], @chart-complexity, @mix);
+  --Chart-threshold__color: mix(@colors[@primary], @chart-threshold, @mix);
+  --Chart-hist-h__color: mix(@colors[@primary], @chart-hist-h, @mix);
+  --Chart-hist-m__color: mix(@colors[@primary], @chart-hist-m, @mix);
+  --Chart-hist-r__color: mix(@colors[@primary], @chart-hist-r, @mix);
+}
+
+.use-keyboard-colors(@colors, @mix) {
+  --KeyboardKey-pointer__color: #4ba0f2;
+  --pinky-zone-color: mix(@colors[@primary], @zone-pinky, @mix);
+  --ring-zone-color: mix(@colors[@primary], @zone-ring, @mix);
+  --middle-zone-color: mix(@colors[@primary], @zone-middle, @mix);
+  --left-index-zone-color: mix(@colors[@primary], @zone-leftIndex, @mix);
+  --right-index-zone-color: mix(@colors[@primary], @zone-rightIndex, @mix);
+  --thumb-zone-color: mix(@colors[@primary], @zone-thumb, @mix);
+}
+
+.use-syntax-colors() {
+  --syntax-keyword: #56a1f4;
+  --syntax-string: #72b172;
+  --syntax-number: #763a9e;
+  --syntax-comment: #9f8484;
+}

@@ -1,0 +1,62 @@
+import { test } from "node:test";
+import { Language } from "@keybr/keyboard";
+import { equal, isTrue, match } from "rich-assert";
+import { Filter } from "./filter.ts";
+import { loadModelSync } from "./fs-load.ts";
+import { Letter } from "./letter.ts";
+
+for (const language of Language.ALL) {
+  test(`${language.id}`, () => {
+    const { table, model } = loadModelSync(language);
+    const letters = Letter.frequencyOrder(model.letters);
+    const { chain } = table;
+
+    const alphabet = /^\u{0020}[\p{Letter}\p{Mark}'’]+$/u;
+    const word = /^[\p{Letter}\p{Mark}'’]+$/u;
+
+    // Check the model settings.
+    match(String.fromCodePoint(...table.alphabet), alphabet);
+    equal(table.size, table.alphabet.length);
+    equal(table.order, 4);
+
+    // Check the letters.
+    for (const letter of letters) {
+      isTrue(letter.f > 0, `Zero frequency letter "${letter}"`);
+    }
+
+    // Check the transition table.
+    for (const suffixes of table.segments) {
+      if (suffixes.length > 0) {
+        let sum = 0;
+        let last = null;
+        for (const suffix of suffixes) {
+          if (last != null) {
+            isTrue(
+              chain.index(last.codePoint) < chain.index(suffix.codePoint),
+              "Must be sorted by index in increasing order",
+            );
+          }
+          isTrue(suffix.frequency > 0, "Must have positive frequencies");
+          sum += suffix.frequency;
+          last = suffix;
+        }
+        equal(sum, 255, "Frequencies must add up exactly to 255");
+      }
+    }
+
+    // Generate words without a filter.
+    match(model.nextWord(new Filter(null, null)), word);
+    for (const letter of letters) {
+      match(model.nextWord(new Filter(null, letter)), word);
+    }
+
+    // Generate words with a filter.
+    for (let i = 6; i <= letters.length; i++) {
+      const subset = letters.slice(0, i);
+      match(model.nextWord(new Filter(subset, null)), word);
+      for (const letter of subset) {
+        match(model.nextWord(new Filter(subset, letter)), word);
+      }
+    }
+  });
+}

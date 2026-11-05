@@ -1,0 +1,24 @@
+{
+  "private": true,
+  "name": "@keybr/server-cli",
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@keybr/binary": "*",
+    "@keybr/config": "*",
+    "@keybr/database": "*",
+    "@keybr/publicid": "*",
+    "@keybr/result": "*",
+    "@keybr/result-io": "*",
+    "@keybr/result-userdata": "*",
+    "commander": "^15.0.0",
+    "date-fns": "^4.4.0",
+    "@keybr/recording-store": "*"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "clean": "rm -fr .types",
+    "compile": "tsc",
+    "test": "tstest --import=@keybr/test-env-server --test 'lib/**/*.test.{ts,tsx}'"
+  }
+}

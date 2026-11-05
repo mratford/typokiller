@@ -1,0 +1,54 @@
+@import "../../styles/components.less";
+
+.root {
+  display: flex;
+  margin-block-end: 1rem;
+}
+
+.item {
+  .is-blurred();
+  min-inline-size: 10rem;
+  block-size: 3rem;
+  padding-inline: 1rem;
+  border-inline-start: var(--separator-border);
+  border-inline-end: var(--separator-border);
+  border-block-start: var(--separator-border);
+  line-height: 3rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.item:focus-visible {
+  .is-focused();
+}
+
+.item_active {
+  color: var(--text-color);
+}
+
+.item_inactive {
+  border-block-end: var(--separator-border);
+  color: var(--text-color-f2);
+}
+
+.spacer {
+  block-size: 3rem;
+  border-block-end: var(--separator-border);
+  line-height: 3rem;
+}
+
+.spacer_middle {
+  inline-size: 1rem;
+}
+
+.spacer_first {
+  inline-size: 3rem;
+}
+
+.spacer_last {
+  flex: 1;
+}
+
+.disabled {
+  .is-disabled();
+}

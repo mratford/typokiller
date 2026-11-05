@@ -1,0 +1,29 @@
+.award {
+  composes: fadeIn from "animations.module.less";
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  align-items: center;
+}
+
+.icon {
+  inline-size: 5rem;
+  block-size: 5rem;
+}
+
+.icon > svg {
+  filter: drop-shadow(var(--Popup--small__box-shadow));
+}
+
+.icon > div,
+.icon > span {
+  box-shadow: var(--Popup__box-shadow);
+}
+
+.message {
+  max-inline-size: 50rem;
+  padding: 1rem;
+  color: var(--Popup__color);
+  background-color: var(--Popup__background-color);
+  box-shadow: var(--Popup__box-shadow);
+}

@@ -1,0 +1,75 @@
+@import "../../styles/components.less";
+
+.root {
+  display: inline-block;
+  vertical-align: middle;
+  block-size: @field-height;
+  line-height: @field-height;
+}
+
+.thumb {
+  inline-size: 1.8rem;
+  block-size: 1.8rem;
+  margin-block-start: -0.9rem;
+  border: none;
+  border-radius: 50%;
+  color: transparent;
+  background-color: var(--Button__background-color);
+  cursor: pointer;
+}
+
+.track {
+  .is-blurred();
+  inline-size: 100%;
+  block-size: 1px;
+  border: none;
+  border-radius: 0;
+  color: transparent;
+  background-color: var(--Button__background-color);
+  cursor: pointer;
+}
+
+.track_focused {
+  .is-focused();
+  outline-offset: 2px;
+}
+
+input[type="range"].root {
+  background-color: transparent;
+  -webkit-appearance: none;
+}
+
+input[type="range"].root:focus {
+  .is-blurred();
+}
+
+input[type="range"].root::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  .thumb();
+}
+
+input[type="range"].root::-webkit-slider-runnable-track {
+  .track();
+}
+
+input[type="range"].root:focus::-webkit-slider-runnable-track {
+  .track();
+  .track_focused();
+}
+
+input[type="range"].root::-moz-range-thumb {
+  .thumb();
+}
+
+input[type="range"].root::-moz-range-track {
+  .track();
+}
+
+input[type="range"].root:focus::-moz-range-track {
+  .track();
+  .track_focused();
+}
+
+.disabled {
+  .is-disabled();
+}

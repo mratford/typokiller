@@ -1,0 +1,25 @@
+{
+  "private": true,
+  "name": "@keybr/generators",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "lib/index.ts",
+  "dependencies": {
+    "@keybr/keyboard": "*",
+    "@keybr/keyboard-io": "*",
+    "@keybr/phonetic-model": "*",
+    "@keybr/unicode": "*",
+    "@types/commonmark": "^0.27.10",
+    "chalk": "^6.0.0",
+    "commonmark": "^0.31.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "clean": "rm -fr .types",
+    "compile": "tsc",
+    "test": "tstest --test 'lib/**/*.test.{ts,tsx}'",
+    "generate-books": "tsnode ./lib/generate-books.ts",
+    "generate-languages": "tsnode ./lib/generate-languages.ts",
+    "generate-layouts": "tsnode ./lib/generate-layouts.ts"
+  }
+}

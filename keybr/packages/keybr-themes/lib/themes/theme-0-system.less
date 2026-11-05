@@ -1,0 +1,14 @@
+@import (reference) "theme-1-light.less"; // stylelint-disable-line
+@import (reference) "theme-2-dark.less"; // stylelint-disable-line
+
+@media (prefers-color-scheme: light) {
+  html[data-color="system"] {
+    .light-theme-props();
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-color="system"] {
+    .dark-theme-props();
+  }
+}

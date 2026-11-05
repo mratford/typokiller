@@ -1,0 +1,110 @@
+.button {
+  fill: var(--KeyboardKey-button__color);
+}
+
+.symbol {
+  fill: var(--KeyboardKey-symbol__color);
+  font-family: var(--default-font-family);
+  font-size: 10px;
+  cursor: default;
+  user-select: none;
+}
+
+.primarySymbol {
+  font-size: 14px;
+}
+
+.secondarySymbol {
+  font-size: 11px;
+}
+
+.deadSymbol {
+  fill: var(--KeyboardKey-symbol--dead__color);
+  font-family: sans-serif;
+}
+
+.ligatureSymbol {
+  fill: var(--KeyboardKey-symbol--ligature__color);
+}
+
+.bump {
+  fill: var(--KeyboardKey-symbol__color);
+}
+
+.handLeft {
+  .button {
+    /* Empty. */
+  }
+}
+
+.handRight {
+  .button {
+    /* Empty. */
+  }
+}
+
+.fingerPinky {
+  .button {
+    fill: var(--pinky-zone-color);
+  }
+}
+
+.fingerRing {
+  .button {
+    fill: var(--ring-zone-color);
+  }
+}
+
+.fingerMiddle {
+  .button {
+    fill: var(--middle-zone-color);
+  }
+}
+
+.fingerLeftIndex {
+  .button {
+    fill: var(--left-index-zone-color);
+  }
+}
+
+.fingerRightIndex {
+  .button {
+    fill: var(--right-index-zone-color);
+  }
+}
+
+.fingerThumb {
+  .button {
+    fill: var(--thumb-zone-color);
+  }
+}
+
+.key {
+  .button {
+    /* Empty. */
+  }
+
+  .symbol {
+    /* Empty. */
+  }
+}
+
+.depressedKey {
+  .button {
+    fill: var(--KeyboardKey-button--depressed__color);
+  }
+
+  .symbol {
+    fill: var(--KeyboardKey-symbol--depressed__color);
+  }
+}
+
+.toggledKey {
+  .button {
+    /* Empty. */
+  }
+
+  .symbol {
+    /* Empty. */
+  }
+}

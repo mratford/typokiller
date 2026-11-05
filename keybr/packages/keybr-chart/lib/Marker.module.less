@@ -1,0 +1,52 @@
+.root {
+  display: inline-block;
+  vertical-align: middle;
+  inline-size: 1rem;
+  block-size: 1rem;
+  line-height: 1rem;
+}
+
+.slow {
+  composes: root;
+  background-color: var(--slow-key-color);
+}
+
+.fast {
+  composes: root;
+  background-color: var(--fast-key-color);
+}
+
+.speed {
+  composes: root;
+  background-color: var(--Chart-speed__color);
+}
+
+.accuracy {
+  composes: root;
+  background-color: var(--Chart-accuracy__color);
+}
+
+.complexity {
+  composes: root;
+  background-color: var(--Chart-complexity__color);
+}
+
+.threshold {
+  composes: root;
+  background-color: var(--Chart-threshold__color);
+}
+
+.histogram_h {
+  composes: root;
+  background-color: var(--Chart-hist-h__color);
+}
+
+.histogram_m {
+  composes: root;
+  background-color: var(--Chart-hist-m__color);
+}
+
+.histogram_r {
+  composes: root;
+  background-color: var(--Chart-hist-r__color);
+}
