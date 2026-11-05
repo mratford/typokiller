@@ -64,18 +64,12 @@ keybr (in `keybr/`) records in detail everything that you type there, for the ke
 
    Do this again after you add a layout to a keyboard in typokiller, or change its layer names. Then reload keybr's practice page, and choose the keyboard and layout there.
 
-3. After typing in keybr, write a snapshot of the recordings, in `keybr/`. Use a new file name:
+3. After typing in keybr, open the notebook, in this folder:
 
    ```sh
-   node root/keybr.js recording export /path/to/keybr-recordings.sqlite
+   uv run marimo edit notebooks/keybr.py
    ```
 
-4. Open the notebook on the snapshot, in this folder:
-
-   ```sh
-   uv run marimo edit notebooks/keybr.py -- --snapshot /path/to/keybr-recordings.sqlite
-   ```
-
-   With no `--snapshot`, it opens `keybr-recordings.sqlite` in this folder. It opens the snapshot read only and never opens the typokiller database. It has filters for the keyboard, the layout, the saved version of the layout and the days. It shows keybr's own progress, the first-input accuracy, the weakest characters and pairs, fix times, timings, the keyboard picture with heat, and how complete the recordings are.
+   It reads keybr's recorded lessons in `~/.local/share/keybr/data/recordings.sqlite` once, read only, while keybr runs. To open another file, such as a backup, add `-- --recordings /path/to/recordings.sqlite`. It never opens the typokiller database. It has filters for the keyboard, the layout, the saved version of the layout and the days. It shows keybr's own progress, the first-input accuracy, the weakest characters and pairs, fix times, timings, the keyboard picture with heat, and how complete the recordings are.
 
 The server tests read copies of real `.vil` and `vial.json` files, kept in `tests/fixtures/`. They come from the `sweep-layouts` repo (commit 67c9332), which the tests do not need. They do not follow that repo. To refresh them, copy the files that a test needs from `sweep-layouts`, then change the commit in this line and in `tests/test_app.py`.

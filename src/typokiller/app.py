@@ -1,15 +1,25 @@
 import argparse
 import hashlib
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
+import altair as alt
+import polars as pl
 import tomlkit
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from typokiller.drawing import draw_layers
+from typokiller.keybr_analysis import TREND_WEEKS, analysis_page
 from typokiller.keymap import keymap_letters
+from typokiller.recording import NewerRecordings, read_recordings
+from typokiller.service import recordings_path
+
+STATIC = Path(__file__).parent / "static"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS board (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, vial TEXT NOT NULL);
@@ -66,13 +76,41 @@ def layer_names(settings: dict, board: str | None, letters: str | None) -> list[
     return settings["keymaps"].get(board, {}).get(letters, {}).get("layers", [])
 
 
+# What the analysis page shows in place of the analysis. The link to the typing page gets the
+# page's host name.
+NO_LESSONS = (
+    'No lessons recorded yet. Type on <a class="typing" href="http://localhost:3100/">the typing page</a>,'
+    " then reload this page."
+)
+NEWER = "The recorded lessons are newer than this version of typokiller. Run <code>typokiller-service update</code>."
+
+
+def trend_chart(trend: pl.DataFrame) -> alt.HConcatChart:
+    """The analysis page's chart of a trend of `keybr_analysis.analysis_page`, one point per day:
+    WPM, and first-input accuracy beside it. The page gets it as a Vega-Lite spec."""
+    base = alt.Chart(trend).mark_line(point=True).encode(x=alt.X("day:T", title=None)).properties(width=360, height=140)
+    # Show whole WPM and whole percents. With one day of data, the axis range is very small.
+    # tickMinStep keeps the ticks whole, so two ticks do not get the same rounded label.
+    return alt.hconcat(
+        base.encode(y=alt.Y("wpm:Q", title="WPM", scale=alt.Scale(zero=False), axis=alt.Axis(format="d", tickMinStep=1))),
+        base.encode(
+            y=alt.Y(
+                "accuracy:Q",
+                title="first-input accuracy",
+                scale=alt.Scale(zero=False),
+                axis=alt.Axis(format=".0%", tickMinStep=0.01),
+            )
+        ),
+    ).configure(background="transparent")
+
+
 class NewBoard(BaseModel):
     name: str
     vil: str  # the text of the .vil file
     vial: str  # the text of the vial.json file
 
 
-def create_app(db_path: Path, settings_path: Path) -> FastAPI:
+def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
     db = sqlite3.connect(db_path, check_same_thread=False)
     with db:
         for table in PRACTICE_TABLES:
@@ -113,19 +151,52 @@ def create_app(db_path: Path, settings_path: Path) -> FastAPI:
             keymaps[letters] = {"letter_layout": letters, "version": version}
         return {"boards": [b | {"keymaps": list(b["keymaps"].values())} for b in found.values()]}
 
-    app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True))
+    @app.get("/analysis")
+    async def analysis_html():
+        return FileResponse(STATIC / "analysis.html")
+
+    # The analysis page of one entry (see `keybr_analysis.analysis_page`), or of the first when
+    # `entry` is none. It reads the keybr recordings each time. With no analysis to show, only
+    # a message. Each layer's keyboard picture has an arc for each of the weakest pairs.
+    @app.get("/api/analysis")
+    def analysis(entry: str | None = None):
+        try:
+            page = analysis_page(read_recordings(recordings), entry, datetime.now(UTC)) if recordings.is_file() else None
+        except NewerRecordings:
+            return {"message": NEWER}
+        if page is None:
+            return {"message": NO_LESSONS}
+        layers = []
+        if page.keyboard:
+            k = page.keyboard
+            layers = draw_layers(k["vil"], k["vial"], k["layers"] or [], page.heat, page.pairs["unit"].to_list())
+        weakest = ["unit", "cost", "seen"]
+        return {
+            "entries": page.entries,
+            "entry": page.entry,
+            "weeks": TREND_WEEKS,
+            "days": page.trend.height,
+            "trend": trend_chart(page.trend).to_dict(),
+            "names": [name for name, _ in layers],
+            "layers": [svg for _, svg in layers],
+            "chars": page.chars.select(weakest).to_dicts(),
+            "pairs": page.pairs.select(weakest).to_dicts(),
+        }
+
+    app.mount("/", StaticFiles(directory=STATIC, html=True))
     return app
 
 
 def options(args: list[str] | None = None) -> argparse.Namespace:
-    """The command-line options: `port` and `access_log`. `args` is sys.argv[1:] when None."""
+    """The command-line options: `port`, `access_log` and `recordings`. `args` is sys.argv[1:] when None."""
     parser = argparse.ArgumentParser(prog="typokiller")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--recordings", type=Path, default=recordings_path(), help="the keybr recordings to analyse")
     parser.add_argument("--no-access-log", dest="access_log", action="store_false", help="log only errors and start-up")
     return parser.parse_args(args)
 
 
 def main():
     opts = options()
-    app = create_app(Path("typokiller.db"), Path("typokiller.toml"))
+    app = create_app(Path("typokiller.db"), Path("typokiller.toml"), opts.recordings)
     uvicorn.run(app, host="0.0.0.0", port=opts.port, access_log=opts.access_log)

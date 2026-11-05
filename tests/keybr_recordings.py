@@ -1,16 +1,17 @@
-"""Test helpers for keybr recordings: the shared fixtures, and snapshot files built from them.
+"""Test helpers for keybr recordings: the shared fixtures, and recordings files built from them.
 
 The fixtures are keybr's own files in keybr/packages/keybr-recording/fixtures/. The tests of both
 apps read these same files, so a change on one side that breaks the other side fails a test.
 
-keybr has no fixture snapshot file, so `build_snapshot` writes one, as `keybr recording export`
-would: with keybr's own tables (STORE_SCHEMA), the keyboards imported from a keyboard export, and
-the records of the fixture scenarios.
+keybr has no fixture recordings file, so `build_recordings` writes one, as keybr would: with
+keybr's own tables (STORE_SCHEMA), the keyboards imported from a keyboard export, and the records
+of the fixture scenarios.
 """
 
 import hashlib
 import json
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -113,7 +114,7 @@ def on_keyboard(found: list[dict[str, Any]], keymap: dict[str, Any] | None) -> l
     return [r | {"context": r["context"] | refs} if r["type"] == "start" else r for r in found]
 
 
-def build_snapshot(
+def build_recordings(
     path: Path,
     found: list[dict[str, Any]],
     *,
@@ -122,7 +123,7 @@ def build_snapshot(
     recovery: dict[str, dict[str, bool]] | None = None,
     version: int = 2,
 ) -> Path:
-    """Writes a snapshot file at `path` that holds `found` (records) as keybr stores them.
+    """Writes a recordings file at `path` that holds `found` (records) as keybr stores them.
 
     - export: the keyboard export imported first (initial.json by default).
     - keymap: the (Board, Letter layout) whose newest keymap snapshot the start records name,
@@ -161,24 +162,31 @@ def build_snapshot(
     return path
 
 
-def scenario_snapshot(tmp_path: Path, name: str, **options: Any) -> Path:
-    """A snapshot that holds the records of one scenario, in a new file."""
+def change(path: Path, sql: str, *args: Any) -> None:
+    """Runs one SQL statement on a recordings file, to break it in a test."""
+    with sqlite3.connect(path) as db:
+        db.execute(sql, args)
+    db.close()
+
+
+def scenario_recordings(tmp_path: Path, name: str, **options: Any) -> Path:
+    """A recordings file that holds the records of one scenario, in a new file."""
     path, n = tmp_path / f"{name}.sqlite", 1
     while path.exists():
         path, n = tmp_path / f"{name}-{n}.sqlite", n + 1
-    return build_snapshot(path, records(name), **options)
+    return build_recordings(path, records(name), **options)
 
 
 def renamed(found: list[dict[str, Any]], prefix: str) -> list[dict[str, Any]]:
-    """The records with new Attempt ids, so that several scenarios fit in one snapshot. The
+    """The records with new Attempt ids, so that several scenarios fit in one file. The
     scenarios use the same ids. `prefix` is 8 hex digits."""
     return [r | {"attemptId": prefix + r["attemptId"][8:]} for r in found]
 
 
-def all_scenarios_snapshot(path: Path, **options: Any) -> Path:
-    """A snapshot that holds the records of every scenario, as a representative export."""
+def all_scenarios_recordings(path: Path, **options: Any) -> Path:
+    """A recordings file that holds the records of every scenario."""
     found = [r for n, s in enumerate(scenarios().values()) for r in renamed(s["expected"]["records"], f"{n:08x}")]
-    return build_snapshot(path, found, **options)
+    return build_recordings(path, found, **options)
 
 
 BLANK = {
@@ -188,7 +196,11 @@ BLANK = {
 
 
 def typing_records(
-    text: str, actions: list[tuple], attempt: str = "00000000-0000-4000-8000-0000000000aa", end: str = "reset"
+    text: str,
+    actions: list[tuple],
+    attempt: str = "00000000-0000-4000-8000-0000000000aa",
+    end: str = "reset",
+    layout: str = "en-free-range",
 ) -> list[dict[str, Any]]:
     """The records of a hand-built Attempt at `text`, with keybr's rules in their simplest form:
     a correct character is accepted, and a wrong one is rejected and kept as pending. `actions`
@@ -200,7 +212,7 @@ def typing_records(
         found.append({"schemaVersion": 1, "attemptId": attempt, "sequence": n, "observedAt": n} | record)
         return n
 
-    settings = {"typing": {}, "exercise": {}, "layout": {"keyboard.layout": "en-free-range"}}
+    settings = {"typing": {}, "exercise": {}, "layout": {"keyboard.layout": layout}}
     add({"type": "start", "context": {"text": text, "applicationRevision": "test", "board": None, "keymap": None, "settings": settings}})
     state = {"cursor": 0, "steps": [], "pending": [], "typo": False, "completed": False}
     held, last = {}, 0
@@ -238,3 +250,34 @@ def typing_records(
         })  # fmt: skip
     add({"type": "end", "reason": end, "result": None, "resultAccepted": None})
     return found
+
+
+ORIGIN = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)  # the time origin of typing_records (1.7e12 ms)
+DAY_MS = 86_400_000
+
+
+def attempt(
+    n: int,
+    day: float,
+    typed: str,
+    text: str | None = None,
+    *,
+    gaps: dict[str, int] | None = None,
+    keymap: dict[str, Any] | None = None,
+    layout: str = "en-free-range",
+    wpm: float | None = None,
+) -> list[dict[str, Any]]:
+    """The records of Attempt n at `text` (`typed` by default), typed `day` days after ORIGIN.
+    Each character of `typed` is an input, gaps[char] ms (100 by default) after the one before.
+    keymap: the keymap snapshot that it names, or None for no Board. layout: keybr's layout
+    setting. With `wpm`, it is completed with keybr's result at that WPM; otherwise it is reset."""
+    text = text or typed
+    t, actions = day * DAY_MS, []
+    for char in typed:
+        t += (gaps or {}).get(char, 100)
+        actions.append(("input", char, t))
+    found = typing_records(text, actions, f"00000000-0000-4000-8000-{n:012x}", "completed" if wpm else "reset", layout)
+    if wpm:
+        result = {"length": len(text), "time": len(text) / (wpm * 5) * 60_000, "errors": 0, "speed": wpm * 5, "histogram": [{}]}
+        found[-1] |= {"result": result, "resultAccepted": True}
+    return on_keyboard(found, keymap)

@@ -2,7 +2,9 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from keybr_snapshot import all_scenarios_snapshot
+from typokiller.service import recordings_path
+
+from keybr_recordings import all_scenarios_recordings
 
 NOTEBOOK = Path(__file__).parents[1] / "notebooks" / "keybr.py"
 
@@ -21,11 +23,11 @@ def text_of(outputs):
     return " ".join(str(getattr(output, "text", "")) for output in outputs)
 
 
-def test_the_notebook_runs_on_a_snapshot_without_typokiller_and_leaves_the_file_unchanged(tmp_path, monkeypatch):
+def test_the_notebook_runs_on_recordings_without_typokiller_and_leaves_the_file_unchanged(tmp_path, monkeypatch):
     # No typokiller database anywhere: the notebook must not need one.
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("typokiller.service.data_folder", lambda: tmp_path / "no-service")
-    path = all_scenarios_snapshot(tmp_path / "keybr-recordings.sqlite")
+    path = all_scenarios_recordings(tmp_path / "keybr-recordings.sqlite")
     before = path.read_bytes()
 
     outputs, defs = run_notebook(path=path)
@@ -40,14 +42,14 @@ def test_the_notebook_runs_on_a_snapshot_without_typokiller_and_leaves_the_file_
     assert defs["layers"]  # one drawing per layer of the Sweep's saved Keymap
 
 
-def test_the_notebook_opens_the_snapshot_given_with_snapshot_otherwise_the_one_in_this_folder(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    # The file does not exist, so the notebook stops after the cell that sets `path` and says how to make one.
-    monkeypatch.setattr(sys, "argv", ["keybr.py", "--snapshot", str(tmp_path / "other.sqlite")])
+def test_the_notebook_opens_the_file_given_with_recordings_otherwise_keybrs_live_recordings(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # The file does not exist, so the notebook stops after the cell that sets `path` and says so.
+    monkeypatch.setattr(sys, "argv", ["keybr.py", "--recordings", str(tmp_path / "backup.sqlite")])
     outputs, defs = run_notebook()
-    assert defs["path"] == tmp_path / "other.sqlite"
+    assert defs["path"] == tmp_path / "backup.sqlite"
 
     monkeypatch.setattr(sys, "argv", ["keybr.py"])
     outputs, defs = run_notebook()
-    assert defs["path"] == Path("keybr-recordings.sqlite")
-    assert "recording export" in text_of(outputs)
+    assert defs["path"] == recordings_path() == tmp_path / ".local/share/keybr/data/recordings.sqlite"
+    assert "There are no keybr recordings" in text_of(outputs)

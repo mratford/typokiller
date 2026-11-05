@@ -1,6 +1,5 @@
-"""Reads the snapshot files that keybr writes with `keybr recording export <file>`.
-
-A snapshot is an SQLite copy of keybr's recording database. Its layout is in
+"""Reads keybr recordings: the SQLite database recordings.sqlite in keybr's data folder, or a copy
+of it, such as a backup. Its layout is in
 keybr/packages/keybr-recording-store/lib/index.ts, and the records are defined in
 keybr/packages/keybr-recording/lib/index.ts (see keybr/docs/typing-recordings.md):
 
@@ -76,12 +75,16 @@ STATES = RECORD | {
 
 
 class RecordingError(Exception):
-    """The file cannot be read as a keybr recording snapshot. The message says why."""
+    """The file cannot be read as keybr recordings. The message says why."""
+
+
+class NewerRecordings(RecordingError):
+    """The file has a newer database version than this typokiller reads."""
 
 
 class Recording(NamedTuple):
-    """The tables of one snapshot. Every table also has the columns source ("keybr"),
-    schema_version (the record contract version) and snapshot (the file's path). Each record
+    """The tables of one file of keybr recordings. Every table also has the columns source
+    ("keybr"), schema_version (the record contract version) and file (the file's path). Each record
     table keeps the record's own JSON in its `json` column. Each table is sorted on its
     first columns: attempt and sequence for the record tables."""
 
@@ -99,45 +102,46 @@ def wall_clock(origin: float, stamp: float) -> datetime:
     return EPOCH + timedelta(milliseconds=origin + stamp)
 
 
-def open_snapshot(path: Path) -> sqlite3.Connection:
-    """The snapshot at `path`, opened read-only, after the checks of its versions and tables."""
-    if not path.is_file():
-        raise RecordingError(f"There is no file at {path}.")
-    db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, check_same_thread=False)
+def checked_version(db: sqlite3.Connection, path: Path) -> int:
+    """The database version of the recordings in `db`, after the checks of its versions and tables."""
     try:
         (version,) = db.execute("PRAGMA user_version").fetchone()
         tables = {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     except sqlite3.DatabaseError as e:
-        db.close()
         raise RecordingError(f"{path} is not an SQLite database: {e}") from e
-    try:
-        if version not in DATABASE_VERSIONS:
-            raise RecordingError(f"{path} has database version {version}. Only versions 1 and 2 can be read.")
-        for table, columns in (COLUMNS_V2 if version == 2 else COLUMNS).items():
-            if table not in tables:
-                raise RecordingError(f"{path} has no table {table}.")
-            have = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
-            if missing := [c for c in columns if c not in have]:
-                raise RecordingError(f"{path}: the table {table} has no column {', '.join(missing)}.")
-        found = db.execute("SELECT value FROM metadata WHERE key = 'schemaVersion'").fetchone()
-        if found is None or found[0] != str(CONTRACT_VERSION):
-            raise RecordingError(
-                f"{path} has record schemaVersion {found and found[0]}. Only version {CONTRACT_VERSION} can be read."
-            )
-    except Exception:
-        db.close()
-        raise
-    return db
+    if version > max(DATABASE_VERSIONS):
+        raise NewerRecordings(f"{path} has database version {version}, which is newer than this typokiller reads. Update typokiller.")
+    if version not in DATABASE_VERSIONS:
+        raise RecordingError(f"{path} has database version {version}. Only versions 1 and 2 can be read.")
+    for table, columns in (COLUMNS_V2 if version == 2 else COLUMNS).items():
+        if table not in tables:
+            raise RecordingError(f"{path} has no table {table}.")
+        have = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if missing := [c for c in columns if c not in have]:
+            raise RecordingError(f"{path}: the table {table} has no column {', '.join(missing)}.")
+    found = db.execute("SELECT value FROM metadata WHERE key = 'schemaVersion'").fetchone()
+    if found is None or found[0] != str(CONTRACT_VERSION):
+        raise RecordingError(
+            f"{path} has record schemaVersion {found and found[0]}. Only version {CONTRACT_VERSION} can be read."
+        )
+    return version
 
 
-def read_snapshot(path: Path | str) -> Recording:
-    """The tables of the snapshot at `path`. Raises RecordingError when the file is missing, is not
-    SQLite, has an unsupported database or contract version, lacks a table or column, or has a
-    record whose JSON does not parse or whose schema version is not 1."""
+def read_recordings(path: Path | str) -> Recording:
+    """The tables of the keybr recordings at `path`. Raises RecordingError when the file is
+    missing, is not SQLite, has an unsupported database or contract version (NewerRecordings
+    for a newer database version), lacks a table or column, or has a record whose JSON does not
+    parse or whose schema version is not 1.
+
+    keybr may write to the file at the same time. The file is opened read-only, and the checks
+    and all the reads are in one transaction, so they see one state of the file (#75)."""
     path = Path(path)
-    db = open_snapshot(path)
+    if not path.is_file():
+        raise RecordingError(f"There is no file at {path}.")
+    db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, autocommit=True)
     try:
-        version = db.execute("PRAGMA user_version").fetchone()[0]
+        db.execute("BEGIN")
+        version = checked_version(db, path)
         keyboards = read_keyboards(db, version)
         flags = {a: (bool(i), bool(n)) for a, i, n in db.execute("SELECT id, incomplete, interrupted FROM attempts")}
         by_attempt: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -155,6 +159,7 @@ def read_snapshot(path: Path | str) -> Recording:
                 )
             record["json"] = text
             by_attempt[attempt].append(record)
+        db.execute("COMMIT")
     finally:
         db.close()
     letters = dict(zip(keyboards["keymap_version"], keyboards["letter_layout"]))
@@ -163,7 +168,7 @@ def read_snapshot(path: Path | str) -> Recording:
         for attempt in sorted(set(flags) | set(by_attempt))
     ]
     every = [r for found in by_attempt.values() for r in found]
-    labels = {"source": pl.lit(SOURCE), "schema_version": pl.lit(CONTRACT_VERSION), "snapshot": pl.lit(str(path))}
+    labels = {"source": pl.lit(SOURCE), "schema_version": pl.lit(CONTRACT_VERSION), "file": pl.lit(str(path))}
 
     def table(rows: list[dict[str, Any]], schema: dict[str, Any], *order: str) -> pl.DataFrame:
         return pl.DataFrame(rows, schema=schema, orient="row").with_columns(**labels).sort(*order)

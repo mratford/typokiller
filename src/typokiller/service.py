@@ -33,6 +33,11 @@ def data_folder() -> Path:
     return Path.home() / ".local/share/typokiller/data"
 
 
+def recordings_path() -> Path:
+    """The keybr recordings, which keybr writes in its own data folder."""
+    return Path.home() / ".local/share/keybr/data/recordings.sqlite"
+
+
 def notebook_db(data: Path) -> Path:
     """The database that the notebooks open with no --db: the service's database in `data` when
     it exists, otherwise typokiller.db in the current folder."""

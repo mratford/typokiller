@@ -9,7 +9,7 @@ import pytest
 from typokiller.app import SCHEMA
 from typokiller.keyboard_export import export_keyboards, main, open_read_only, read_settings_file
 
-from keybr_snapshot import KEYBR_FIXTURES
+from keybr_recordings import KEYBR_FIXTURES
 
 SWEEP_LAYOUTS = Path(__file__).parent / "fixtures"  # the Board fixtures of test_app.py
 

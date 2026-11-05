@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>typokiller</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #23221f; --dim: #a29e94; --faint: #d9d5cc; --line: #e5e1d8; --panel: #ffffff; --next: #2456a6;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16171a; --fg: #e8e6e1; --dim: #75726b; --faint: #3a3a3d; --line: #2d2e33; --panel: #1f2024; --next: #7fb0ff; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+a { color: var(--next); }
+kbd { font: 12px var(--mono); border: 1px solid var(--faint); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+h4 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+.hint { font-size: 12px; color: var(--dim); margin-top: 8px; }
+.message { margin-top: 40vh; text-align: center; }
+#analysis { max-width: 1100px; margin: 0 auto; padding: 16px 24px; }
+.tabs { display: flex; gap: 16px; margin: 16px 0 8px; color: var(--dim); }
+.tabs .on { color: var(--fg); font-weight: 600; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 24px; align-items: start; }
+.heat svg { display: block; width: 100%; height: auto; }
+#trend svg { max-width: 100%; height: auto; } /* the charts get smaller in a narrow window */
+.arc:not(.on) { display: none; } /* only the selected pair's arc */
+table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+td { padding: 1px 8px 1px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td + td { text-align: right; color: var(--dim); }
+tr.sel td { background: var(--faint); color: var(--fg); }
+.mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+<div id="analysis"><p class="message">Loading…</p></div>
+<script type="module" src="analysis.js"></script>
+</body>
+</html>

@@ -3,6 +3,7 @@ import json
 import re
 import sqlite3
 import xml.etree.ElementTree as ET
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,8 @@ from fastapi.testclient import TestClient
 from typokiller.app import DEFAULT_SETTINGS, create_app, options
 from typokiller.drawing import Heat, draw_keymap
 from typokiller.keymap import qmk_settings, read_keymap
+
+from keybr_recordings import ORIGIN, build_recordings, change, keyboard_export, keymap_snapshot, attempt
 
 
 @pytest.fixture
@@ -24,8 +27,13 @@ def settings_path(tmp_path):
 
 
 @pytest.fixture
-def client(db_path, settings_path):
-    return TestClient(create_app(db_path, settings_path))
+def recordings(tmp_path):
+    return tmp_path / "recordings.sqlite"
+
+
+@pytest.fixture
+def client(db_path, settings_path, recordings):
+    return TestClient(create_app(db_path, settings_path, recordings))
 
 
 # Real .vil and vial.json files from the sweep-layouts repo, as of its commit 67c9332 (2026-10-25).
@@ -75,12 +83,12 @@ INSERT INTO key_event VALUES (1, 0);
 
 
 def test_the_first_start_deletes_every_table_but_the_boards_and_keymap_versions_and_keeps_their_rows(
-    db_path, settings_path
+    db_path, settings_path, recordings
 ):
     with sqlite3.connect(db_path) as db:
         db.executescript(PRACTICE_SCHEMA)
 
-    create_app(db_path, settings_path)
+    create_app(db_path, settings_path, recordings)
 
     assert rows(db_path, "SELECT type, name FROM sqlite_schema ORDER BY name") == [
         ("table", "board"),
@@ -136,11 +144,11 @@ cap = 5.0
 
 
 def test_at_start_the_settings_of_the_typing_page_are_removed_and_lists_and_keymaps_keep_their_values_and_comments(
-    db_path, settings_path
+    db_path, settings_path, recordings
 ):
     settings_path.write_text(OLD_SETTINGS_FILE)
 
-    create_app(db_path, settings_path)
+    create_app(db_path, settings_path, recordings)
 
     assert settings_path.read_text() == """\
 # typokiller settings. Edit this file, or press , in the app's Escape menu.
@@ -158,10 +166,10 @@ layers = ["Base", "Sym"]  # my names
 """
 
 
-def test_a_settings_file_with_a_missing_table_gets_it_with_its_comments(db_path, settings_path):
+def test_a_settings_file_with_a_missing_table_gets_it_with_its_comments(db_path, settings_path, recordings):
     settings_path.write_text('[keymaps.Sweep.QWERTY]\nlayers = ["Base"]\n')
 
-    create_app(db_path, settings_path)
+    create_app(db_path, settings_path, recordings)
 
     text = settings_path.read_text()
     assert 'letters = "sadflewcmpgh"' in text and "# The letters that label" in text
@@ -314,9 +322,69 @@ def test_each_keymap_has_its_letter_layout_and_version(client):
     assert boards[1]["keymaps"][1]["version"] == hashlib.sha256(vil.encode()).hexdigest()
 
 
-def test_the_options_give_the_port_and_whether_the_access_log_is_on():
-    assert vars(options([])) == {"port": 8000, "access_log": True}
-    assert vars(options(["--port", "8001", "--no-access-log"])) == {"port": 8001, "access_log": False}
+def test_the_options_give_the_port_whether_the_access_log_is_on_and_the_recordings(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert vars(options([])) == {
+        "port": 8000,
+        "access_log": True,
+        "recordings": tmp_path / ".local/share/keybr/data/recordings.sqlite",
+    }
+    assert vars(options(["--port", "8001", "--no-access-log", "--recordings", "backup.sqlite"])) == {
+        "port": 8001,
+        "access_log": False,
+        "recordings": Path("backup.sqlite"),
+    }
+
+
+def text(html):
+    return re.sub(r"<[^>]+>", "", html)
+
+
+def test_the_analysis_page_is_at_analysis(client):
+    page = client.get("/analysis")
+    assert page.status_code == 200 and "analysis.js" in page.text
+
+
+def test_with_no_recordings_or_no_attempts_the_page_says_to_type_on_the_typing_page(client, recordings):
+    expected = "No lessons recorded yet. Type on the typing page, then reload this page."
+    found = client.get("/api/analysis").json()
+    assert text(found["message"]) == expected and 'href="http://localhost:3100/"' in found["message"]
+    assert found.keys() == {"message"}
+
+    build_recordings(recordings, [])
+    assert text(client.get("/api/analysis").json()["message"]) == expected
+
+
+def test_with_newer_recordings_the_page_says_to_update_typokiller(client, recordings):
+    build_recordings(recordings, attempt(1, 0, "ab"))
+    change(recordings, "PRAGMA user_version = 3")
+
+    found = client.get("/api/analysis").json()["message"]
+
+    assert text(found) == "The recorded lessons are newer than this version of typokiller. Run typokiller-service update."
+
+
+def test_the_page_reads_the_recordings_each_time_and_draws_the_weakest_pair_as_an_arc(client, recordings):
+    yesterday = (datetime.now(UTC) - ORIGIN) / timedelta(days=1) - 1
+    sweep = keymap_snapshot(keyboard_export(), "Sweep", "QWERTY")
+    typed = [attempt(1, yesterday - 1, "ab"), attempt(2, yesterday, "abc" * 20, keymap=sweep, wpm=40)]
+    build_recordings(recordings, typed[0], keymap=None)
+
+    assert client.get("/api/analysis").json()["entries"] == ["no keyboard · en-free-range"]
+    recordings.unlink()
+    build_recordings(recordings, typed[0] + typed[1], keymap=None)
+    found = client.get("/api/analysis").json()
+
+    assert found["entries"] == ["Sweep · QWERTY", "no keyboard · en-free-range"] and found["entry"] == "Sweep · QWERTY"
+    assert (found["weeks"], found["days"]) == (13, 1)
+    assert found["names"] == ["Base", "Sym", "Nav", "Stack", "Num"] and len(found["layers"]) == 5
+    assert [p["unit"] for p in found["pairs"]] == ["ab", "bc"] and [c["unit"] for c in found["chars"]] == ["a", "b", "c"]
+    assert 'data-pair="ab"' in found["layers"][0] and 'data-pair="bc"' in found["layers"][0]
+    assert found["trend"]["$schema"].startswith("https://vega.github.io/schema/vega-lite/")
+
+    # A layout with no keyboard has no picture.
+    other = client.get("/api/analysis", params={"entry": "no keyboard · en-free-range"}).json()
+    assert other["entry"] == "no keyboard · en-free-range" and other["layers"] == other["names"] == []
 
 
 HEAT = Heat(

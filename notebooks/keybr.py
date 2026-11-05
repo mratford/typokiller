@@ -22,7 +22,8 @@ with app.setup:
         observations,
         units,
     )
-    from typokiller.recording import RecordingError, read_snapshot
+    from typokiller.recording import RecordingError, read_recordings
+    from typokiller.service import recordings_path
 
 
 @app.cell
@@ -30,19 +31,20 @@ def _():
     mo.md("""
     # keybr recordings
 
-    The detailed recordings of keybr, from a snapshot that `keybr recording export`
-    wrote. The Attempts are read with the analysis method `keybr-input-v1`. This notebook does
-    not open the typokiller database. keybr's own scores are shown apart, labelled "keybr".
+    The Attempts that keybr recorded in detail, read once when this cell runs, read only, with the
+    analysis method `keybr-input-v1`. The keyboards come from the recordings too. keybr's own scores
+    are shown apart, labelled "keybr".
     """)
     return
 
 
 @app.cell
 def _():
-    # To open another snapshot: uv run marimo edit notebooks/keybr.py -- --snapshot other.sqlite
+    # keybr's live recordings file by default. To open another file, such as a backup:
+    # uv run marimo edit notebooks/keybr.py -- --recordings other.sqlite
     # str(): the type of a command-line value is a string, a number, a boolean or a list.
-    path = Path(str(mo.cli_args().get("snapshot") or "keybr-recordings.sqlite"))
-    print(f"Snapshot: {path.resolve()}")
+    path = Path(str(mo.cli_args().get("recordings") or recordings_path()))
+    print(f"Recordings: {path.resolve()}")
     return (path,)
 
 
@@ -51,17 +53,16 @@ def _(path):
     mo.stop(
         not path.exists(),
         mo.md(f"""
-        There is no snapshot at `{path.resolve()}`. Make one in the keybr folder with
-
-        `node root/keybr.js recording export {path.resolve()}`
+        There are no keybr recordings at `{path.resolve()}`. keybr writes them when detailed
+        recording is on: see `keybr/docs/detailed_recording.md`.
         """),
     )
     try:
-        recording = read_snapshot(path)
+        recording = read_recordings(path)
         _error = None
     except RecordingError as e:
         recording, _error = None, str(e)
-    mo.stop(recording is None, mo.md(f"The snapshot cannot be read: {_error}"))
+    mo.stop(recording is None, mo.md(f"The recordings cannot be read: {_error}"))
     assert recording is not None
     observed = observations(recording)
     excluded = exclusions(recording)

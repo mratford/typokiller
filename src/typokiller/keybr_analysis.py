@@ -26,11 +26,13 @@ A position with only automatic steps is skipped and is no observation.
 
 import json
 from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 
 import polars as pl
 
-from typokiller.analysis import NO_BOARD, Event, attempt_keystrokes
+from typokiller.analysis import NO_BOARD, WEAKNESS_MODELS, Event, attempt_keystrokes, rank_units
+from typokiller.drawing import Heat
 from typokiller.keymap import Keymap, read_keymap
 from typokiller.recording import TIME, Recording
 
@@ -297,11 +299,13 @@ def analyse_attempt(attempt: dict[str, Any], found: list[dict[str, Any]], keymap
 
 
 def analysed(recording: Recording) -> list[AttemptResult]:
-    """The result of every Attempt that can be read: every one but those with status "unreadable"."""
+    """The result of every Attempt in `recording.attempts` that can be read: every one but those
+    with status "unreadable". The records of other Attempts are not read."""
     keymaps = {v: read_keymap(vil) for v, vil in recording.keyboards.select("keymap_version", "vil").iter_rows() if vil}
     found: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    ids = recording.attempts["attempt"].implode()
     for table in (recording.original_events, recording.processed_events, recording.states):
-        for attempt, text in table.select("attempt", "json").iter_rows():
+        for attempt, text in table.filter(pl.col("attempt").is_in(ids)).select("attempt", "json").iter_rows():
             found[attempt].append(json.loads(text))
     results = []
     for attempt in recording.attempts.filter(pl.col("status") != "unreadable").iter_rows(named=True):
@@ -401,3 +405,88 @@ def native_scores(recording: Recording) -> pl.DataFrame:
             "wpm": speed / 5, "accuracy": accuracy, "score": score, "result_accepted": a["result_accepted"],
         })  # fmt: skip
     return pl.DataFrame(rows, schema=NATIVE, orient="row").with_columns(measure=pl.lit("keybr")).sort("started", "attempt")
+
+
+# The analysis page. These values are fixed, not settings.
+TREND_WEEKS = 13  # the trend chart covers about 3 months
+WEAKNESS = {"model": "recent-cost-v1", "min_seen": 20}  # how the weakest characters and pairs are ranked
+WEAKNESS_WEEKS = 4  # the weeks of observations that the ranking uses
+WEAKEST = 10  # the number of weakest characters, and of weakest pairs, that the page lists
+
+
+class Page(NamedTuple):
+    """What the analysis page shows for one entry (see `analysis_page`)."""
+
+    entries: list[str]
+    entry: str
+    trend: pl.DataFrame
+    chars: pl.DataFrame
+    pairs: pl.DataFrame
+    keyboard: dict[str, Any] | None
+    heat: Heat
+
+
+def analysis_page(recording: Recording, entry: str | None, now: datetime) -> Page | None:
+    """What the analysis page shows for `entry`, or for the first entry when `entry` is not one.
+    None when no Attempt can be read.
+
+    - entries: one for each Board with a Letter layout, "<Board> · <Letter layout>", and one for
+      each layout setting of keybr in the Attempts with no imported Keymap, "no keyboard · <keybr_layout>".
+      Only entries with Attempts that can be read, the most recently typed first. The Attempts
+      on every version of a Keymap count together.
+    - trend: one row per day, in this computer's time zone, of the last TREND_WEEKS weeks before
+      `now`. wpm: the median of keybr's WPM of the day's completed Attempts. accuracy: the median
+      first-input accuracy of the day's Attempts, abandoned ones too. Either is None on a day
+      without such Attempts. Sorted on day.
+    - chars, pairs: the WEAKEST weakest characters and pairs by `rank_units` with WEAKNESS, over
+      the last WEAKNESS_WEEKS weeks.
+    - keyboard: the row of `recording.keyboards` of the newest version of the entry's Keymap: the
+      last one imported. None for no Board, or when no version has a .vil.
+    - heat: the costs of the ranking, the seen counts of the same weeks, and the colour scale.
+    """
+    entry_of = (
+        pl.when(pl.col("letter_layout").is_not_null())
+        .then(pl.concat_str("board_id", pl.lit(" · "), "letter_layout"))
+        .otherwise(pl.concat_str(pl.lit("no keyboard · "), "keybr_layout"))
+    )
+    readable = recording.attempts.filter(pl.col("status") != "unreadable").with_columns(entry=entry_of).drop_nulls("entry")
+    entries = (
+        readable.group_by("entry")
+        .agg(last=pl.col("started").max())
+        .sort(["last", "entry"], descending=[True, False], nulls_last=True)["entry"]
+        .to_list()
+    )
+    if not entries:
+        return None
+    shown = next((e for e in entries if e == entry), entries[0])
+    mine = readable.filter(pl.col("entry") == shown).sort("started", nulls_last=False)
+    keymap = mine["keymap_id"].last() if mine["letter_layout"].last() else None  # None for no Board
+    found = recording.keyboards.filter(pl.col("keymap_id").eq_missing(keymap), pl.col("vil").is_not_null())
+    found = found.sort("imported_at", "keymap_version", nulls_last=False)
+    recent = recording._replace(attempts=mine.filter(pl.col("started") >= now - timedelta(weeks=TREND_WEEKS)))
+    observed = observations(recent)
+
+    def by_day(rows: pl.DataFrame, column: str) -> pl.DataFrame:
+        day = pl.col("started").map_elements(lambda t: t.astimezone().date(), return_dtype=pl.Date)
+        return rows.group_by(day.alias("day")).agg(pl.col(column).median())
+
+    trend = by_day(native_scores(recent), "wpm").join(
+        by_day(first_input_accuracy(observed), "accuracy"), on="day", how="full", coalesce=True
+    )
+    typed = units(observed.filter(pl.col("started") >= now - timedelta(weeks=WEAKNESS_WEEKS)))
+    ranking = rank_units(typed, WEAKNESS)
+    seen = typed.group_by("unit").agg(seen=pl.col("first_time_correct").count())
+    length = pl.col("unit").str.len_chars()
+    return Page(
+        entries,
+        shown,
+        trend.sort("day"),
+        ranking.filter(length == 1).head(WEAKEST),
+        ranking.filter(length == 2).head(WEAKEST),
+        found.row(-1, named=True) if found.height else None,
+        Heat(
+            dict(zip(ranking["unit"], ranking["cost"])),
+            dict(zip(seen["unit"], seen["seen"])),
+            WEAKNESS_MODELS[WEAKNESS["model"]].scale,
+        ),
+    )
