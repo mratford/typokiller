@@ -13,9 +13,6 @@ test("select fonts for each language", () => {
   }
 });
 
-test("the typed text uses the Mac's monospaced font by default", () => {
-  equal(
-    Font.default.cssProperties.fontFamily,
-    'ui-monospace,"SF Mono",Menlo,monospace',
-  );
+test("the typed text uses Hack by default", () => {
+  equal(Font.default.cssProperties.fontFamily, "Hack,monospace");
 });

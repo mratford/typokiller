@@ -49,6 +49,10 @@ export const CORMORANT = new FontFace("Cormorant", "400", "normal", ["serif"], c
 export const CORMORANT_I = new FontFace("Cormorant", "400", "italic", ["serif"], cl);
 export const CORMORANT_B = new FontFace("Cormorant", "700", "normal", ["serif"], cl);
 export const CORMORANT_BI = new FontFace("Cormorant", "700", "italic", ["serif"], cl);
+export const HACK = new FontFace("Hack", "400", "normal", ["monospace"], cgl);
+export const HACK_I = new FontFace("Hack", "400", "italic", ["monospace"], cgl);
+export const HACK_B = new FontFace("Hack", "700", "normal", ["monospace"], cgl);
+export const HACK_BI = new FontFace("Hack", "700", "italic", ["monospace"], cgl);
 export const NEWSREADER = new FontFace("Newsreader", "400", "normal", ["serif"], ["latin"]);
 export const NEWSREADER_I = new FontFace("Newsreader", "400", "italic", ["serif"], ["latin"]);
 export const NEWSREADER_B = new FontFace("Newsreader", "700", "normal", ["serif"], ["latin"]);
@@ -111,8 +115,6 @@ export const MONOSPACE = new FontFace("monospace", "400", "normal", ["whitespace
 export const MONOSPACE_I = new FontFace("monospace", "400", "italic", ["whitespace"], aacghlt);
 export const MONOSPACE_B = new FontFace("monospace", "700", "normal", ["whitespace"], aacghlt);
 export const MONOSPACE_BI = new FontFace("monospace", "700", "italic", ["whitespace"], aacghlt);
-// The Mac's own monospaced font (SF Mono), as on typokiller's page.
-export const UI_MONOSPACE = new FontFace("ui-monospace", "400", "normal", ['"SF Mono"', "Menlo", "monospace"], cgl);
 export const CURSIVE = new FontFace("cursive", "400", "normal", ["whitespace"], aacghlt);
 export const CURSIVE_I = new FontFace("cursive", "400", "italic", ["whitespace"], aacghlt);
 export const CURSIVE_B = new FontFace("cursive", "700", "normal", ["whitespace"], aacghlt);
@@ -125,6 +127,10 @@ export const FONTS_FACES: readonly FontFace[] = [
   CORMORANT_I,
   CORMORANT_B,
   CORMORANT_BI,
+  HACK,
+  HACK_I,
+  HACK_B,
+  HACK_BI,
   NEWSREADER,
   NEWSREADER_I,
   NEWSREADER_B,
@@ -183,7 +189,6 @@ export const FONTS_FACES: readonly FontFace[] = [
   MONOSPACE_I,
   MONOSPACE_B,
   MONOSPACE_BI,
-  UI_MONOSPACE,
   CURSIVE,
   CURSIVE_I,
   CURSIVE_B,

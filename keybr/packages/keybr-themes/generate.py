@@ -19,10 +19,24 @@ unicode_ranges = [
 ]
 
 
+def fit_marks(font):
+    """Makes the whitespace marks (U+E000-U+E003) as wide as the space, centred, so that a
+    monospaced font keeps its columns."""
+    cmap = font.getBestCmap()
+    width = font["hmtx"][cmap[0x20]][0]
+    for code in range(0xE000, 0xE004):
+        name = cmap[code]
+        glyph = font["glyf"][name]
+        glyph.coordinates.translate(((width - font["hmtx"][name][0]) // 2, 0))
+        glyph.recalcBounds(font["glyf"])
+        font["hmtx"][name] = (width, glyph.xMin)
+
+
 class Font:
-    def __init__(self, font_name, font_file, merge_file=None):
+    def __init__(self, font_name, font_file, merge_file=None, mono=False):
         self.font_file = font_file
         self.merge_file = merge_file
+        self.mono = mono
 
         font = TTFont(font_file, lazy=True)
         font_family = font["name"].getDebugName(1)
@@ -90,6 +104,8 @@ class Font:
             if self.merge_file:
                 merger = Merger(options=Options(drop_tables=["vhea", "vmtx"]))
                 font = merger.merge([self.font_file, self.merge_file])
+                if self.mono:
+                    fit_marks(font)
             else:
                 font = TTFont(self.font_file)
             subs = Subsetter()
@@ -123,8 +139,8 @@ class Font:
             print("\n".join(css), end="", file=file)
 
 
-def generate(font_name, font_file, merge_file=None):
-    Font(font_name, font_file, merge_file).generate()
+def generate(font_name, font_file, merge_file=None, mono=False):
+    Font(font_name, font_file, merge_file, mono).generate()
 
 
 def main():
@@ -134,6 +150,10 @@ def main():
     generate("cormorant", "fonts/Cormorant/static/Cormorant-Italic.ttf", merge_file="Whitespace-em1000.ttf")
     generate("cormorant", "fonts/Cormorant/static/Cormorant-Bold.ttf", merge_file="Whitespace-em1000.ttf")
     generate("cormorant", "fonts/Cormorant/static/Cormorant-BoldItalic.ttf", merge_file="Whitespace-em1000.ttf")
+    generate("hack", "fonts/Hack/Hack-Regular.ttf", merge_file="Whitespace-em2048.ttf", mono=True)
+    generate("hack", "fonts/Hack/Hack-Italic.ttf", merge_file="Whitespace-em2048.ttf", mono=True)
+    generate("hack", "fonts/Hack/Hack-Bold.ttf", merge_file="Whitespace-em2048.ttf", mono=True)
+    generate("hack", "fonts/Hack/Hack-BoldItalic.ttf", merge_file="Whitespace-em2048.ttf", mono=True)
     generate("newsreader", "fonts/Newsreader/static/Newsreader_60pt-Regular.ttf", merge_file="Whitespace-em2000.ttf")
     generate("newsreader", "fonts/Newsreader/static/Newsreader_60pt-Italic.ttf", merge_file="Whitespace-em2000.ttf")
     generate("newsreader", "fonts/Newsreader/static/Newsreader_60pt-Bold.ttf", merge_file="Whitespace-em2000.ttf")

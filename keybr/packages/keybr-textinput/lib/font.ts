@@ -1,11 +1,6 @@
 import { type Language } from "@keybr/keyboard";
 import { Enum, type EnumItem } from "@keybr/lang";
-import {
-  type FontFace,
-  FONTS_FACES,
-  type Script,
-  UI_MONOSPACE,
-} from "@keybr/themes";
+import { type FontFace, FONTS_FACES, HACK,type Script } from "@keybr/themes";
 import { type CSSProperties } from "react";
 
 export class Font implements EnumItem {
@@ -14,9 +9,7 @@ export class Font implements EnumItem {
   );
 
   static get default() {
-    return (
-      Font.ALL.find(({ name }) => name === UI_MONOSPACE.name) ?? Font.ALL.at(0)
-    );
+    return Font.ALL.find(({ name }) => name === HACK.name) ?? Font.ALL.at(0);
   }
 
   static select(language: Language) {
