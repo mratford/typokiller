@@ -6,7 +6,7 @@ This replaces ADR 0002. The aim is now a setup for a user who does not use a ter
 - **Data stays outside the code**, as in ADR 0002: `~/.local/share/typokiller/data` and `~/.local/share/keybr/data` (keybr's `DATA_DIR`, with `recordings.sqlite`). These folders, the ports (typokiller 8000, keybr 3100 and 3101) and the labels are constants in `service.py`. keybr's `.env` and plist are written again by each `install` and `update`, so nobody edits them by hand.
 - **`update` gets its code from GitHub.** It runs `git fetch`, moves the clone to `origin/main` (or to a given commit), and runs typokiller's tests and then keybr's `npm ci`, `npm run build` and tests. Both apps are updated, or neither: if any step fails, the clone goes back to the old commit and nothing restarts.
 - **Every command acts on both apps.** There is no option to act on one app.
-- **Backups.** `typokiller.db` and keybr's `recordings.sqlite` are backed up at each `update`. Because the recordings are now all the history, the typokiller server also backs them up when it starts and every 24 hours.
+- **Backups.** `typokiller.db` and keybr's `recordings.sqlite` are backed up at each `update`. Because the recordings are now all the history, the typokiller server also backs up both files when it starts and every 24 hours. It opens `recordings.sqlite` read-only for this, because keybr writes it.
 
 ## Considered options
 

@@ -26,7 +26,7 @@ def text_of(outputs):
 def test_the_notebook_runs_on_recordings_without_typokiller_and_leaves_the_file_unchanged(tmp_path, monkeypatch):
     # No typokiller database anywhere: the notebook must not need one.
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("typokiller.service.data_folder", lambda: tmp_path / "no-service")
+    monkeypatch.setattr("typokiller.service.data_folder", lambda app: tmp_path / "no-service")
     path = all_scenarios_recordings(tmp_path / "keybr-recordings.sqlite")
     before = path.read_bytes()
 

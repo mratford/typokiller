@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { listLabels } from '../src/typokiller/static/lists.js';
-import { PANEL_KEYS, pressed, typingUrl, vialName } from '../src/typokiller/static/analysis.js';
+import { PANEL_KEYS, pressed, vialName } from '../src/typokiller/static/analysis.js';
 
 test('with no more items than letters, every label is one letter, in the order of the letters', () => {
   assert.deepEqual(listLabels(3, 'sadflewcmpgh', 'jk'), ['s', 'a', 'd']);
@@ -45,11 +45,6 @@ test('on the analysis page, h and l move between the entries, a number picks the
   assert.deepEqual(pressed('j', { ...view, pair: 1 }, counts), { at: 0, layer: 1, pair: 1 }); // the last pair
   assert.deepEqual(pressed('k', view, counts), view);
   assert.equal(pressed('x', view, counts), null);
-});
-
-test('the link to the typing page has the host name of the page, and keybr\'s port', () => {
-  assert.equal(typingUrl('localhost'), 'http://localhost:3100/');
-  assert.equal(typingUrl('marge.local'), 'http://marge.local:3100/');
 });
 
 // The screen uses plain words, not the glossary terms of CONTEXT.md (see "Words on screen" in AGENTS.md).

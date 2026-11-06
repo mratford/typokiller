@@ -5,26 +5,32 @@ The code in `keybr/` is under the AGPL 3.0 (see `keybr/LICENSE` and `keybr/NOTIC
 
 ## Running
 
-typokiller runs all the time on this Mac as a launchd service, on port 8000 (http://<this Mac>:8000 on the LAN). The service does not run the code in this folder. It runs its own copy, a git worktree in `~/.local/share/typokiller/app`, which changes only when you update it. Its database, settings and backups are in `~/.local/share/typokiller/data`. Its log is `~/Library/Logs/typokiller.log`. The reasons are in `docs/adr/0002-local-service.md`.
+typokiller and keybr run all the time on this Mac as two launchd services: typokiller on port 8000 (the analysis page), keybr on port 3100 (the typing page). Other computers on the home network use the name of this Mac, for example http://marge.local:3100/. Both run from their own copy of this repo, a clone of GitHub in `~/.local/share/typokiller/app`, which changes only when you update it. typokiller's database, settings and backups are in `~/.local/share/typokiller/data`, and keybr's recorded lessons, settings and backups in `~/.local/share/keybr/data`. The logs are `~/Library/Logs/typokiller.log` and `~/Library/Logs/keybr.log`. The reasons are in `docs/adr/0006-service-runs-both-apps-from-a-github-clone.md`.
+
+Install it once, with `git`, `uv` and `node` 24 or newer (`brew install uv node`). No checkout is needed:
 
 ```sh
-uv run typokiller-service install     # set it up and start it
-uv run typokiller-service update      # go to the latest local main
-uv run typokiller-service update abc1234   # go to another commit, also an older one
-uv run typokiller-service status      # running or not, its commit, its newest backup
-uv run typokiller-service logs        # the end of the log, as it grows (Ctrl-C stops)
-uv run typokiller-service stop        # stop it until the next login
-uv run typokiller-service start
-uv run typokiller-service restore     # list the backups, newest first
-uv run typokiller-service restore typokiller-2026-11-01-093015-abc1234.db
-uv run typokiller-service uninstall   # remove it, but keep the data and the log
+uvx --from git+https://github.com/mratford/typokiller typokiller-service install
 ```
 
-`install` runs the tests in the new worktree, moves `typokiller.db` from this folder to the data folder, and copies `typokiller.toml` there. It refuses while something answers on port 8000, so stop a server that runs from this folder first. After an `uninstall`, `install` keeps the database that is in the data folder already.
+After that, `typokiller-service` is in `~/.local/bin`. Each command acts on both apps:
 
-`update` moves the worktree to the commit, installs its packages and runs the tests. If they fail, it goes back to the old commit and the service continues with the old code. If they pass, it backs up the database to `backups/` in the data folder, keeps the 10 newest backups, and restarts the service.
+```sh
+typokiller-service update      # go to the latest commit of main on GitHub
+typokiller-service update abc1234        # go to another commit, also an older one
+typokiller-service update origin/branch  # go to a branch that is pushed to GitHub
+typokiller-service status      # running or not, the commit, the addresses, the newest backups
+typokiller-service logs        # the end of both logs, as they grow (Ctrl-C stops)
+typokiller-service stop        # stop both until the next login
+typokiller-service start
+typokiller-service restore     # list the backups, newest first
+typokiller-service restore recordings-2026-11-01-093015.sqlite
+typokiller-service uninstall   # remove both, but keep the data and the logs
+```
 
-To go back to a backup, list them with `restore`, then give one file name. The service stops, the database is backed up first (so you can undo the restore with the same command), the chosen backup becomes the database, and the service starts again. The code does not change.
+`update` gets the code from GitHub. It installs the packages of both apps, builds keybr and runs the tests of both. If a step fails, it goes back to the old commit and both apps continue with the old code. If all pass, it backs up `typokiller.db` and keybr's `recordings.sqlite` to `backups/` in their data folders, and restarts keybr, then typokiller. typokiller also backs up both files when it starts and every 24 hours. The 10 newest backups of each file are kept.
+
+To go back to a backup, list them with `restore`, then give one file name. Both apps stop, the file is backed up first (so you can undo the restore with the same command), the chosen backup takes its place, and both apps start again. The code does not change.
 
 For development, run a server from this folder on another port. It uses `typokiller.db` and `typokiller.toml` in this folder, not the service's data:
 

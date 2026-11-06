@@ -2,6 +2,8 @@ import argparse
 import hashlib
 import re
 import sqlite3
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from typokiller.keyboard_export import export_keyboards
 from typokiller.keybr_analysis import TREND_WEEKS, analysis_page
 from typokiller.keymap import keymap_letters, read_keymap
 from typokiller.recording import NewerRecordings, read_recordings
-from typokiller.service import recordings_path
+from typokiller.service import KEYBR_PORT, TYPOKILLER_PORT, back_up, backups, recordings_path
 
 STATIC = Path(__file__).parent / "static"
 
@@ -80,12 +82,8 @@ def read_settings(path: Path) -> tomlkit.TOMLDocument:
     return doc
 
 
-# What the analysis page shows in place of the analysis. The link to the typing page gets the
-# page's host name.
-NO_LESSONS = (
-    'No lessons recorded yet. Type on <a class="typing" href="http://localhost:3100/">the typing page</a>,'
-    " then reload this page."
-)
+# What the analysis page shows in place of the analysis.
+NO_LESSONS = 'No lessons recorded yet. Type on <a href="/typing">the typing page</a>, then reload this page.'
 NEWER = "The recorded lessons are newer than this version of typokiller. Run <code>typokiller-service update</code>."
 
 
@@ -124,7 +122,7 @@ class LayerNames(BaseModel):
     layers: list[str]
 
 
-def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
+def create_app(db_path: Path, settings_path: Path, recordings: Path, keybr_port: int = KEYBR_PORT) -> FastAPI:
     db = sqlite3.connect(db_path, check_same_thread=False)
     with db:
         for table in PRACTICE_TABLES:
@@ -213,6 +211,12 @@ def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
     async def first_page():
         return RedirectResponse("/analysis")
 
+    # The typing page is keybr's, on `keybr_port` of the computer that the browser asked for this
+    # page, so that the link works from other computers too.
+    @app.get("/typing")
+    async def typing_page(request: Request):
+        return RedirectResponse(str(request.url.replace(port=keybr_port, path="/", query="")))
+
     # keybr reads this each time its typing page loads (see `keyboard_export`).
     @app.get("/api/keyboards/export")
     async def keyboards_export():
@@ -276,13 +280,37 @@ def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
 def options(args: list[str] | None = None) -> argparse.Namespace:
     """The command-line options: `port`, `access_log` and `recordings`. `args` is sys.argv[1:] when None."""
     parser = argparse.ArgumentParser(prog="typokiller")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=TYPOKILLER_PORT)
     parser.add_argument("--recordings", type=Path, default=recordings_path(), help="the keybr recordings to analyse")
     parser.add_argument("--no-access-log", dest="access_log", action="store_false", help="log only errors and start-up")
     return parser.parse_args(args)
 
 
+def keybr_port(env: Path) -> int:
+    """KEYBR_PORT in the settings file `env`, which typokiller-service writes, or else 3100."""
+    for line in env.read_text().splitlines() if env.exists() else []:
+        if line.startswith("KEYBR_PORT="):
+            return int(line.removeprefix("KEYBR_PORT="))
+    return KEYBR_PORT
+
+
+def back_up_daily(databases: list[Path]):
+    """Backs up the database files now and then every 24 hours (see service.back_up). At the start,
+    it skips a file whose newest backup is less than 24 hours old, as after an update: so a server
+    that restarts again and again does not replace all 10 kept backups."""
+    day = 24 * 60 * 60
+    for db in databases:
+        newest = backups(db)[:1]
+        if not newest or time.time() - newest[0].stat().st_mtime > day:
+            back_up(db)
+    while True:
+        time.sleep(day)
+        for db in databases:
+            back_up(db)
+
+
 def main():
     opts = options()
-    app = create_app(Path("typokiller.db"), Path("typokiller.toml"), opts.recordings)
+    app = create_app(Path("typokiller.db"), Path("typokiller.toml"), opts.recordings, keybr_port(Path(".env")))
+    threading.Thread(target=back_up_daily, args=([Path("typokiller.db"), opts.recordings],), daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=opts.port, access_log=opts.access_log)

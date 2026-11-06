@@ -68,10 +68,6 @@ function loadBoards() {
   return boardsRead = fetch('/api/boards').then(r => r.json()).then(found => ({ boards, letters } = found), () => {});
 }
 
-// The typing page runs on port 3100 of the same computer (ADR 0006). The link has the host name
-// that the browser used for this page, so it works from another computer too.
-export const typingUrl = (hostname = location.hostname) => `http://${hostname}:3100/`;
-
 // Draws the whole page. The chart is drawn only here, so it is not drawn again for each key.
 function draw() {
   drawPanel();
@@ -83,7 +79,6 @@ function draw() {
   }
   if (page.message) {
     el.innerHTML = `<div class="message">${none}<p>${page.message}</p></div>`;
-    for (const a of el.querySelectorAll('a.typing')) a.href = typingUrl();
     return;
   }
   const count = page.entries.length > 1 ? ` (${view.at + 1} of ${page.entries.length})` : '';
@@ -257,7 +252,7 @@ function pageKey(key) {
     return true;
   }
   if (key === 't') {
-    location.href = typingUrl();
+    location.href = '/typing'; // the server redirects the browser to keybr
     return true;
   }
   const next = page?.entries && pressed(key, view, { entries: page.entries.length, layers: page.layers.length, pairs: page.pairs.length });

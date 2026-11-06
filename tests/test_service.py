@@ -1,6 +1,5 @@
 import os
 import plistlib
-import re
 import sqlite3
 import subprocess
 from contextlib import closing
@@ -10,19 +9,24 @@ import pytest
 
 from typokiller import service
 
+OLD, NEW = "a" * 40, "b" * 40
+NODE = "/Users/me/.nvm/versions/node/v24.22.0/bin/node"
+
 
 class FakeRun:
-    """Stands in for service.run: records each command, and answers it with the (returncode,
-    output) of the first entry in `results` that the command starts with, or with (0, "")."""
+    """Stands in for service.run: records each command and the folder it runs in, and answers it
+    with the (returncode, output) of the first entry in `results` that the command starts with,
+    or with (0, "")."""
 
     def __init__(self, results: dict[tuple, tuple[int, str]]):
         self.results = results
         self.calls: list[tuple[str, ...]] = []
-        self.asked: list[str] = []  # the paths asked of the server
+        self.folders: dict[tuple[str, ...], str] = {}
 
     def __call__(self, *args, cwd=None):
         args = tuple(str(arg) for arg in args)
         self.calls.append(args)
+        self.folders[args] = str(cwd)
         for start, (code, output) in self.results.items():
             if args[: len(start)] == tuple(str(word) for word in start):
                 return subprocess.CompletedProcess(args, code, output)
@@ -30,6 +34,10 @@ class FakeRun:
 
     def ran(self, *start) -> bool:
         return any(call[: len(start)] == start for call in self.calls)
+
+    def launchctl(self) -> list[tuple[str, str]]:
+        """The launchctl commands, each with the label it acts on."""
+        return [(call[1], call[-1].split("/")[-1].removesuffix(".plist")) for call in self.calls if call[0] == "launchctl"]
 
 
 @pytest.fixture
@@ -39,157 +47,250 @@ def home(tmp_path, monkeypatch) -> Path:
 
 
 @pytest.fixture
-def checkout(tmp_path) -> Path:
-    (tmp_path / "checkout").mkdir()
-    return tmp_path / "checkout"
+def tools(monkeypatch) -> dict[str, str]:
+    """The programs that shutil.which finds. A test can delete some."""
+    found = {"git": "/usr/bin/git", "uv": "/opt/homebrew/bin/uv", "node": NODE}
+    monkeypatch.setattr(service.shutil, "which", found.get)
+    return found
 
 
 @pytest.fixture
-def fake(home, checkout, monkeypatch) -> FakeRun:
-    """The checkout is found with git rev-parse. The server does not answer, and the commands
-    do not wait for it to start."""
-    fake = FakeRun({("git", "rev-parse", "--path-format=absolute", "--git-common-dir"): (0, f"{checkout}/.git\n")})
+def fake(home, tools, monkeypatch) -> FakeRun:
+    """This Mac is named marge, node is version 24, and both servers answer at once."""
+    fake = FakeRun({("scutil", "--get", "LocalHostName"): (0, "marge\n"), ("node", "--version"): (0, "v24.22.0\n")})
     monkeypatch.setattr(service, "run", fake)
-    monkeypatch.setattr(service, "get", lambda path: fake.asked.append(path))
-    monkeypatch.setattr(service, "wait_for_server", lambda: None)
+    monkeypatch.setattr(service, "get", lambda url: "<html>")
     return fake
 
 
-def test_install_writes_the_plist_for_launchd(home, fake):
+def test_install_stops_with_one_line_for_each_missing_program(fake, tools):
+    del tools["git"], tools["node"]
+    with pytest.raises(SystemExit) as stopped:
+        service.main(["install"])
+    assert stopped.value.code == "git is missing. Install it with: brew install git\nnode is missing. Install it with: brew install node"
+    assert fake.calls == []
+
+
+def test_install_stops_when_node_is_older_than_24(fake):
+    fake.results[("node", "--version")] = (0, "v22.11.0\n")
+    with pytest.raises(SystemExit, match="node is older than version 24. Update it with: brew upgrade node"):
+        service.main(["install"])
+    assert not fake.ran("git")
+
+
+def test_install_clones_builds_and_tests_then_starts_both_apps(home, fake, capsys):
+    clone = home / ".local/share/typokiller/app"
+    fake.results[("git", "-C", clone, "rev-parse", "HEAD")] = (0, NEW + "\n")
     service.main(["install"])
-    plist = plistlib.loads((home / "Library/LaunchAgents/local.typokiller.plist").read_bytes())
-    assert plist["Label"] == "local.typokiller"
-    assert plist["ProgramArguments"] == [f"{home}/.local/share/typokiller/app/.venv/bin/typokiller", "--no-access-log"]
-    assert plist["WorkingDirectory"] == f"{home}/.local/share/typokiller/data"
-    assert plist["EnvironmentVariables"] == {
-        "PYTHONUNBUFFERED": "1",
-        "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-    }
-    assert plist["RunAtLoad"] and plist["KeepAlive"] and plist["ThrottleInterval"] == 10
-    assert plist["StandardOutPath"] == plist["StandardErrorPath"] == f"{home}/Library/Logs/typokiller.log"
+    assert fake.calls[1:] == [
+        ("git", "clone", "--quiet", "https://github.com/mratford/typokiller", str(clone)),
+        ("git", "-C", str(clone), "rev-parse", "HEAD"),
+        ("git", "-C", str(clone), "checkout", "--quiet", "--detach", NEW),
+        ("uv", "sync", "--locked"),
+        ("uv", "run", "pytest", "-q"),
+        ("node", "--test", "tests/*.test.js"),
+        ("npm", "ci"),
+        ("npm", "run", "build"),
+        ("env", "DATABASE_CLIENT=sqlite", "npm", "test"),
+        ("launchctl", "bootstrap", f"gui/{os.getuid()}", str(home / "Library/LaunchAgents/local.keybr.plist")),
+        ("launchctl", "bootstrap", f"gui/{os.getuid()}", str(home / "Library/LaunchAgents/local.typokiller.plist")),
+        ("scutil", "--get", "LocalHostName"),
+    ]
+    assert fake.folders[("uv", "run", "pytest", "-q")] == str(clone)
+    assert fake.folders[("npm", "ci")] == str(clone / "keybr")
+    assert (home / ".local/bin/typokiller-service").readlink() == clone / ".venv/bin/typokiller-service"
+    out = capsys.readouterr().out
+    assert "downloads about 490 MB and takes about 3 minutes" in out
+    assert "http://localhost:3100/ on this Mac, and at http://marge.local:3100/ on other computers" in out
 
 
-def test_install_moves_the_database_and_copies_only_the_settings(home, checkout, fake):
-    for name in ["typokiller.db", "typokiller.toml", ".env", "pg_catalog.csv"]:
-        (checkout / name).write_text(name)
+def test_install_writes_the_settings_of_keybr_and_the_plists_of_both(home, fake):
+    clone = home / ".local/share/typokiller/app"
+    fake.results[("git", "-C", clone, "rev-parse", "HEAD")] = (0, NEW + "\n")
     service.main(["install"])
-    data = home / ".local/share/typokiller/data"
-    assert not (checkout / "typokiller.db").exists()
-    assert sorted(path.name for path in data.iterdir()) == ["backups", "typokiller.db", "typokiller.toml"]
-    assert (data / "typokiller.db").read_text() == "typokiller.db"
-    assert (data / "typokiller.toml").read_text() == (checkout / "typokiller.toml").read_text() == "typokiller.toml"
+    keybr = home / ".local/share/keybr/data"
+    assert (keybr / ".env").read_text().splitlines() == [
+        "DETAILED_RECORDING=true",
+        "DATABASE_CLIENT=sqlite",
+        f"DATABASE_FILENAME={keybr}/database.sqlite",
+        f"DATA_DIR={keybr}",
+        "SERVER_PORT=3100",
+        "SERVER_PORT_WS=3101",
+        "APP_URL=http://localhost:3100/",
+        "COOKIE_DOMAIN=localhost",
+        "COOKIE_SECURE=false",
+        "TYPOKILLER_URL=http://127.0.0.1:8000",
+        f"APPLICATION_REVISION={NEW}",
+    ]
+    assert (home / ".local/share/typokiller/data/.env").read_text() == "KEYBR_PORT=3100\n"
+    plists = {app: plistlib.loads((home / f"Library/LaunchAgents/local.{app}.plist").read_bytes()) for app in ["typokiller", "keybr"]}
+    assert plists["typokiller"]["ProgramArguments"] == [f"{clone}/.venv/bin/typokiller", "--no-access-log"]
+    assert plists["typokiller"]["EnvironmentVariables"] == {"PYTHONUNBUFFERED": "1", "PATH": service.PATH}
+    assert plists["keybr"]["ProgramArguments"] == [NODE, "--enable-source-maps", f"{clone}/keybr/root/index.js"]
+    for app, plist in plists.items():
+        assert plist["Label"] == f"local.{app}"
+        assert plist["WorkingDirectory"] == f"{home}/.local/share/{app}/data"
+        assert plist["RunAtLoad"] and plist["KeepAlive"] and plist["ThrottleInterval"] == 10
+        assert plist["StandardOutPath"] == plist["StandardErrorPath"] == f"{home}/Library/Logs/{app}.log"
 
 
-def test_install_keeps_a_database_already_in_the_data_folder(home, checkout, fake):
-    data = home / ".local/share/typokiller/data"
-    data.mkdir(parents=True)
-    (data / "typokiller.db").write_text("kept")
-    (data / "typokiller.toml").write_text("kept")
-    (checkout / "typokiller.db").write_text("development")
-    (checkout / "typokiller.toml").write_text("development")
-    service.main(["install"])
-    assert (data / "typokiller.db").read_text() == (data / "typokiller.toml").read_text() == "kept"
-    assert (checkout / "typokiller.db").read_text() == "development"
-
-
-def test_install_refuses_when_the_plist_exists(home, fake):
+def test_install_refuses_when_a_plist_exists(home, fake):
     (home / "Library/LaunchAgents").mkdir(parents=True)
-    (home / "Library/LaunchAgents/local.typokiller.plist").write_text("old")
+    (home / "Library/LaunchAgents/local.keybr.plist").write_text("old")
     with pytest.raises(SystemExit, match="installed already"):
         service.main(["install"])
     assert fake.calls == []
 
 
-def test_install_refuses_when_something_answers_on_port_8000(home, fake, monkeypatch):
-    monkeypatch.setattr(service, "get", lambda path: "<html>")
-    with pytest.raises(SystemExit, match="port 8000"):
-        service.main(["install"])
-    assert fake.calls == []
+def make_db(path: Path, value: str):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path)) as db:
+        db.execute("CREATE TABLE t (x)")
+        db.execute("INSERT INTO t VALUES (?)", (value,))
+        db.commit()
 
 
 @pytest.fixture
-def installed(home, fake) -> Path:
-    """An installed service whose worktree is at commit `aaaa…` while main is at `bbbb…`, with a
-    database that holds one row. Returns the data folder."""
-    app = home / ".local/share/typokiller/app"
-    fake.results[("git", "-C", app, "rev-parse", "HEAD")] = (0, "a" * 40 + "\n")
-    fake.results[("git", "-C", app, "rev-parse", "main^{commit}")] = (0, "b" * 40 + "\n")
-    data = home / ".local/share/typokiller/data"
-    (data / "backups").mkdir(parents=True)
-    with closing(sqlite3.connect(data / "typokiller.db")) as db:
-        db.execute("CREATE TABLE t (x)")
-        db.execute("INSERT INTO t VALUES ('now')")
-        db.commit()
-    return data
+def installed(home, fake) -> list[Path]:
+    """Installed apps whose clone is at OLD while origin/main is at NEW, with the two databases.
+    Returns the two databases."""
+    clone = home / ".local/share/typokiller/app"
+    fake.results[("git", "-C", clone, "rev-parse", "HEAD")] = (0, OLD + "\n")
+    fake.results[("git", "-C", clone, "rev-parse", "origin/main^{commit}")] = (0, NEW + "\n")
+    databases = [home / ".local/share/typokiller/data/typokiller.db", home / ".local/share/keybr/data/recordings.sqlite"]
+    for db in databases:
+        make_db(db, "now")
+        (db.parent / "backups").mkdir()
+    return databases
 
 
-def test_update_with_failing_tests_goes_back_to_the_old_commit_and_does_not_restart(home, installed, fake, capsys):
+def checkouts(fake: FakeRun) -> list[str]:
+    return [call[-1] for call in fake.calls if call[3:4] == ("checkout",)]
+
+
+def test_update_where_the_typokiller_tests_fail_runs_no_keybr_step_and_restarts_nothing(installed, fake, capsys):
     fake.results[("uv", "run", "pytest")] = (1, "1 failed")
-    with pytest.raises(SystemExit, match="tests failed"):
+    with pytest.raises(SystemExit, match=f"A step of typokiller failed, so both apps still run {OLD[:7]}"):
         service.main(["update"])
-    app = str(home / ".local/share/typokiller/app")
-    checkouts = [call for call in fake.calls if call[3:4] == ("checkout",)]
-    assert checkouts == [("git", "-C", app, "checkout", "--detach", "b" * 40), ("git", "-C", app, "checkout", "--detach", "a" * 40)]
-    assert fake.calls[-1] == ("uv", "sync", "--locked")
-    assert not fake.ran("launchctl")
+    assert checkouts(fake) == [NEW, OLD]
+    assert fake.calls[-3][:2] == ("uv", "run") and fake.calls[-1] == ("uv", "sync", "--locked")
+    assert not fake.ran("npm") and fake.launchctl() == []
     assert "1 failed" in capsys.readouterr().out
-    assert list((installed / "backups").iterdir()) == []
+    assert [list((db.parent / "backups").iterdir()) for db in installed] == [[], []]
 
 
-def test_update_backs_up_the_database_keeps_the_10_newest_and_restarts(installed, fake):
-    for day in range(1, 12):
-        (installed / "backups" / f"typokiller-2026-01-{day:02}-1200-1234567.db").write_text("old")
+def test_update_where_the_keybr_tests_fail_builds_both_apps_of_the_old_commit_again(installed, fake, capsys):
+    fake.results[("env", "DATABASE_CLIENT=sqlite", "npm", "test")] = (1, "@keybr/server test failed")
+    with pytest.raises(SystemExit, match=f"A step of keybr failed, so both apps still run {OLD[:7]}"):
+        service.main(["update"])
+    assert checkouts(fake) == [NEW, OLD]
+    assert fake.calls[-4][-1] == OLD
+    assert fake.calls[-3:] == [("uv", "sync", "--locked"), ("npm", "ci"), ("npm", "run", "build")]
+    assert fake.launchctl() == []
+    assert "@keybr/server test failed" in capsys.readouterr().out
+
+
+def test_update_fetches_backs_up_both_databases_then_restarts_keybr_then_typokiller(home, installed, fake, capsys):
     service.main(["update"])
-    backups = sorted(path.name for path in (installed / "backups").iterdir())
-    assert len(backups) == 10
-    assert backups[0] == "typokiller-2026-01-03-1200-1234567.db"
-    assert re.fullmatch(r"typokiller-\d{4}-\d\d-\d\d-\d{6}-aaaaaaa\.db", backups[-1])
-    assert fake.ran("launchctl", "kickstart", "-k", f"gui/{os.getuid()}/local.typokiller")
+    assert fake.calls[0] == ("git", "-C", str(home / ".local/share/typokiller/app"), "fetch", "--quiet")
+    assert checkouts(fake) == [NEW]
+    for db in installed:
+        (backup,) = (db.parent / "backups").iterdir()
+        assert backup.name.startswith(db.stem + "-") and backup.suffix == db.suffix
+        with closing(sqlite3.connect(backup)) as copy:
+            assert copy.execute("SELECT x FROM t").fetchall() == [("now",)]
+    assert fake.launchctl() == [("bootout", "local.keybr"), ("bootout", "local.typokiller"), ("bootstrap", "local.keybr"), ("bootstrap", "local.typokiller")]
+    assert f"APPLICATION_REVISION={NEW}" in (home / ".local/share/keybr/data/.env").read_text()
+    assert "http://marge.local:3100/" in capsys.readouterr().out
+
+
+def test_update_keeps_the_other_lines_of_typokillers_env(home, installed, fake):
+    env = home / ".local/share/typokiller/data/.env"
+    env.write_text("OTHER=1\nKEYBR_PORT=3000\n")
+    service.main(["update"])
+    assert env.read_text() == "OTHER=1\nKEYBR_PORT=3100\n"
+
+
+def test_update_to_a_branch_on_github(home, installed, fake):
+    fake.results[("git", "-C", home / ".local/share/typokiller/app", "rev-parse", "origin/try^{commit}")] = (0, "c" * 40)
+    service.main(["update", "origin/try"])
+    assert checkouts(fake) == ["c" * 40]
 
 
 def test_update_to_the_commit_already_running_changes_nothing(home, installed, fake, capsys):
-    fake.results[("git", "-C", home / ".local/share/typokiller/app", "rev-parse", "aaaa^{commit}")] = (0, "a" * 40)
+    fake.results[("git", "-C", home / ".local/share/typokiller/app", "rev-parse", "aaaa^{commit}")] = (0, OLD)
     service.main(["update", "aaaa"])
     assert "already" in capsys.readouterr().out
-    assert not fake.ran("launchctl")
+    assert checkouts(fake) == [] and fake.launchctl() == []
 
 
-@pytest.mark.parametrize("command", ["update", "stop", "restore", "uninstall"])
-def test_no_command_asks_the_server_whether_it_is_busy_or_takes_force(installed, fake, command):
-    service.main([command])
-    assert fake.asked == []
-    with pytest.raises(SystemExit):
-        service.main([command, "--force"])
+def test_status_shows_each_app_then_the_code_addresses_data_and_newest_backups(home, installed, fake, capsys):
+    clone = home / ".local/share/typokiller/app"
+    fake.results[("launchctl", "print", f"gui/{os.getuid()}/local.keybr")] = (0, "\tstate = running\n\tpid = 4321\n")
+    fake.results[("git", "-C", clone, "rev-list", "--count", "HEAD..origin/main")] = (0, "3\n")
+    fake.results[("git", "-C", clone, "log", "-1")] = (0, "aaaaaaa Add a thing\n")
+    (installed[1].parent / "backups/recordings-2026-11-01-120000.sqlite").write_text("old")
+    service.main(["status"])
+    assert fake.calls[2] == ("git", "-C", str(clone), "fetch", "--quiet")
+    assert capsys.readouterr().out.splitlines() == [
+        "keybr: running, process 4321.",
+        "typokiller: not running.",
+        "Code: aaaaaaa Add a thing (GitHub has 3 newer commits)",
+        "The typing page is at http://localhost:3100/ on this Mac, and at http://marge.local:3100/ on other computers.",
+        f"Data: {home}/.local/share/typokiller/data and {home}/.local/share/keybr/data",
+        "Newest backup of typokiller.db: none",
+        "Newest backup of recordings.sqlite: recordings-2026-11-01-120000.sqlite",
+    ]
 
 
-def test_restore_lists_the_backups_newest_first(installed, fake, capsys):
-    for day in [1, 3, 2]:
-        (installed / "backups" / f"typokiller-2026-01-0{day}-1200-1234567.db").write_text("old")
+def test_restore_lists_the_backups_of_both_newest_first(installed, fake, capsys):
+    names = ["typokiller-2026-01-01-120000-1234567.db", "typokiller-2026-01-03-120000.db", "recordings-2026-01-02-120000.sqlite"]
+    for name in names:
+        (installed[0 if name.startswith("typokiller") else 1].parent / "backups" / name).write_text("old")
     service.main(["restore"])
-    assert capsys.readouterr().out.split() == [f"typokiller-2026-01-0{day}-1200-1234567.db" for day in [3, 2, 1]]
+    assert capsys.readouterr().out.split() == [names[1], names[0], names[2]]
 
 
-def test_restore_backs_up_the_database_before_it_copies_the_chosen_backup(installed, fake):
+def test_restore_of_the_recordings_backs_them_up_puts_the_backup_in_place_and_deletes_the_wal_files(installed, fake):
     """The chosen backup is the oldest of 10, so the new backup makes it the 11th."""
+    recordings = installed[1]
+    backups = recordings.parent / "backups"
     for day in range(1, 11):
-        (installed / "backups" / f"typokiller-2026-01-{day:02}-1200-1234567.db").write_text(f"day {day}")
-    service.main(["restore", "typokiller-2026-01-01-1200-1234567.db"])
-    assert (installed / "typokiller.db").read_text() == "day 1"
-    (new,) = [path for path in (installed / "backups").iterdir() if not path.name.startswith("typokiller-2026-01-")]
+        make_db(backups / f"recordings-2026-01-{day:02}-120000.sqlite", f"day {day}")
+    for suffix in ["-wal", "-shm"]:
+        Path(f"{recordings}{suffix}").write_text("stale")
+    service.main(["restore", "recordings-2026-01-01-120000.sqlite"])
+    with closing(sqlite3.connect(recordings)) as db:
+        assert db.execute("SELECT x FROM t").fetchall() == [("day 1",)]
+    assert not Path(f"{recordings}-wal").exists() and not Path(f"{recordings}-shm").exists()
+    (new,) = [path for path in backups.iterdir() if not path.name.startswith("recordings-2026-01-")]
     with closing(sqlite3.connect(new)) as db:
         assert db.execute("SELECT x FROM t").fetchall() == [("now",)]
-    launchctl = [call[:2] for call in fake.calls if call[0] == "launchctl"]
-    assert launchctl == [("launchctl", "bootout"), ("launchctl", "bootstrap")]
+    assert len(list(backups.iterdir())) == 10
+    assert fake.launchctl() == [("bootout", "local.keybr"), ("bootout", "local.typokiller"), ("bootstrap", "local.keybr"), ("bootstrap", "local.typokiller")]
 
 
-def test_uninstall_removes_the_plist_and_the_worktree_and_keeps_the_data(home, installed, fake, capsys):
-    plist = home / "Library/LaunchAgents/local.typokiller.plist"
-    plist.parent.mkdir(parents=True)
-    plist.write_text("plist")
+def test_each_database_keeps_its_10_newest_backups(installed):
+    for db in installed:
+        for day in range(1, 12):
+            (db.parent / "backups" / f"{db.stem}-2026-01-{day:02}-120000{db.suffix}").write_text("old")
+        service.back_up(db)
+        backups = sorted(path.name for path in (db.parent / "backups").iterdir())
+        assert len(backups) == 10 and backups[0] == f"{db.stem}-2026-01-03-120000{db.suffix}"
+
+
+def test_uninstall_removes_both_plists_the_clone_and_the_link_and_keeps_the_data_and_logs(home, installed, fake, capsys):
+    clone = home / ".local/share/typokiller/app"
+    clone.mkdir()
+    (home / "Library/LaunchAgents").mkdir(parents=True)
+    for app in ["typokiller", "keybr"]:
+        (home / f"Library/LaunchAgents/local.{app}.plist").write_text("plist")
+    (home / ".local/bin").mkdir(parents=True)
+    (home / ".local/bin/typokiller-service").symlink_to(clone / ".venv/bin/typokiller-service")
     service.main(["uninstall"])
-    assert not plist.exists()
-    assert fake.ran("launchctl", "bootout")
-    assert fake.ran("git", "worktree", "remove", "--force", str(home / ".local/share/typokiller/app"))
-    assert (installed / "typokiller.db").exists()
-    assert str(installed) in capsys.readouterr().out
-
+    assert list((home / "Library/LaunchAgents").iterdir()) == []
+    assert not clone.exists() and not (home / ".local/bin/typokiller-service").is_symlink()
+    assert fake.launchctl() == [("bootout", "local.keybr"), ("bootout", "local.typokiller")]
+    assert all(db.exists() for db in installed)
+    out = capsys.readouterr().out
+    assert str(installed[0].parent) in out and str(installed[1].parent) in out and "keybr.log" in out

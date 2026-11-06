@@ -1,16 +1,20 @@
 import asyncio
 import hashlib
 import json
+import os
 import re
 import sqlite3
+import time
 import xml.etree.ElementTree as ET
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from typokiller.app import DEFAULT_SETTINGS, create_app, options
+from typokiller import app as typokiller_app
+from typokiller.app import DEFAULT_SETTINGS, back_up_daily, create_app, keybr_port, options
 from typokiller.drawing import Heat, draw_keymap
 from typokiller.keymap import qmk_settings, read_keymap
 
@@ -506,6 +510,53 @@ def test_the_vil_and_vial_texts_are_exported_exactly_as_stored(exporting):
     assert sofle["keymaps"][-1]["vil"] == odd
 
 
+@pytest.mark.parametrize(("host", "expected"), [
+    ("localhost:8000", "http://localhost:3100/"),
+    ("marge.local:8000", "http://marge.local:3100/"),
+    ("[::1]:8000", "http://[::1]:3100/"),
+])
+def test_the_typing_page_is_keybr_on_the_computer_that_the_browser_asked(client, host, expected):
+    found = client.get("/typing?x=1", headers={"host": host}, follow_redirects=False)
+    assert found.status_code == 307 and found.headers["location"] == expected
+
+
+def test_the_keybr_port_comes_from_the_env_file_or_is_3100(db_path, settings_path, recordings, tmp_path):
+    env = tmp_path / ".env"
+    assert keybr_port(env) == 3100
+    env.write_text("OTHER=1\nKEYBR_PORT=3200\n")
+    assert keybr_port(env) == 3200
+    client = TestClient(create_app(db_path, settings_path, recordings, keybr_port(env)), base_url="http://localhost:8000")
+    assert client.get("/typing", follow_redirects=False).headers["location"] == "http://localhost:3200/"
+
+
+def test_the_server_backs_up_each_database_now_unless_its_newest_backup_is_recent_and_every_24_hours(tmp_path, monkeypatch):
+    """The recordings file is read-only, as keybr's file is for typokiller. typokiller.db has a
+    backup from an hour ago, so it is not backed up now; the recordings have one from 2 days ago."""
+    files = [tmp_path / "typokiller/typokiller.db", tmp_path / "keybr/recordings.sqlite"]
+    for path, hours in zip(files, [1, 48]):
+        (path.parent / "backups").mkdir(parents=True)
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("CREATE TABLE t (x)")
+            db.commit()
+        old = path.parent / "backups" / f"{path.stem}-2026-01-01-120000{path.suffix}"
+        old.write_text("old")
+        then = time.time() - hours * 3600
+        os.utime(old, (then, then))
+    files[1].chmod(0o444)
+    slept = []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        raise InterruptedError
+
+    monkeypatch.setattr(typokiller_app.time, "sleep", sleep)
+    with pytest.raises(InterruptedError):
+        back_up_daily(files)
+    assert slept == [24 * 60 * 60]
+    assert len(list((tmp_path / "typokiller/backups").iterdir())) == 1
+    assert len(list((tmp_path / "keybr/backups").iterdir())) == 2
+
+
 def test_the_options_give_the_port_whether_the_access_log_is_on_and_the_recordings(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     assert vars(options([])) == {
@@ -532,7 +583,7 @@ def test_the_analysis_page_is_at_analysis(client):
 def test_with_no_recordings_or_no_attempts_the_page_says_to_type_on_the_typing_page(client, recordings):
     expected = "No lessons recorded yet. Type on the typing page, then reload this page."
     found = client.get("/api/analysis").json()
-    assert text(found["message"]) == expected and 'href="http://localhost:3100/"' in found["message"]
+    assert text(found["message"]) == expected and 'href="/typing"' in found["message"]
     assert found.keys() == {"message"}
 
     build_recordings(recordings, [])
