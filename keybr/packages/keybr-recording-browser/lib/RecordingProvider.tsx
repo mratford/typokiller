@@ -1,7 +1,7 @@
 import { type KeyboardCatalogue, type KeyboardLayout } from "@keybr/recording";
 import { type ReactNode, useSyncExternalStore } from "react";
 import { FormattedMessage, type IntlShape, useIntl } from "react-intl";
-import { RecordingContext } from "./context.ts";
+import { KeyboardPictureContext, RecordingContext } from "./context.ts";
 import {
   initialState,
   type RecordingActivity,
@@ -31,9 +31,15 @@ export function RecordingProvider({
     getSnapshot,
     () => initialState,
   );
+  const picture =
+    state.activity?.type === "active"
+      ? (state.activity.layout.picture ?? null)
+      : null;
   return (
     <RecordingContext.Provider value={state.options}>
-      {children}
+      <KeyboardPictureContext.Provider value={picture}>
+        {children}
+      </KeyboardPictureContext.Provider>
       {state.keyboards && (
         <RecordingSelector
           state={state}
@@ -230,7 +236,7 @@ export function RecordingSelector({
         <p>
           <FormattedMessage
             id="recording.keyboardsOutdated"
-            defaultMessage="The analysis page is not running: keyboards added since it last ran are missing."
+            defaultMessage="The analysis page is not running: there is no keyboard picture, and keyboards added since it last ran are missing."
           />
         </p>
       )}

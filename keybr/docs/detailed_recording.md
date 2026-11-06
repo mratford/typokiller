@@ -55,11 +55,37 @@ content again adds nothing. After typokiller saves a new .vil, changes a Board's
 vial.json or edits layer names, the changed content becomes new snapshots, and
 earlier snapshots, and the Attempts that refer to them, never change.
 
-When typokiller does not answer within 2 seconds, or the import rejects its
-answer, the config answer has the keyboards that keybr already has, and
-`keyboardsOutdated: true`. The practice page then shows one line: "The analysis
-page is not running: keyboards added since it last ran are missing." The server
-writes the reason to its log.
+In the same step, and within the same 2 seconds, keybr gets typokiller's
+keyboard pictures from `TYPOKILLER_URL/api/keyboards/pictures`. For each saved
+.vil, by its sha256, typokiller sends the name and the plain picture of each
+layer, and the key for each character. The config answer gives each layout the
+picture of its .vil, matched by `vilHash`. When the pictures do not come
+within the 2 seconds, or keybr rejects them, the layouts have no picture, and
+the server writes the reason to its log. keybr does not store the pictures in
+its database. The browser keeps them only as part of the last config answer
+(see [Delivery and recovery](#delivery-and-recovery)).
+
+`packages/keybr-recording/fixtures/pictures/initial.json` holds the pictures of
+the keyboards in `fixtures/keyboards/initial.json`. typokiller's tests check
+that its answer is exactly this file, and keybr's tests read it.
+
+When typokiller does not send the export within 2 seconds, or the import
+rejects it, the config answer has the keyboards that keybr already has, with no
+pictures, and `keyboardsOutdated: true`. The practice page then shows one line:
+"The analysis page is not running: there is no keyboard picture, and keyboards
+added since it last ran are missing." The server writes the reason to its log.
+
+### The keyboard picture
+
+In the normal view, when a keyboard and layout are chosen and the layout has a
+picture, typokiller's picture takes the place of keybr's own picture. It shows
+the layer of the next character, and outlines the key for that character.
+Above it, the layer names are on one line, and the shown layer is marked. A
+character with no key on the layout shows the base layer with no key outlined.
+The picture is faint (opacity 0.45), at most 620 px wide, on the page
+background, with the colours of keybr's theme. keybr's finger colours and its
+marks of misses and hits after each lesson are not shown with it. Without a
+picture, keybr's own picture stays. The compact and bare views show no picture.
 
 ### Choosing a keyboard and layout
 
@@ -181,10 +207,13 @@ own test fixtures.
 
 ### Limitations
 
-- The keyboard picture is keybr's standard matrix, not the Sweep. It shows only the
-  base layer of the 30 main keys and the space. Keys on other layers (digits and
-  symbols) are not drawn, but typing them still works.
-- The highlight of a pressed key follows the browser's `code`, which is the QWERTY
+- With a keyboard and layout chosen, the keyboard picture is typokiller's picture
+  of the Sweep, with every layer (see [The keyboard picture](#the-keyboard-picture)).
+  It does not show pressed keys.
+- Without typokiller's picture, the keyboard picture is keybr's standard matrix.
+  It shows only the base layer of the 30 main keys and the space. Keys on other
+  layers (digits and symbols) are not drawn, but typing them still works. The
+  highlight of a pressed key follows the browser's `code`, which is the QWERTY
   position of the character. For example, the top-left key highlights the key
   that shows `w`. The pointer to the next key to type is correct.
 

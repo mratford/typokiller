@@ -164,7 +164,7 @@
   "recording.chooseLayout": "inactive; choose a layout for {keyboard}",
   "recording.keyboard": "Keyboard",
   "recording.keyboardUnavailable": "inactive; the remembered keyboard {keyboard} is not available, choose a keyboard and layout",
-  "recording.keyboardsOutdated": "The analysis page is not running: keyboards added since it last ran are missing.",
+  "recording.keyboardsOutdated": "The analysis page is not running: there is no keyboard picture, and keyboards added since it last ran are missing.",
   "recording.layout": "Layout",
   "recording.layoutDefinition": "keyboard definition {version}",
   "recording.layoutLabel": "{letterLayout} · {vil}",

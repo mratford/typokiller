@@ -5,7 +5,12 @@ import { BadRequestError, HttpError, NotFoundError } from "@fastr/errors";
 import { inject, injectable } from "@fastr/invert";
 import { Env } from "@keybr/config";
 import { Logger } from "@keybr/logger";
-import { maxBatchBytes, schemaVersion } from "@keybr/recording";
+import {
+  type KeyboardPictures,
+  keyboardPicturesSchema,
+  maxBatchBytes,
+  schemaVersion,
+} from "@keybr/recording";
 import {
   RecordingConflict,
   RecordingStore,
@@ -27,14 +32,21 @@ export class RecordingController {
     }
     const store = this.#open();
     const typokillerUrl = Env.getString("TYPOKILLER_URL", "");
-    const updated = await updateKeyboards(store, typokillerUrl);
+    const pictures = await updateKeyboards(store, typokillerUrl);
     ctx.response.body = {
       enabled: true,
       schemaVersion,
       applicationRevision: Env.getString("APPLICATION_REVISION", "local"),
-      // Imported from typokiller; snapshots stay on the server.
-      keyboards: store.keyboards(),
-      keyboardsOutdated: !updated,
+      // Imported from typokiller; snapshots stay on the server. The pictures
+      // are not stored in the database.
+      keyboards: store.keyboards().map((keyboard) => ({
+        ...keyboard,
+        layouts: keyboard.layouts.map((layout) => ({
+          ...layout,
+          picture: pictures?.[layout.vilHash],
+        })),
+      })),
+      keyboardsOutdated: pictures == null,
       analysisUrl: typokillerUrl
         ? new URL("/analysis", typokillerUrl).href
         : null,
@@ -72,28 +84,40 @@ export class RecordingController {
 }
 
 /**
- * Gets the keyboard export from typokiller at `url` (`TYPOKILLER_URL`) and
- * imports it. Does nothing when `url` is empty. Returns false, and writes the
- * reason to the log, when typokiller does not answer within 2 seconds or the
- * import rejects the answer. The import changes nothing then.
+ * Gets the keyboard export and then the keyboard pictures from typokiller at
+ * `url` (`TYPOKILLER_URL`), within 2 seconds. Imports the keyboards and returns
+ * the pictures. Returns no pictures when `url` is empty. Writes the reason to
+ * the log when a request fails or keybr rejects its answer. When the export
+ * fails, the import changes nothing and the result is null: the keyboards are
+ * outdated. When only the pictures fail, the result has no pictures.
  */
 async function updateKeyboards(
   store: RecordingStore,
   url: string,
-): Promise<boolean> {
-  if (!url) return true;
-  try {
-    const response = await fetch(new URL("/api/keyboards/export", url), {
-      signal: AbortSignal.timeout(2000),
-    });
+): Promise<KeyboardPictures | null> {
+  if (!url) return {};
+  const signal = AbortSignal.timeout(2000);
+  const get = async (path: string) => {
+    const response = await fetch(new URL(path, url), { signal });
     if (!response.ok) throw new Error(`HTTP status ${response.status}`);
-    store.importKeyboards(await response.json());
-    return true;
+    return response.json();
+  };
+  try {
+    store.importKeyboards(await get("/api/keyboards/export"));
   } catch (error) {
     Logger.error(
       error as Error,
       `Cannot update the keyboards from typokiller at ${url}`,
     );
-    return false;
+    return null;
+  }
+  try {
+    return keyboardPicturesSchema.parse(await get("/api/keyboards/pictures"));
+  } catch (error) {
+    Logger.error(
+      error as Error,
+      `Cannot get the keyboard pictures from typokiller at ${url}`,
+    );
+    return {};
   }
 }

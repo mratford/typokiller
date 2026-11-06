@@ -1,0 +1,36 @@
+/* typokiller's faint keyboard picture, with the colours of keybr's theme. */
+.root {
+  --bg: var(--primary);
+  --fg: var(--secondary);
+  --dim: var(--secondary-f2);
+  --faint: var(--primary-d2);
+  --line: var(--primary-d1);
+  --panel: var(--primary-l2);
+  --next: var(--KeyboardKey-pointer__color);
+  --ring: var(--fast-key-color);
+
+  inline-size: min(620px, 100%);
+  margin-inline: auto;
+}
+
+.names {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-block: 0 0.25rem;
+}
+
+.shown {
+  border-block-end: 2px solid var(--next);
+  font-weight: bold;
+}
+
+.drawing {
+  opacity: 0.45;
+
+  svg {
+    display: block;
+    inline-size: 100%;
+    block-size: auto;
+  }
+}

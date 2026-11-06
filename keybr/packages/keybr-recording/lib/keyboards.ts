@@ -96,6 +96,27 @@ export const snapshotReferenceSchema = z.strictObject({
 });
 export type SnapshotReference = z.infer<typeof snapshotReferenceSchema>;
 
+/**
+ * typokiller's keyboard picture of one saved .vil, which the practice page
+ * shows in place of keybr's own picture. typokiller draws it.
+ */
+export const keyboardPictureSchema = z.strictObject({
+  /** The name of each layer, base layer first. */
+  names: z.array(z.string()),
+  /** The SVG picture of each layer. */
+  layers: z.array(z.string()),
+  /** The key for each character: its layer, and its id in the pictures without the "k". */
+  keys: z.record(
+    z.string(),
+    z.strictObject({ layer: z.int().nonnegative(), key: z.string() }),
+  ),
+});
+export type KeyboardPicture = z.infer<typeof keyboardPictureSchema>;
+
+/** typokiller's `GET /api/keyboards/pictures`: the pictures by the sha256 of the .vil text. */
+export const keyboardPicturesSchema = z.record(sha256, keyboardPictureSchema);
+export type KeyboardPictures = z.infer<typeof keyboardPicturesSchema>;
+
 /** One selectable saved Keymap version, frozen together with its Board definition. */
 export const keyboardLayoutSchema = z.strictObject({
   board: snapshotReferenceSchema,
@@ -103,6 +124,8 @@ export const keyboardLayoutSchema = z.strictObject({
   letterLayout: z.string().min(1),
   layers: z.array(z.string()),
   vilHash: z.string().min(1),
+  /** From typokiller when the typing page loads; never stored. None when typokiller sent none. */
+  picture: keyboardPictureSchema.optional(),
 });
 export type KeyboardLayout = z.infer<typeof keyboardLayoutSchema>;
 

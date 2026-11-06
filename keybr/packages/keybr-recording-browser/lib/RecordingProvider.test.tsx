@@ -92,7 +92,7 @@ test("keyboard and layout are chosen separately, and layouts name their definiti
 
 test("one line says when keyboards from typokiller are missing", (t) => {
   const line =
-    "The analysis page is not running: keyboards added since it last ran are missing.";
+    "The analysis page is not running: there is no keyboard picture, and keyboards added since it last ran are missing.";
   const current = setup(null);
   t.after(() => current.view.unmount());
   assert.equal(current.view.queryByText(line), null);

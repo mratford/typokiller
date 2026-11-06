@@ -5,6 +5,7 @@ import { type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { request } from "@fastr/client";
 import { start } from "@fastr/client-testlib";
 import { allToRoutes } from "@fastr/controller";
@@ -16,6 +17,7 @@ import { Logger } from "@keybr/logger";
 import {
   fixtureSnapshots,
   type KeyboardCatalogue,
+  type KeyboardPictures,
   recordingConfigSchema,
   type RecordingRecord,
 } from "@keybr/recording";
@@ -23,16 +25,16 @@ import { RecordingStore } from "@keybr/recording-store";
 import { createTestServer } from "../test/request.ts";
 import { RecordingController } from "./controller.ts";
 
-const keyboardExport = (name: string): unknown =>
+const fixture = (path: string): unknown =>
   JSON.parse(
     readFileSync(
-      new URL(
-        `../../../../keybr-recording/fixtures/keyboards/${name}.json`,
-        import.meta.url,
-      ),
+      new URL(`../../../../keybr-recording/fixtures/${path}`, import.meta.url),
       "utf8",
     ),
   );
+const keyboardExport = (name: string) => fixture(`keyboards/${name}.json`);
+/** typokiller's pictures of the keyboards in the "initial" export. */
+const pictures = fixture("pictures/initial.json") as KeyboardPictures;
 
 test("recording routes are independent of login, bounded, versioned, transactional and opt-in", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "keybr-recording-route-"));
@@ -216,17 +218,24 @@ test("config lists imported keyboards, whose snapshots Attempts can reference wi
   );
 });
 
+type Answer = { export: unknown; pictures?: unknown };
+
 /**
- * A fake typokiller that answers `GET /api/keyboards/export` with `answer.export`,
+ * A fake typokiller that answers `GET /api/keyboards/export` with `answer.export`
+ * and `GET /api/keyboards/pictures` with `answer.pictures` (none by default),
  * or never answers when it is "no answer", and the keybr server that asks it.
  */
-async function withTypokiller(t: TestContext, answer: { export: unknown }) {
+async function withTypokiller(t: TestContext, answer: Answer) {
   const requests: string[] = [];
   const typokiller = createServer((req, res) => {
     requests.push(req.url!);
-    if (answer.export === "no answer") return;
+    const body =
+      req.url === "/api/keyboards/pictures"
+        ? (answer.pictures ?? {})
+        : answer.export;
+    if (body === "no answer") return;
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify(answer.export));
+    res.end(JSON.stringify(body));
   });
   await new Promise<void>((resolve) =>
     typokiller.listen(0, "127.0.0.1", resolve),
@@ -285,8 +294,25 @@ test("config gets the keyboards from typokiller each time", async (t) => {
     "Sofle: free-range",
     "Sweep: free-range, free-range, QWERTY, free-range, QWERTY",
   ]);
-  assert.deepEqual(requests, Array(3).fill("/api/keyboards/export"));
+  assert.deepEqual(
+    requests,
+    Array(3).fill(["/api/keyboards/export", "/api/keyboards/pictures"]).flat(),
+  );
   assert.equal(errors.callCount(), 0);
+});
+
+test("config gives each layout typokiller's picture of its .vil, and none when typokiller sent none", async (t) => {
+  const answer: Answer = { export: keyboardExport("initial"), pictures };
+  const { config } = await withTypokiller(t, answer);
+  const layouts = (await config()).keyboards.flatMap((k) => k.layouts);
+  assert.equal(layouts.length, 4);
+  for (const layout of layouts)
+    assert.deepEqual(layout.picture, pictures[layout.vilHash]);
+  // The pictures are not stored: an answer without them gives none.
+  answer.pictures = {};
+  for (const keyboard of (await config()).keyboards)
+    for (const layout of keyboard.layouts)
+      assert.equal(layout.picture, undefined);
 });
 
 test("a new keyboard from typokiller appears in the config", async (t) => {
@@ -310,18 +336,62 @@ test("a new keyboard from typokiller appears in the config", async (t) => {
 });
 
 for (const [name, broken, reason] of [
-  ["typokiller does not answer", "no answer", /timeout/i],
-  ["typokiller sends an invalid export", { format: "other" }, /Invalid/],
+  [
+    "typokiller does not answer",
+    { export: "no answer", pictures: "no answer" },
+    /timeout/i,
+  ],
+  [
+    "typokiller sends an invalid export",
+    { export: { format: "other" } },
+    /Invalid/,
+  ],
 ] as const) {
-  test(`when ${name}, config answers with the keyboards it has and says they are outdated`, async (t) => {
-    const answer: { export: unknown } = { export: keyboardExport("initial") };
+  test(`when ${name}, config answers with the keyboards it has, with no pictures, and says they are outdated`, async (t) => {
+    const answer: Answer = { export: keyboardExport("initial"), pictures };
     const { config, errors } = await withTypokiller(t, answer);
     const first = await config();
-    answer.export = broken;
+    Object.assign(answer, broken);
+    // The keybr server stops on a promise that is resolved or rejected twice.
+    const twice = t.mock.fn();
+    process.on("multipleResolves", twice);
+    t.after(() => process.off("multipleResolves", twice));
     const outdated = await config();
-    assert.deepEqual(outdated, { ...first, keyboardsOutdated: true });
+    await setImmediate();
+    assert.equal(twice.mock.callCount(), 0);
+    assert.deepEqual(outdated, {
+      ...first,
+      keyboards: first.keyboards.map((k) => ({
+        ...k,
+        layouts: k.layouts.map(({ picture, ...layout }) => layout),
+      })),
+      keyboardsOutdated: true,
+    });
     assert.equal(errors.callCount(), 1);
     assert.match(String(errors.calls[0].arguments[0]), reason);
+  });
+}
+
+for (const [name, broken] of [
+  ["sends invalid pictures", { other: {} }],
+  ["does not send the pictures", "no answer"],
+] as const) {
+  test(`when typokiller ${name}, config has the new keyboards with no pictures`, async (t) => {
+    const answer: Answer = { export: keyboardExport("initial"), pictures };
+    const { config, errors } = await withTypokiller(t, answer);
+    const first = await config();
+    answer.export = keyboardExport("updated");
+    answer.pictures = broken;
+    const updated = await config();
+    assert.equal(updated.keyboardsOutdated, false);
+    assert.equal(
+      updated.keyboards.flatMap((k) => k.layouts).length,
+      first.keyboards.flatMap((k) => k.layouts).length + 3,
+    );
+    for (const keyboard of updated.keyboards)
+      for (const layout of keyboard.layouts)
+        assert.equal(layout.picture, undefined);
+    assert.equal(errors.callCount(), 1);
   });
 }
 

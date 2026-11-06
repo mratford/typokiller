@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from typokiller.drawing import draw_layers
 from typokiller.keyboard_export import export_keyboards
 from typokiller.keybr_analysis import TREND_WEEKS, analysis_page
-from typokiller.keymap import keymap_letters
+from typokiller.keymap import keymap_letters, read_keymap
 from typokiller.recording import NewerRecordings, read_recordings
 from typokiller.service import recordings_path
 
@@ -202,6 +202,25 @@ def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
     @app.get("/api/keyboards/export")
     async def keyboards_export():
         return export_keyboards(db, read_settings(settings_path))
+
+    # keybr reads this with the keyboard export, and draws the picture of the layout chosen for
+    # recording under the text. For each .vil of the export, by its sourceHash: the names and
+    # plain Keymap drawings of its layers, and the key for each character, as { layer, key }.
+    # That key is the character's first candidate, which key attribution picks for a correct
+    # keystroke.
+    @app.get("/api/keyboards/pictures")
+    async def keyboard_pictures():
+        pictures = {}
+        for board in export_keyboards(db, read_settings(settings_path))["boards"]:
+            for version in board["keymaps"]:
+                layers = draw_layers(version["vil"], board["vial"], version["layers"])
+                keys = read_keymap(version["vil"]).keys
+                pictures[version["sourceHash"]] = {
+                    "names": [name for name, _ in layers],
+                    "layers": [svg for _, svg in layers],
+                    "keys": {char: {"layer": k[0].layer, "key": k[0].key} for char, k in keys.items()},
+                }
+        return pictures
 
     @app.get("/analysis")
     async def analysis_html():

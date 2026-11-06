@@ -56,7 +56,7 @@ keybr (in `keybr/`) records in detail everything that you type there, for the ke
    TYPOKILLER_URL=http://127.0.0.1:8000
    ```
 
-   Each time the typing page loads, keybr then gets the keyboards and their saved layouts from typokiller, with the layer names in `typokiller.toml`. It gets only the keyboards and layouts: no typing history, no API keys. After you add a layout to a keyboard in typokiller, or change its layer names, reload the typing page. Choose the keyboard and layout there. When typokiller does not answer, the typing page uses the keyboards that it got the last time, and it says that keyboards can be missing.
+   Each time the typing page loads, keybr then gets the keyboards and their saved layouts from typokiller, with the layer names in `typokiller.toml`. It gets only the keyboards and layouts: no typing history, no API keys. After you add a layout to a keyboard in typokiller, or change its layer names, reload the typing page. Choose the keyboard and layout there. It also gets the keyboard picture of each layout, which it shows under the text in place of its own picture, with the layer of the next character. When typokiller does not answer, the typing page uses the keyboards that it got the last time, shows its own keyboard picture, and says that keyboards can be missing.
 
 2. After typing in keybr, open the notebook, in this folder:
 

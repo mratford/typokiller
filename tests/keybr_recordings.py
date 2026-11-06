@@ -62,6 +62,11 @@ def keyboard_export(name: str = "initial.json") -> dict[str, Any]:
     return json.loads((KEYBR_FIXTURES / "keyboards" / name).read_text())
 
 
+def keyboard_pictures() -> dict[str, Any]:
+    """The keyboard pictures of the keyboards in `keyboard_export()`."""
+    return json.loads((KEYBR_FIXTURES / "pictures" / "initial.json").read_text())
+
+
 def canonical_json(value: Any) -> str:
     """keybr's canonicalJson: keys sorted, no spaces."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)

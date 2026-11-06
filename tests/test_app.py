@@ -13,7 +13,7 @@ from typokiller.app import DEFAULT_SETTINGS, create_app, options
 from typokiller.drawing import Heat, draw_keymap
 from typokiller.keymap import qmk_settings, read_keymap
 
-from keybr_recordings import ORIGIN, build_recordings, change, keyboard_export, keymap_snapshot, attempt
+from keybr_recordings import ORIGIN, build_recordings, change, keyboard_export, keyboard_pictures, keymap_snapshot, attempt
 
 
 @pytest.fixture
@@ -433,6 +433,16 @@ def test_after_a_new_vial_json_a_new_vil_and_new_layer_names_the_export_matches_
     settings_path.write_text(EXPORT_SETTINGS.replace('"Sym"', '"Symbols"'))
 
     assert without_time(exporting.get("/api/keyboards/export").json()) == without_time(updated)
+
+
+def test_the_keyboard_pictures_match_keybrs_picture_fixture(exporting):
+    pictures = exporting.get("/api/keyboards/pictures").json()
+
+    assert pictures == keyboard_pictures()
+    qwerty = pictures[keyboard_export()["boards"][0]["keymaps"][0]["sourceHash"]]
+    assert qwerty["names"] == ["Base", "Sym", "Nav", "Stack", "Num"] and len(qwerty["layers"]) == 5
+    assert "half" not in qwerty["layers"][0]  # no heat
+    assert qwerty["keys"]["a"] == {"layer": 0, "key": "1,0"} and qwerty["keys"]["("]["layer"] > 0
 
 
 def test_the_vil_and_vial_texts_are_exported_exactly_as_stored(exporting):

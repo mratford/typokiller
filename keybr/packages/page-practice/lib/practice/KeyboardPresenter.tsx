@@ -8,10 +8,12 @@ import {
   VirtualKeyboard,
   ZonesLayer,
 } from "@keybr/keyboard-ui";
+import { KeyboardPictureContext } from "@keybr/recording-browser";
 import { useSettings } from "@keybr/settings";
 import { type CodePoint } from "@keybr/unicode";
 import { withDeferred } from "@keybr/widget";
-import { memo, type ReactNode } from "react";
+import { memo, type ReactNode, useContext } from "react";
+import { KeyboardPicture } from "./KeyboardPicture.tsx";
 import { type LastLesson } from "./state/index.ts";
 
 export const KeyboardPresenter = memo(function KeyboardPresenter({
@@ -31,6 +33,10 @@ export const KeyboardPresenter = memo(function KeyboardPresenter({
   const keyboard = useKeyboard();
   const colors = settings.get(keyboardProps.colors);
   const pointers = settings.get(keyboardProps.pointers);
+  // typokiller's picture replaces keybr's own picture. keybr's finger colours
+  // and its marks of the last lesson are then not shown.
+  const picture = useContext(KeyboardPictureContext);
+  if (picture) return <KeyboardPicture picture={picture} next={suffix[0]} />;
   return (
     <VirtualKeyboard keyboard={keyboard} height="16rem">
       <KeyLayer
