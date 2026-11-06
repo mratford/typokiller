@@ -3,77 +3,149 @@
 typokiller's typing page is a changed copy of [keybr.com](https://www.keybr.com/) by Aliaksandr Radzivanovich ([aradzie/keybr.com](https://github.com/aradzie/keybr.com)), under the AGPL 3.0.
 The code in `keybr/` is under the AGPL 3.0 (see `keybr/LICENSE` and `keybr/NOTICE`). The rest of this repo is also under the AGPL 3.0 (see `LICENSE`).
 
-## Running
+Practise typing on your own keyboard, and see which keys and key pairs are slow for you. It runs on your Mac and starts when you log in.
 
-typokiller and keybr run all the time on this Mac as two launchd services: typokiller on port 8000 (the analysis page), keybr on port 3100 (the typing page). Other computers on the home network use the name of this Mac, for example http://marge.local:3100/. Both run from their own copy of this repo, a clone of GitHub in `~/.local/share/typokiller/app`, which changes only when you update it. typokiller's database, settings and backups are in `~/.local/share/typokiller/data`, and keybr's recorded lessons, settings and backups in `~/.local/share/keybr/data`. The logs are `~/Library/Logs/typokiller.log` and `~/Library/Logs/keybr.log`. The reasons are in `docs/adr/0006-service-runs-both-apps-from-a-github-clone.md`.
+## Set up
 
-Install it once, with `git`, `uv` and `node` 24 or newer (`brew install uv node`). No checkout is needed:
+Open Terminal and type these two lines. The first is needed only if you do not have `uv` and `node` yet.
 
 ```sh
+brew install uv node
 uvx --from git+https://github.com/mratford/typokiller typokiller-service install
 ```
 
-After that, `typokiller-service` is in `~/.local/bin`. Each command acts on both apps:
+The first install downloads about 490 MB and takes about 3 minutes. At the end it prints two addresses.
+
+## Type
+
+Open **http://localhost:3100/** on this Mac.
+
+1. Below the lesson, click **analysis**. Then press `b` and `n` to add your keyboard: choose its `vial.json`, check the name, then choose a `.vil`.
+2. Press `t` to go back to the typing page. Below the lesson, choose the keyboard and the layout.
+3. Type. Each lesson is recorded.
+
+If your keyboard's firmware already types another layout, such as free-range, also choose that layout in the typing page's settings.
+
+**From another computer** on your home network, open the second address, such as `http://marge.local:3100/`. Each computer keeps its own typing progress, and you choose the keyboard again there. On this Mac, always use `localhost`: another address starts the progress again.
+
+## See your progress
+
+Click **analysis** below the lesson. The line at the bottom of the page lists the keys of the page.
+
+In the keyboards panel (`b`): `n` adds a keyboard, `v` saves a new layout from a `.vil`, `r` names the layers.
+
+## Keep it up to date
 
 ```sh
-typokiller-service update      # go to the latest commit of main on GitHub
-typokiller-service update abc1234        # go to another commit, also an older one
-typokiller-service update origin/branch  # go to a branch that is pushed to GitHub
-typokiller-service status      # running or not, the commit, the addresses, the newest backups
-typokiller-service logs        # the end of both logs, as they grow (Ctrl-C stops)
-typokiller-service stop        # stop both until the next login
+typokiller-service update      # get the newest version; keeps the old one if a step fails
+typokiller-service status      # running or not, the addresses, the newest backups
+typokiller-service stop        # stop until the next login
 typokiller-service start
-typokiller-service restore     # list the backups, newest first
-typokiller-service restore recordings-2026-11-01-093015.sqlite
-typokiller-service uninstall   # remove both, but keep the data and the logs
+typokiller-service restore     # list the backups; then give one name to go back to it
+typokiller-service uninstall   # remove the apps, keep your data
 ```
 
-`update` gets the code from GitHub. It installs the packages of both apps, builds keybr and runs the tests of both. If a step fails, it goes back to the old commit and both apps continue with the old code. If all pass, it backs up `typokiller.db` and keybr's `recordings.sqlite` to `backups/` in their data folders, and restarts keybr, then typokiller. typokiller also backs up both files when it starts and every 24 hours. The 10 newest backups of each file are kept.
+If Terminal says `command not found: typokiller-service`, type `uv tool update-shell` once, then open a new Terminal window.
 
-To go back to a backup, list them with `restore`, then give one file name. Both apps stop, the file is backed up first (so you can undo the restore with the same command), the chosen backup takes its place, and both apps start again. The code does not change.
+Your lessons and keyboards are backed up every day and at each update.
 
-For development, run a server from this folder on another port. It uses `typokiller.db` and `typokiller.toml` in this folder, not the service's data:
+## Development
+
+Everything below is for working on the code. Here the two apps are keybr (in `keybr/`) and typokiller (the rest).
+
+### What runs where
+
+`typokiller-service` runs both apps all the time on this Mac as two launchd agents, `local.keybr` and `local.typokiller`: keybr on port 3100 (and 3101 for its WebSocket server), typokiller on port 8000. Both run from one clone of GitHub in `~/.local/share/typokiller/app`, which changes only when you update it. typokiller's database, settings and backups are in `~/.local/share/typokiller/data`. keybr's recorded lessons (`recordings.sqlite`), settings and backups are in `~/.local/share/keybr/data`. The logs are `~/Library/Logs/typokiller.log` and `~/Library/Logs/keybr.log`. The reasons are in `docs/adr/0006-service-runs-both-apps-from-a-github-clone.md`.
+
+Each `install` and `update` writes keybr's `.env` and both plists again, so do not edit them by hand. keybr gets the keyboards, their layouts and their keyboard pictures from typokiller (`TYPOKILLER_URL` in keybr's `.env`) each time the typing page loads. typokiller's `t` key and its links to keybr go to `/typing`, which sends the browser to port `KEYBR_PORT` (in typokiller's `.env`, 3100 when it is missing) on the same host name.
+
+Both apps answer only when the address is `localhost`, an IP address or a name that ends in `.local`. See [keybr/docs/detailed_recording.md](keybr/docs/detailed_recording.md#opening-keybr-from-another-computer).
+
+The other commands:
+
+```sh
+typokiller-service logs                    # the end of both logs, as they grow (Ctrl-C stops)
+typokiller-service update abc1234          # go to another commit, also an older one
+typokiller-service update origin/<branch>  # go to a branch that is pushed to GitHub
+typokiller-service restore recordings-2026-11-01-093015.sqlite
+```
+
+`update` gets the code from GitHub (`origin/main` when no commit is given). It installs the packages of both apps, builds keybr and runs the tests of both. If a step fails, it goes back to the old commit and both apps continue with the old code. If all pass, it backs up `typokiller.db` and `recordings.sqlite` to `backups/` in their data folders, and restarts keybr, then typokiller.
+
+The typokiller server also backs up both files when it starts (unless the newest backup is less than 24 hours old) and every 24 hours. The 10 newest backups of each file are kept. Their names are like `typokiller-2026-11-01-093015.db` and `recordings-2026-11-01-093015.sqlite`. `restore` with no name lists typokiller's backups, then the recordings' backups, newest first. With a name, both apps stop, the file is backed up first (so you can undo the restore with the same command), the chosen backup takes its place, and both apps start again. The code does not change.
+
+### Moving this Mac over once
+
+The old service ran only typokiller, from a git worktree. Remove it once, in `~/src/typokiller`, then install the new one:
+
+```sh
+uv run typokiller-service uninstall
+git worktree prune
+uvx --from git+https://github.com/mratford/typokiller typokiller-service install
+```
+
+The data folder `~/.local/share/typokiller/data` is kept.
+
+### Development servers
+
+Run typokiller from this folder on another port. It uses `typokiller.db`, `typokiller.toml` and `.env` in this folder, not the service's data. By default it reads the service's keybr recordings; `--recordings <path>` reads another file. It backs up both files as the service does.
 
 ```sh
 uv run typokiller --port 8001
-uv run pytest              # server tests
-node --test tests/*.test.js   # page tests
-uv run pyright             # type check
 ```
 
-The database is `typokiller.db` in the folder that the server runs in. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor.
+To run keybr from `keybr/` too: copy `keybr/.env.example` to `keybr/.env`, and in it set `DETAILED_RECORDING=true` and `TYPOKILLER_URL=http://127.0.0.1:8001`. Then, in `keybr/`:
 
-`/` opens the analysis page. On it, `b` opens the keyboards panel and `t` opens the typing page. The panel has one line for each keyboard and layout. Type a line's label, or move with `j`/`k` and press `Enter`, to see the analysis of that layout. In the panel, `n` adds a keyboard (choose its `vial.json`, give it a name, then choose a `.vil`), `v` saves a `.vil` on the selected keyboard (the same letters as a saved layout make a new version of it, other letters make a new layout), and `r` sets the layer names of the selected layout, separated by spaces. `Esc` stops a form. `Esc` or `b` closes the panel. The typing page has a link "analysis" back to this page.
-
-The keyboard pictures name the layers of a layout with the names in `[keymaps]` in `typokiller.toml` (the `r` key in the panel writes them there), for example:
-
-```toml
-[keymaps.Sweep.QWERTY]
-layers = ["Base", "Sym", "Nav", "Stack", "Num"]
+```sh
+npm ci
+npm run build-dev
+npm start          # http://localhost:3000/ (and 3001 for the WebSocket server)
+npm run watch      # in another terminal: builds again after each change
 ```
 
-### Typing in keybr
+This keybr writes its recordings to `~/.local/state/keybr/recordings.sqlite` (`DATA_DIR` in its `.env`). Give that path to typokiller with `--recordings`, and put `KEYBR_PORT=3000` in `.env` in this folder, so that `t` opens this keybr. See `keybr/docs/getting_started.md` for more.
 
-keybr (in `keybr/`) records in detail everything that you type there, for the keyboard and layout that you choose there. The notebook `notebooks/keybr.py` reads these recordings. keybr has its own typing rules, so its numbers are measured in a way of their own (`keybr-input-v1`). keybr's own speed and accuracy are shown apart, labelled "keybr". See [keybr/docs/detailed_recording.md](keybr/docs/detailed_recording.md) for how to turn recording on.
+### Tests
 
-1. Give keybr the address of typokiller, in `keybr/.env`:
+```sh
+uv run pytest                 # typokiller's server tests
+uv run pyright                # type check
+node --test tests/*.test.js   # typokiller's page tests
+```
 
-   ```sh
-   TYPOKILLER_URL=http://127.0.0.1:8000
-   ```
+keybr's tests, in `keybr/`, after `npm ci` and `npm run build`:
 
-   Each time the typing page loads, keybr then gets the keyboards and their saved layouts from typokiller, with the layer names in `typokiller.toml`. It gets only the keyboards and layouts: no typing history, no API keys. After you add a layout to a keyboard in typokiller, or change its layer names, reload the typing page. Choose the keyboard and layout there. It also gets the keyboard picture of each layout, which it shows under the text in place of its own picture, with the layer of the next character. When typokiller does not answer, the typing page uses the keyboards that it got the last time, shows its own keyboard picture, and says that keyboards can be missing.
+```sh
+env DATABASE_CLIENT=sqlite npm test
+```
 
-2. After typing in keybr, open the notebook, in this folder:
+### The notebook
 
-   ```sh
-   uv run marimo edit notebooks/keybr.py
-   ```
+`notebooks/keybr.py` reads keybr's recordings in `~/.local/share/keybr/data/recordings.sqlite` once, read only, while keybr runs. It never opens the typokiller database. It has filters for the keyboard, the layout, the saved version of the layout and the days. It shows keybr's own progress, the first-input accuracy, the weakest characters and pairs, fix times, timings, the keyboard picture with heat, and how complete the recordings are. keybr has its own typing rules, so its numbers are measured in a way of their own (`keybr-input-v1`), and keybr's own speed and accuracy are shown apart, labelled "keybr".
 
-   It reads keybr's recorded lessons in `~/.local/share/keybr/data/recordings.sqlite` once, read only, while keybr runs. To open another file, such as a backup, add `-- --recordings /path/to/recordings.sqlite`. It never opens the typokiller database. It has filters for the keyboard, the layout, the saved version of the layout and the days. It shows keybr's own progress, the first-input accuracy, the weakest characters and pairs, fix times, timings, the keyboard picture with heat, and how complete the recordings are.
+```sh
+uv run marimo edit notebooks/keybr.py
+uv run marimo edit notebooks/keybr.py -- --recordings /path/to/recordings.sqlite   # another file, such as a backup
+```
+
+### Settings: `typokiller.toml`
+
+typokiller's settings are in `typokiller.toml` next to its database: in `~/.local/share/typokiller/data` for the service, in this folder for a development server. It is created with defaults and comments on first use. Edit it in any editor.
+
+- `[lists] letters`: the letters that label the lines of the keyboards panel.
+- `[keymaps]`: the layer names in the keyboard pictures, for each Board and Letter layout. The `r` key in the keyboards panel writes them. For example:
+
+  ```toml
+  [keymaps.Sweep.QWERTY]
+  layers = ["Base", "Sym", "Nav", "Stack", "Num"]
+  ```
+
+### Test fixtures
 
 The server tests read copies of real `.vil` and `vial.json` files, kept in `tests/fixtures/`. They come from the `sweep-layouts` repo (commit 67c9332), which the tests do not need. They do not follow that repo. To refresh them, copy the files that a test needs from `sweep-layouts`, then change the commit in this line and in `tests/test_app.py`.
 
-### From another computer
+The tests of both apps also read keybr's own fixtures in `keybr/packages/keybr-recording/fixtures/` (see `tests/keybr_recordings.py`), so a change on one side that breaks the other side fails a test.
 
-keybr and typokiller can also be opened from another computer on the home network, with the name of this Mac, for example `http://marge.local:8000/` for the analysis page. On this Mac, use `localhost`. Both apps (keybr when it records) answer only when the address is `localhost`, an IP address or a name that ends in `.local`. Each computer has its own keybr progress. See [keybr/docs/detailed_recording.md](keybr/docs/detailed_recording.md#opening-keybr-from-another-computer).
+### keybr's own docs
+
+[keybr/docs/detailed_recording.md](keybr/docs/detailed_recording.md) describes the recordings, the keyboards that keybr gets from typokiller, the keyboard picture and the free-range layout.

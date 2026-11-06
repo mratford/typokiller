@@ -6,7 +6,7 @@ In all messages to the user, documentation and code comments, use plain technica
 
 ## Words on screen
 
-The glossary terms in `CONTEXT.md` are for the code, the files in `docs/`, the comments in `typokiller.toml` and tickets. Screen text (the pages and the server's error messages) and the README use these plain words, never the capitalised glossary terms. A test in `tests/pages.test.js` checks the page files.
+The glossary terms in `CONTEXT.md` are for the code, the files in `docs/`, the comments in `typokiller.toml` and tickets. Screen text (the pages and the server's error messages) and the README's user part (everything before `## Development`) use these plain words, never the capitalised glossary terms. A test in `tests/pages.test.js` checks the page files and the README's user part.
 
 | Glossary term | On screen | Example |
 |---|---|---|
@@ -19,7 +19,7 @@ The glossary terms in `CONTEXT.md` are for the code, the files in `docs/`, the c
 | keybr recordings | recorded lessons | "The recorded lessons are newer than this version of typokiller." |
 | Keyboard export | not named; "keyboards" | "keyboards added since it last ran are missing" |
 
-The name "keybr" appears on screen only in the credit (the footer and the README). The terminal output of `typokiller-service` still says "keybr", because the service labels and the log files use that name.
+The name "keybr" appears on screen only in the credit (the footer and the first lines of the README). The terminal output of `typokiller-service` still says "keybr", because the service labels and the log files use that name.
 
 Labels describe the action where they can, so that most of them need no noun.
 

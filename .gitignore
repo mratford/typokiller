@@ -225,9 +225,8 @@ __marimo__/
 # typokiller database
 *.db
 
-# typokiller settings and the downloaded Gutenberg catalogue
+# typokiller settings
 typokiller.toml
-pg_catalog.csv
 
 # macOS folder settings
 .DS_Store

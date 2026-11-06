@@ -4,7 +4,7 @@ Two apps that work together. keybr is where you type, and it records every keyst
 
 ## Language
 
-These terms are for the code, the files in `docs/`, the settings file and tickets. The app's screen and the README use plain words instead; `AGENTS.md` lists them.
+These terms are for the code, the files in `docs/`, the settings file and tickets. The app's screen and the README's user part use plain words instead; `AGENTS.md` lists them.
 
 ### The apps
 

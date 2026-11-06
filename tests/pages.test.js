@@ -48,12 +48,22 @@ test('on the analysis page, h and l move between the entries, a number picks the
 });
 
 // The screen uses plain words, not the glossary terms of CONTEXT.md (see "Words on screen" in AGENTS.md).
+const terms = /\b(Attempt|Board|Keymap|Letter layout|Keyboard export|Weakness model|Analysis method)s?\b/g;
+
 test('no text that a page shows holds a capitalised glossary term', async () => {
-  const terms = /\b(Attempt|Board|Keymap|Letter layout|Keyboard export|Weakness model|Analysis method)s?\b/g;
   const folder = new URL('../src/typokiller/static/', import.meta.url);
   for (const file of await readdir(folder)) {
     const code = (await readFile(new URL(file, folder), 'utf8'))
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '').replace(/(^|\s)\/\/.*/g, '');
     assert.deepEqual(code.match(terms), null, file);
   }
+});
+
+// The README's user part, before "## Development", uses the plain words of the screen.
+test('the user part of the README holds no capitalised glossary term, and names keybr only in the credit', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  const [user, development] = readme.split('\n## Development\n');
+  assert.ok(development, 'the README has a part "## Development"');
+  assert.deepEqual(user.match(terms), null);
+  assert.doesNotMatch(user.split('\n\n').slice(2).join('\n\n'), /keybr/i); // after the title and the credit
 });
