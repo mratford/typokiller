@@ -15,6 +15,7 @@ const initialState: RecordingState = {
   activity: null,
   status: null,
   keyboards: null,
+  keyboardsOutdated: false,
   selection: null,
 };
 const getSnapshot = () => runtime?.state ?? initialState;
@@ -92,7 +93,7 @@ export function RecordingActivityText(activity: RecordingActivity): ReactNode {
       return (
         <FormattedMessage
           id="recording.noKeyboards"
-          defaultMessage="inactive; no keyboards imported (keybr recording import-keyboards)"
+          defaultMessage="inactive; no keyboards: add a keyboard in typokiller, then reload this page"
         />
       );
     case "choose-keyboard":
@@ -211,7 +212,7 @@ export function layoutLabel(
 
 /** The physical keyboard and saved layout, separate from keybr's virtual keyboard layout. */
 export function RecordingSelector({
-  state: { keyboards, selection },
+  state: { keyboards, keyboardsOutdated, selection },
   onSelect,
 }: {
   readonly state: RecordingState;
@@ -231,50 +232,60 @@ export function RecordingSelector({
     defaultMessage: "Choose…",
   });
   return (
-    <p>
-      <label>
-        <FormattedMessage id="recording.keyboard" defaultMessage="Keyboard" />{" "}
-        <select
-          value={keyboard?.id ?? ""}
-          onChange={(event) =>
-            onSelect(
-              event.target.value
-                ? { keyboard: event.target.value, keymap: null }
-                : null,
-            )
-          }
-        >
-          <option value="">{choose}</option>
-          {keyboards?.map((k) => (
-            <option key={k.id} value={k.id}>
-              {k.name}
-            </option>
-          ))}
-        </select>
-      </label>{" "}
-      <label>
-        <FormattedMessage id="recording.layout" defaultMessage="Layout" />{" "}
-        <select
-          value={selected ? layoutValue(selected.keymap) : ""}
-          disabled={keyboard == null}
-          onChange={(event) => {
-            const layout = keyboard?.layouts.find(
-              (l) => layoutValue(l.keymap) === event.target.value,
-            );
-            onSelect({
-              keyboard: keyboard!.id,
-              keymap: layout ? layout.keymap : null,
-            });
-          }}
-        >
-          <option value="">{choose}</option>
-          {keyboard?.layouts.map((l) => (
-            <option key={layoutValue(l.keymap)} value={layoutValue(l.keymap)}>
-              {layoutLabel(intl, keyboard, l)}
-            </option>
-          ))}
-        </select>
-      </label>
-    </p>
+    <>
+      {keyboardsOutdated && (
+        <p>
+          <FormattedMessage
+            id="recording.keyboardsOutdated"
+            defaultMessage="The analysis page is not running: keyboards added since it last ran are missing."
+          />
+        </p>
+      )}
+      <p>
+        <label>
+          <FormattedMessage id="recording.keyboard" defaultMessage="Keyboard" />{" "}
+          <select
+            value={keyboard?.id ?? ""}
+            onChange={(event) =>
+              onSelect(
+                event.target.value
+                  ? { keyboard: event.target.value, keymap: null }
+                  : null,
+              )
+            }
+          >
+            <option value="">{choose}</option>
+            {keyboards?.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.name}
+              </option>
+            ))}
+          </select>
+        </label>{" "}
+        <label>
+          <FormattedMessage id="recording.layout" defaultMessage="Layout" />{" "}
+          <select
+            value={selected ? layoutValue(selected.keymap) : ""}
+            disabled={keyboard == null}
+            onChange={(event) => {
+              const layout = keyboard?.layouts.find(
+                (l) => layoutValue(l.keymap) === event.target.value,
+              );
+              onSelect({
+                keyboard: keyboard!.id,
+                keymap: layout ? layout.keymap : null,
+              });
+            }}
+          >
+            <option value="">{choose}</option>
+            {keyboard?.layouts.map((l) => (
+              <option key={layoutValue(l.keymap)} value={layoutValue(l.keymap)}>
+                {layoutLabel(intl, keyboard, l)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </p>
+    </>
   );
 }

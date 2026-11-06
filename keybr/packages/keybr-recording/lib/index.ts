@@ -373,6 +373,11 @@ export const recordingConfigSchema = z.discriminatedUnion("enabled", [
     applicationRevision: z.string().min(1),
     /** Imported keyboards. Their snapshots are already stored on the server. */
     keyboards: keyboardCatalogueSchema,
+    /**
+     * The keyboards could not be updated from typokiller. A config cached in the
+     * browser before this field existed reads as false.
+     */
+    keyboardsOutdated: z.boolean().default(false),
   }),
 ]);
 export type RecordingConfig = z.infer<typeof recordingConfigSchema>;

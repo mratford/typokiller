@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { parseAttempt, type RecordingRecord, recordSchema } from "./index.ts";
+import {
+  parseAttempt,
+  recordingConfigSchema,
+  type RecordingRecord,
+  recordSchema,
+} from "./index.ts";
 
 const fixtures = JSON.parse(
   await readFile(new URL("../fixtures/v1.json", import.meta.url), "utf8"),
@@ -44,4 +49,17 @@ test("reject unsupported schemas, invalid identities, causal links, and splices"
   assert.ok(state.type === "state");
   state.accepted.inserted = [];
   assert.throws(() => parseAttempt(badState));
+});
+
+test("a config without keyboardsOutdated, as cached by an older page, reads as up to date", () => {
+  const config = {
+    enabled: true,
+    schemaVersion: 1,
+    applicationRevision: "local",
+    keyboards: [],
+  };
+  assert.deepEqual(recordingConfigSchema.parse(config), {
+    ...config,
+    keyboardsOutdated: false,
+  });
 });

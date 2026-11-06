@@ -31,6 +31,7 @@ const config = {
   schemaVersion: 1,
   applicationRevision: "test",
   keyboards,
+  keyboardsOutdated: false,
 };
 const freeRange = { keyboard: "Sweep", keymap: keyboards[0].layouts[0].keymap };
 const start = (): RecordingRecord => ({
@@ -78,6 +79,7 @@ test("disabled recording never opens browser storage or installs a sink", async 
     activity: null,
     status: null,
     keyboards: null,
+    keyboardsOutdated: false,
     selection: null,
   });
   runtime.close();
@@ -206,6 +208,7 @@ test("configuration failure without an enabled cache stays silent", async () => 
     activity: null,
     status: null,
     keyboards: null,
+    keyboardsOutdated: false,
     selection: null,
   });
   runtime.close();
@@ -380,6 +383,23 @@ test("same-turn failed keystroke and committed end cannot resurrect a pruned att
       interrupted: false,
     },
   ]);
+});
+
+test("the state says when the server could not update the keyboards from typokiller", async (t) => {
+  installLocks(t);
+  const queue = await RecordingQueue.open(new IDBFactory());
+  const runtime = new RecordingRuntime(
+    async (url) => {
+      if (url === "/_/recording/config")
+        return Response.json({ ...config, keyboardsOutdated: true });
+      throw new Error("offline");
+    },
+    async () => queue,
+  );
+  t.after(() => runtime.close());
+  await runtime.start();
+  assert.equal(runtime.state.keyboardsOutdated, true);
+  assert.deepEqual(runtime.state.keyboards, keyboards);
 });
 
 test("recording waits for a keyboard and layout selection; ordinary practice is unobserved", async (t) => {

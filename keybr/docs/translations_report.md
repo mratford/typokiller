@@ -1,6 +1,6 @@
 # English
 
-Translated: 357 messages, 4815 words
+Translated: 358 messages, 4833 words
 
 Untranslated: 0 messages, 0 words
 
@@ -8,7 +8,7 @@ Untranslated: 0 messages, 0 words
 
 Translated: 339 messages, 4744 words
 
-Untranslated: 9 messages, 25 words
+Untranslated: 10 messages, 43 words
 
 * *Layout*
 * *Choose…*
@@ -18,13 +18,14 @@ Untranslated: 9 messages, 25 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Arabic
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -32,13 +33,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Bulgarian
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -46,13 +48,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Bangla
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -60,13 +63,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Catalan
 
 Translated: 310 messages, 3556 words
 
-Untranslated: 36 messages, 1191 words
+Untranslated: 37 messages, 1209 words
 
 * *Errors*
 * *Layout*
@@ -81,20 +85,20 @@ Untranslated: 36 messages, 1191 words
 * *Repeat each word:*
 * *inactive; choose a keyboard and layout*
 * *The previous keys are also above the target speed*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
 * *Generate lessons that resemble the specified programming lan...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 * *Practice punctuation characters that are specific to a progr...*
 * *This is a histogram of the accuracies of all users, and your...*
 * *Show color coding of the keyboard zones. Use this option to ...*
 * *Generate typing lessons from the text of a book. All keys ar...*
-* *Highlight a key that must to be pressed next. Use this optio...*
 * ...
 
 # Czech
 
 Translated: 338 messages, 4742 words
 
-Untranslated: 10 messages, 27 words
+Untranslated: 11 messages, 45 words
 
 * *Font:*
 * *Layout*
@@ -105,13 +109,14 @@ Untranslated: 10 messages, 27 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Danish
 
 Translated: 331 messages, 4689 words
 
-Untranslated: 15 messages, 58 words
+Untranslated: 16 messages, 76 words
 
 * *Score*
 * *Layout*
@@ -126,14 +131,15 @@ Untranslated: 15 messages, 58 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 * *Repeat each word a number of times. Type a word for the firs...*
 
 # German
 
 Translated: 339 messages, 4744 words
 
-Untranslated: 9 messages, 25 words
+Untranslated: 10 messages, 43 words
 
 * *Layout*
 * *Choose…*
@@ -143,13 +149,14 @@ Untranslated: 9 messages, 25 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Greek
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -157,13 +164,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Esperanto
 
 Translated: 77 messages, 1126 words
 
-Untranslated: 264 messages, 3585 words
+Untranslated: 265 messages, 3603 words
 
 * *GO!*
 * *Copy*
@@ -191,7 +199,7 @@ Untranslated: 264 messages, 3585 words
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -199,13 +207,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Estonian
 
 Translated: 338 messages, 4743 words
 
-Untranslated: 10 messages, 26 words
+Untranslated: 11 messages, 44 words
 
 * *GO!*
 * *Font:*
@@ -216,13 +225,14 @@ Untranslated: 10 messages, 26 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Persian
 
 Translated: 295 messages, 2959 words
 
-Untranslated: 51 messages, 1788 words
+Untranslated: 52 messages, 1806 words
 
 * *Books*
 * *Layout*
@@ -239,18 +249,18 @@ Untranslated: 51 messages, 1788 words
 * *Keyboard hardware emulates layout*
 * *inactive; choose a keyboard and layout*
 * *Circle color: {label1} – hit count, {label2} – miss count.*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 * *Practice punctuation characters that are specific to a progr...*
 * *Show color coding of the keyboard zones. Use this option to ...*
 * *Bar color: {label1} – hit count, {label2} – miss count, {lab...*
-* *Generate typing lessons from the text of a book. All keys ar...*
 * ...
 
 # Finnish
 
 Translated: 208 messages, 2284 words
 
-Untranslated: 134 messages, 2429 words
+Untranslated: 135 messages, 2447 words
 
 * *GO!*
 * *Time*
@@ -278,7 +288,7 @@ Untranslated: 134 messages, 2429 words
 
 Translated: 44 messages, 583 words
 
-Untranslated: 296 messages, 4117 words
+Untranslated: 297 messages, 4135 words
 
 * *GO!*
 * *Copy*
@@ -306,7 +316,7 @@ Untranslated: 296 messages, 4117 words
 
 Translated: 333 messages, 4544 words
 
-Untranslated: 15 messages, 225 words
+Untranslated: 16 messages, 243 words
 
 * *Layout*
 * *Zones:*
@@ -319,7 +329,8 @@ Untranslated: 15 messages, 225 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 * *Above are listed the longest continuous sequences of lessons...*
 * *When you focus on a new key, it is very likely that the spee...*
 * *The target speed is used to measure the confidence level and...*
@@ -328,7 +339,7 @@ Untranslated: 15 messages, 225 words
 
 Translated: 337 messages, 4735 words
 
-Untranslated: 11 messages, 34 words
+Untranslated: 12 messages, 52 words
 
 * *Layout*
 * *Zones:*
@@ -340,13 +351,14 @@ Untranslated: 11 messages, 34 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Hebrew
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -354,13 +366,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Croatian
 
 Translated: 337 messages, 4740 words
 
-Untranslated: 11 messages, 29 words
+Untranslated: 12 messages, 47 words
 
 * *Font:*
 * *Reset*
@@ -372,13 +385,14 @@ Untranslated: 11 messages, 29 words
 * *Key sounds only*
 * *Premium account price:*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Hungarian
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -386,13 +400,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Indonesian
 
 Translated: 339 messages, 4744 words
 
-Untranslated: 9 messages, 25 words
+Untranslated: 10 messages, 43 words
 
 * *GO!*
 * *Layout*
@@ -402,13 +417,14 @@ Untranslated: 9 messages, 25 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Icelandic
 
 Translated: 95 messages, 1742 words
 
-Untranslated: 246 messages, 2969 words
+Untranslated: 247 messages, 2987 words
 
 * *GO!*
 * *Copy*
@@ -436,7 +452,7 @@ Untranslated: 246 messages, 2969 words
 
 Translated: 334 messages, 4738 words
 
-Untranslated: 13 messages, 29 words
+Untranslated: 14 messages, 47 words
 
 * *Font:*
 * *Layout*
@@ -450,13 +466,14 @@ Untranslated: 13 messages, 29 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Japanese
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -464,13 +481,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Korean
 
 Translated: 145 messages, 1297 words
 
-Untranslated: 201 messages, 3450 words
+Untranslated: 202 messages, 3468 words
 
 * *Copy*
 * *Done*
@@ -498,7 +516,7 @@ Untranslated: 201 messages, 3450 words
 
 Translated: 305 messages, 3388 words
 
-Untranslated: 40 messages, 1350 words
+Untranslated: 41 messages, 1368 words
 
 * *Layout*
 * *Choose…*
@@ -514,19 +532,19 @@ Untranslated: 40 messages, 1350 words
 * *Download all your typing data in JSON format.*
 * *The detailed statistics regarding your learning progress.*
 * *Permanently delete all of your typing data and reset statist...*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 * *This is a histogram of the accuracies of all users, and your...*
 * *Adjust the number of words in the lesson text. Making lesson...*
 * *Show color coding of the keyboard zones. Use this option to ...*
 * *Are you sure you want to delete all data and reset your prof...*
-* *You don’t have any accuracy streaks. Consider completing a l...*
 * ...
 
 # Mongolian
 
 Translated: 16 messages, 378 words
 
-Untranslated: 322 messages, 4293 words
+Untranslated: 323 messages, 4311 words
 
 * *GO!*
 * *Copy*
@@ -554,7 +572,7 @@ Untranslated: 322 messages, 4293 words
 
 Translated: 211 messages, 2446 words
 
-Untranslated: 132 messages, 2270 words
+Untranslated: 133 messages, 2288 words
 
 * *Done*
 * *Help*
@@ -582,7 +600,7 @@ Untranslated: 132 messages, 2270 words
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -590,13 +608,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Dutch
 
 Translated: 333 messages, 4736 words
 
-Untranslated: 14 messages, 31 words
+Untranslated: 15 messages, 49 words
 
 * *Score*
 * *Layout*
@@ -611,13 +630,14 @@ Untranslated: 14 messages, 31 words
 * *Key sounds only*
 * *Premium account*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Polish
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -625,13 +645,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Brazilian Portuguese
 
 Translated: 338 messages, 4743 words
 
-Untranslated: 10 messages, 26 words
+Untranslated: 11 messages, 44 words
 
 * *Layout*
 * *Layout*
@@ -642,13 +663,14 @@ Untranslated: 10 messages, 26 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # European Portuguese
 
 Translated: 319 messages, 4618 words
 
-Untranslated: 27 messages, 129 words
+Untranslated: 28 messages, 147 words
 
 * *Books*
 * *Layout*
@@ -676,7 +698,7 @@ Untranslated: 27 messages, 129 words
 
 Translated: 298 messages, 3587 words
 
-Untranslated: 43 messages, 1138 words
+Untranslated: 44 messages, 1156 words
 
 * *Font:*
 * *Layout*
@@ -704,7 +726,7 @@ Untranslated: 43 messages, 1138 words
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -712,13 +734,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Slovak
 
 Translated: 340 messages, 4745 words
 
-Untranslated: 8 messages, 24 words
+Untranslated: 9 messages, 42 words
 
 * *Layout*
 * *Choose…*
@@ -727,13 +750,14 @@ Untranslated: 8 messages, 24 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Slovenian
 
 Translated: 340 messages, 4745 words
 
-Untranslated: 8 messages, 24 words
+Untranslated: 9 messages, 42 words
 
 * *Font:*
 * *Layout*
@@ -742,13 +766,14 @@ Untranslated: 8 messages, 24 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Albanian
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -756,13 +781,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Swedish
 
 Translated: 338 messages, 4743 words
 
-Untranslated: 10 messages, 26 words
+Untranslated: 11 messages, 44 words
 
 * *Layout*
 * *Layout*
@@ -773,13 +799,14 @@ Untranslated: 10 messages, 26 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Thai
 
 Translated: 329 messages, 4635 words
 
-Untranslated: 17 messages, 112 words
+Untranslated: 18 messages, 130 words
 
 * *Layout*
 * *Zones:*
@@ -794,7 +821,8 @@ Untranslated: 17 messages, 112 words
 * *Repeat each word:*
 * *Premium account price:*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 * *This is a histogram of the accuracies of all users, and your...*
 * *Repeat each word a number of times. Type a word for the firs...*
 * *See how accurate you type relative to other users. The highe...*
@@ -803,7 +831,7 @@ Untranslated: 17 messages, 112 words
 
 Translated: 227 messages, 2126 words
 
-Untranslated: 116 messages, 2588 words
+Untranslated: 117 messages, 2606 words
 
 * *Books*
 * *Font:*
@@ -831,7 +859,7 @@ Untranslated: 116 messages, 2588 words
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -839,13 +867,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Vietnamese
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -853,13 +882,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Simplified Chinese
 
 Translated: 340 messages, 4739 words
 
-Untranslated: 8 messages, 30 words
+Untranslated: 9 messages, 48 words
 
 * *Layout*
 * *Choose…*
@@ -868,13 +898,14 @@ Untranslated: 8 messages, 30 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Traditional Chinese
 
 Translated: 341 messages, 4746 words
 
-Untranslated: 7 messages, 23 words
+Untranslated: 8 messages, 41 words
 
 * *Layout*
 * *Choose…*
@@ -882,13 +913,14 @@ Untranslated: 7 messages, 23 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*
 
 # Chinese (Taiwan)
 
 Translated: 340 messages, 4745 words
 
-Untranslated: 8 messages, 24 words
+Untranslated: 9 messages, 42 words
 
 * *GO!*
 * *Layout*
@@ -897,4 +929,5 @@ Untranslated: 8 messages, 24 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
-* *inactive; no keyboards imported (keybr recording import-keyb...*
+* *inactive; no keyboards: add a keyboard in typokiller, then r...*
+* *The analysis page is not running: keyboards added since it l...*

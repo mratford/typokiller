@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from typokiller.drawing import draw_layers
+from typokiller.keyboard_export import export_keyboards
 from typokiller.keybr_analysis import TREND_WEEKS, analysis_page
 from typokiller.keymap import keymap_letters
 from typokiller.recording import NewerRecordings, read_recordings
@@ -69,11 +70,6 @@ def read_settings(path: Path) -> tomlkit.TOMLDocument:
     if tomlkit.dumps(doc) != text:
         path.write_text(tomlkit.dumps(doc))
     return doc
-
-
-def layer_names(settings: dict, board: str | None, letters: str | None) -> list[str]:
-    """The layer names of a Keymap in the [keymaps] settings."""
-    return settings["keymaps"].get(board, {}).get(letters, {}).get("layers", [])
 
 
 # What the analysis page shows in place of the analysis. The link to the typing page gets the
@@ -150,6 +146,11 @@ def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
             letters = keymap_letters(vil, vial)
             keymaps[letters] = {"letter_layout": letters, "version": version}
         return {"boards": [b | {"keymaps": list(b["keymaps"].values())} for b in found.values()]}
+
+    # keybr reads this each time its typing page loads (see `keyboard_export`).
+    @app.get("/api/keyboards/export")
+    async def keyboards_export():
+        return export_keyboards(db, read_settings(settings_path))
 
     @app.get("/analysis")
     async def analysis_html():

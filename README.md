@@ -48,23 +48,15 @@ layers = ["Base", "Sym", "Nav", "Stack", "Num"]
 
 keybr (in `keybr/`) records in detail everything that you type there, for the keyboard and layout that you choose there. The notebook `notebooks/keybr.py` reads these recordings. keybr has its own typing rules, so its numbers are measured in a way of their own (`keybr-input-v1`). keybr's own speed and accuracy are shown apart, labelled "keybr". See [keybr/docs/detailed_recording.md](keybr/docs/detailed_recording.md) for how to turn recording on.
 
-1. Write your keyboards and their saved layouts to a file, here in this folder:
+1. Give keybr the address of typokiller, in `keybr/.env`:
 
    ```sh
-   uv run typokiller-export-keyboards keyboards.json
+   TYPOKILLER_URL=http://127.0.0.1:8000
    ```
 
-   It reads the service's database (or `typokiller.db` in this folder), or the one given with `--db`, and the layer names from `typokiller.toml` next to it (or the file given with `--settings`). It opens the database read only and changes neither file, and it does not need the server. It writes only the keyboards and layouts: no typing history, no API keys. It does not overwrite a file.
+   Each time the typing page loads, keybr then gets the keyboards and their saved layouts from typokiller, with the layer names in `typokiller.toml`. It gets only the keyboards and layouts: no typing history, no API keys. After you add a layout to a keyboard in typokiller, or change its layer names, reload the typing page. Choose the keyboard and layout there. When typokiller does not answer, the typing page uses the keyboards that it got the last time, and it says that keyboards can be missing.
 
-2. Import the file in `keybr/`. Importing the same file again adds nothing:
-
-   ```sh
-   node root/keybr.js recording import-keyboards /path/to/keyboards.json
-   ```
-
-   Do this again after you add a layout to a keyboard in typokiller, or change its layer names. Then reload keybr's practice page, and choose the keyboard and layout there.
-
-3. After typing in keybr, open the notebook, in this folder:
+2. After typing in keybr, open the notebook, in this folder:
 
    ```sh
    uv run marimo edit notebooks/keybr.py

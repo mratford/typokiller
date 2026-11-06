@@ -44,6 +44,8 @@ export type RecordingState = {
   status: string | null;
   /** Imported keyboards; null when detailed recording is not available. */
   keyboards: KeyboardCatalogue | null;
+  /** The server could not update the keyboards from typokiller. */
+  keyboardsOutdated: boolean;
   selection: RecordingSelection | null;
 };
 
@@ -59,6 +61,7 @@ export class RecordingRuntime {
     activity: null,
     status: null,
     keyboards: null,
+    keyboardsOutdated: false,
     selection: null,
   };
   readonly listeners = new Set<(state: RecordingState) => void>();
@@ -300,7 +303,13 @@ export class RecordingRuntime {
     } else {
       activity = { type: "layout-unavailable", keymap: selection.keymap };
     }
-    this.update({ options, activity, keyboards: config.keyboards, selection });
+    this.update({
+      options,
+      activity,
+      keyboards: config.keyboards,
+      keyboardsOutdated: config.keyboardsOutdated,
+      selection,
+    });
     this.#render();
   }
 

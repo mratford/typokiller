@@ -20,7 +20,8 @@ and binary result history. Database initialization and upgrades are transactiona
 and explicit: database version 1 is migrated to version 2 when it is opened, and
 newer or unversioned databases fail rather than being interpreted. Server
 records and immutable snapshots have no automatic expiry.
-`GET /_/recording/config` reports availability and the imported keyboards. `POST /_/recording/batches` accepts
+`GET /_/recording/config` reports availability and the imported keyboards (see
+[Keyboards](#keyboards)). `POST /_/recording/batches` accepts
 schema version 1 JSON with `snapshots`, `records` and `recovery` arrays. Limits are
 256 KiB, 128 records, 128 recovery notices and 16 snapshots per request. Invalid
 bodies/versions return 400, conflicts return 409 and oversized bodies return 413.
@@ -29,22 +30,31 @@ Disabled batch routes return 404 and never open the recording database.
 ## Keyboards
 
 Every recorded Attempt names its physical keyboard (a typokiller Board) and the
-exact saved layout (a Keymap version). Import them from typokiller's keyboard
-export, then choose them on the practice page.
+exact saved layout (a Keymap version). keybr gets them from typokiller. Set the
+address of typokiller in `.env`:
 
 ```sh
-node root/keybr.js recording import-keyboards keyboards.json
-# Source equivalent:
-npx tsnode packages/server-cli/lib/main.ts recording import-keyboards keyboards.json
+TYPOKILLER_URL=http://127.0.0.1:8000
 ```
 
-The import validates the whole file first and then writes it in one transaction,
-so an invalid or failed import changes nothing. It prints how many snapshots were
-new and how many were already present. Importing the same content again adds
-nothing. After typokiller saves a new .vil, changes a Board's vial.json or edits
-layer names, export and import again: the changed content becomes new snapshots,
-and earlier snapshots, and the Attempts that refer to them, never change. Reload
-the practice page to see newly imported keyboards.
+Then each `GET /_/recording/config` (each time the practice page loads) first
+gets typokiller's keyboard export from `TYPOKILLER_URL/api/keyboards/export`,
+imports it, and then answers with the imported keyboards. So a keyboard or
+layout added in typokiller appears after you reload the practice page. Without
+`TYPOKILLER_URL`, keybr does not ask typokiller, and the keyboards are the ones
+imported before.
+
+The import validates the whole export first and then writes it in one
+transaction, so an invalid or failed import changes nothing. Importing the same
+content again adds nothing. After typokiller saves a new .vil, changes a Board's
+vial.json or edits layer names, the changed content becomes new snapshots, and
+earlier snapshots, and the Attempts that refer to them, never change.
+
+When typokiller does not answer within 2 seconds, or the import rejects its
+answer, the config answer has the keyboards that keybr already has, and
+`keyboardsOutdated: true`. The practice page then shows one line: "The analysis
+page is not running: keyboards added since it last ran are missing." The server
+writes the reason to its log.
 
 ### Choosing a keyboard and layout
 

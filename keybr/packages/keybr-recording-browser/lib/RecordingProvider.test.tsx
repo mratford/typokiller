@@ -35,13 +35,17 @@ const keyboards: KeyboardCatalogue = [
   { id: "Q4", name: "Q4", layouts: [] },
 ];
 
-function setup(selection: RecordingSelection | null) {
+function setup(
+  selection: RecordingSelection | null,
+  keyboardsOutdated = false,
+) {
   const selected: (RecordingSelection | null)[] = [];
   const state: RecordingState = {
     options: null,
     activity: null,
     status: null,
     keyboards,
+    keyboardsOutdated,
     selection,
   };
   const view = render(
@@ -82,6 +86,17 @@ test("keyboard and layout are chosen separately, and layouts name their definiti
     { keyboard: "Q4", keymap: null },
     null,
   ]);
+});
+
+test("one line says when keyboards from typokiller are missing", (t) => {
+  const line =
+    "The analysis page is not running: keyboards added since it last ran are missing.";
+  const current = setup(null);
+  t.after(() => current.view.unmount());
+  assert.equal(current.view.queryByText(line), null);
+  const outdated = setup(null, true);
+  t.after(() => outdated.view.unmount());
+  assert.ok(outdated.view.getByText(line));
 });
 
 test("an unavailable remembered layout is shown as unselected, not replaced", (t) => {

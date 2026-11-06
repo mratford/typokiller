@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { request } from "@fastr/client";
 import { start } from "@fastr/client-testlib";
 import { allToRoutes } from "@fastr/controller";
@@ -10,14 +12,27 @@ import { Application } from "@fastr/core";
 import { HttpError } from "@fastr/errors";
 import { Container } from "@fastr/invert";
 import { Router } from "@fastr/middleware-router";
+import { Logger } from "@keybr/logger";
 import {
   fixtureSnapshots,
+  type KeyboardCatalogue,
   recordingConfigSchema,
   type RecordingRecord,
 } from "@keybr/recording";
 import { RecordingStore } from "@keybr/recording-store";
 import { createTestServer } from "../test/request.ts";
 import { RecordingController } from "./controller.ts";
+
+const keyboardExport = (name: string): unknown =>
+  JSON.parse(
+    readFileSync(
+      new URL(
+        `../../../../keybr-recording/fixtures/keyboards/${name}.json`,
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
 
 test("recording routes are independent of login, bounded, versioned, transactional and opt-in", async (t) => {
   const dir = mkdtempSync(join(tmpdir(), "keybr-recording-route-"));
@@ -59,6 +74,7 @@ test("recording routes are independent of login, bounded, versioned, transaction
     schemaVersion: 1,
     applicationRevision: "local",
     keyboards: [],
+    keyboardsOutdated: false,
   });
   const record: RecordingRecord = {
     schemaVersion: 1,
@@ -145,17 +161,7 @@ test("config lists imported keyboards, whose snapshots Attempts can reference wi
     APPLICATION_REVISION: "rev-1",
   });
   const importer = new RecordingStore(join(dir, "recordings.sqlite"));
-  importer.importKeyboards(
-    JSON.parse(
-      readFileSync(
-        new URL(
-          "../../../../keybr-recording/fixtures/keyboards/initial.json",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    ),
-  );
+  importer.importKeyboards(keyboardExport("initial"));
   importer.close();
   const container = new Container();
   container.bind("dataDir").toValue(dir);
@@ -207,4 +213,126 @@ test("config lists imported keyboards, whose snapshots Attempts can reference wi
     ).status,
     400,
   );
+});
+
+/**
+ * A fake typokiller that answers `GET /api/keyboards/export` with `answer.export`,
+ * or never answers when it is "no answer", and the keybr server that asks it.
+ */
+async function withTypokiller(t: TestContext, answer: { export: unknown }) {
+  const requests: string[] = [];
+  const typokiller = createServer((req, res) => {
+    requests.push(req.url!);
+    if (answer.export === "no answer") return;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(answer.export));
+  });
+  await new Promise<void>((resolve) =>
+    typokiller.listen(0, "127.0.0.1", resolve),
+  );
+  t.after(() => {
+    typokiller.closeAllConnections();
+    typokiller.close();
+  });
+  const dir = mkdtempSync(join(tmpdir(), "keybr-recording-typokiller-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { port } = typokiller.address() as AddressInfo;
+  t.mock.property(process, "env", {
+    ...process.env,
+    DETAILED_RECORDING: "true",
+    TYPOKILLER_URL: `http://127.0.0.1:${port}`,
+  });
+  const errors = t.mock.method(Logger, "error", () => {});
+  const container = new Container();
+  container.bind("dataDir").toValue(dir);
+  const app = new Application(container).use(
+    new Router().registerAll(allToRoutes(RecordingController)).middleware(),
+  );
+  const client = request.use(start(createTestServer(app.callback())));
+  const config = async () => {
+    const response = await client.GET("/_/recording/config").send();
+    assert.equal(response.status, 200);
+    const config = recordingConfigSchema.parse(await response.body.json());
+    assert.ok(config.enabled);
+    return config;
+  };
+  return { requests, config, errors: errors.mock };
+}
+
+test("config gets the keyboards from typokiller each time", async (t) => {
+  const answer = { export: keyboardExport("initial") };
+  const { requests, config, errors } = await withTypokiller(t, answer);
+  const layouts = (config: { keyboards: KeyboardCatalogue }) =>
+    config.keyboards.map(
+      (k) => `${k.name}: ${k.layouts.map((l) => l.letterLayout).join(", ")}`,
+    );
+  const first = await config();
+  assert.deepEqual(layouts(first), [
+    "Q4: QWERTY",
+    "Sofle: free-range",
+    "Sweep: free-range, QWERTY",
+  ]);
+  assert.equal(first.keyboardsOutdated, false);
+  // The same export again adds nothing.
+  assert.deepEqual(await config(), first);
+  answer.export = keyboardExport("updated");
+  // The new Sweep definition makes three new layouts. They come first, and the
+  // two older ones stay.
+  assert.deepEqual(layouts(await config()), [
+    "Q4: QWERTY",
+    "Sofle: free-range",
+    "Sweep: free-range, free-range, QWERTY, free-range, QWERTY",
+  ]);
+  assert.deepEqual(requests, Array(3).fill("/api/keyboards/export"));
+  assert.equal(errors.callCount(), 0);
+});
+
+test("a new keyboard from typokiller appears in the config", async (t) => {
+  const initial = keyboardExport("initial") as {
+    boards: { sourceId: number; name: string }[];
+  };
+  const answer = { export: initial };
+  const { config } = await withTypokiller(t, answer);
+  await config();
+  answer.export = {
+    ...initial,
+    boards: [
+      ...initial.boards,
+      { ...initial.boards[2], sourceId: 4, name: "Q5" },
+    ],
+  };
+  assert.deepEqual(
+    (await config()).keyboards.map((k) => k.name),
+    ["Q4", "Q5", "Sofle", "Sweep"],
+  );
+});
+
+for (const [name, broken, reason] of [
+  ["typokiller does not answer", "no answer", /timeout/i],
+  ["typokiller sends an invalid export", { format: "other" }, /Invalid/],
+] as const) {
+  test(`when ${name}, config answers with the keyboards it has and says they are outdated`, async (t) => {
+    const answer: { export: unknown } = { export: keyboardExport("initial") };
+    const { config, errors } = await withTypokiller(t, answer);
+    const first = await config();
+    answer.export = broken;
+    const outdated = await config();
+    assert.deepEqual(outdated, { ...first, keyboardsOutdated: true });
+    assert.equal(errors.callCount(), 1);
+    assert.match(String(errors.calls[0].arguments[0]), reason);
+  });
+}
+
+test("without TYPOKILLER_URL, config does not ask typokiller", async (t) => {
+  const answer = { export: keyboardExport("initial") };
+  const { requests, config } = await withTypokiller(t, answer);
+  delete process.env.TYPOKILLER_URL;
+  assert.deepEqual(await config(), {
+    enabled: true,
+    schemaVersion: 1,
+    applicationRevision: "local",
+    keyboards: [],
+    keyboardsOutdated: false,
+  });
+  assert.deepEqual(requests, []);
 });

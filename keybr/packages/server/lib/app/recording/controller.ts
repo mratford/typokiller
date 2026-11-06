@@ -4,6 +4,7 @@ import { Context } from "@fastr/core";
 import { BadRequestError, HttpError, NotFoundError } from "@fastr/errors";
 import { inject, injectable } from "@fastr/invert";
 import { Env } from "@keybr/config";
+import { Logger } from "@keybr/logger";
 import { maxBatchBytes, schemaVersion } from "@keybr/recording";
 import {
   RecordingConflict,
@@ -18,18 +19,22 @@ export class RecordingController {
   constructor(@inject("dataDir") readonly dataDir: string) {}
 
   @http.GET("/_/recording/config")
-  config(ctx: Context) {
-    const enabled = Env.getBoolean("DETAILED_RECORDING", false);
+  async config(ctx: Context) {
     ctx.response.headers.set("Cache-Control", "no-store");
-    ctx.response.body = enabled
-      ? {
-          enabled,
-          schemaVersion,
-          applicationRevision: Env.getString("APPLICATION_REVISION", "local"),
-          // Imported with `keybr recording import-keyboards`; snapshots stay on the server.
-          keyboards: this.#open().keyboards(),
-        }
-      : { enabled: false };
+    if (!Env.getBoolean("DETAILED_RECORDING", false)) {
+      ctx.response.body = { enabled: false };
+      return;
+    }
+    const store = this.#open();
+    const updated = await updateKeyboards(store);
+    ctx.response.body = {
+      enabled: true,
+      schemaVersion,
+      applicationRevision: Env.getString("APPLICATION_REVISION", "local"),
+      // Imported from typokiller; snapshots stay on the server.
+      keyboards: store.keyboards(),
+      keyboardsOutdated: !updated,
+    };
   }
 
   #open() {
@@ -59,5 +64,30 @@ export class RecordingController {
         throw new BadRequestError(error.message);
       throw error;
     }
+  }
+}
+
+/**
+ * Gets the keyboard export from typokiller at `TYPOKILLER_URL` and imports it.
+ * Does nothing when `TYPOKILLER_URL` is not set. Returns false, and writes the
+ * reason to the log, when typokiller does not answer within 2 seconds or the
+ * import rejects the answer. The import changes nothing then.
+ */
+async function updateKeyboards(store: RecordingStore): Promise<boolean> {
+  const url = Env.getString("TYPOKILLER_URL", "");
+  if (!url) return true;
+  try {
+    const response = await fetch(new URL("/api/keyboards/export", url), {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) throw new Error(`HTTP status ${response.status}`);
+    store.importKeyboards(await response.json());
+    return true;
+  } catch (error) {
+    Logger.error(
+      error as Error,
+      `Cannot update the keyboards from typokiller at ${url}`,
+    );
+    return false;
   }
 }

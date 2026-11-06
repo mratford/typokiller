@@ -322,6 +322,64 @@ def test_each_keymap_has_its_letter_layout_and_version(client):
     assert boards[1]["keymaps"][1]["version"] == hashlib.sha256(vil.encode()).hexdigest()
 
 
+# The keyboard export, which keybr reads each time its typing page loads. The Boards are those of
+# keybr's import fixture: the Sweep (QWERTY, then free-range), the Sofle and the Q4.
+EXPORT_SETTINGS = """\
+[keymaps.Sweep.QWERTY]
+layers = ["Base", "Sym", "Nav", "Stack", "Num"]
+
+[keymaps.Q4.QWERTY]
+layers = ["Base", "Fn"]
+"""
+
+
+@pytest.fixture
+def exporting(client, settings_path):
+    settings_path.write_text(EXPORT_SETTINGS)
+    add_board(client, "Sweep", "ferris_sweep_qwerty.vil", "sweep")
+    add_board(client, "Sweep", "ferris_sweep_freerange.vil", "sweep")
+    add_board(client, "Sofle", "sofle.vil", "sofle")
+    add_board(client, "Q4", "q4.vil", "q4")
+    return client
+
+
+def without_time(export):
+    return {name: value for name, value in export.items() if name != "exportedAt"}
+
+
+def test_the_keyboard_export_matches_keybrs_initial_import_fixture(exporting):
+    export = exporting.get("/api/keyboards/export").json()
+
+    assert without_time(export) == without_time(keyboard_export("initial.json"))
+    assert datetime.fromisoformat(export["exportedAt"]).utcoffset() == timedelta(0)
+    assert export["exportedAt"].endswith("Z")
+
+
+def test_after_a_new_vial_json_a_new_vil_and_new_layer_names_the_export_matches_keybrs_updated_fixture(
+    exporting, settings_path
+):
+    updated = keyboard_export("updated.json")
+    sweep = updated["boards"][0]
+    exporting.post("/api/boards", json={"name": "Sweep", "vial": sweep["vial"], "vil": sweep["keymaps"][2]["vil"]})
+    # The settings file is read again for each export.
+    settings_path.write_text(EXPORT_SETTINGS.replace('"Sym"', '"Symbols"'))
+
+    assert without_time(exporting.get("/api/keyboards/export").json()) == without_time(updated)
+
+
+def test_the_vil_and_vial_texts_are_exported_exactly_as_stored(exporting):
+    # A .vil uid can be larger than JavaScript's safe integers, so the text must not be parsed and written again.
+    odd = (SWEEP_LAYOUTS / "vil" / "sofle.vil").read_text().replace('{"version": 1,', '{ "version":   1,')
+    assert '"uid": 13865123068767927988' in odd
+    vial = (SWEEP_LAYOUTS / "boards" / "sofle" / "vial.json").read_text()
+    exporting.post("/api/boards", json={"name": "Sofle", "vial": vial, "vil": odd})
+
+    sofle = exporting.get("/api/keyboards/export").json()["boards"][1]
+
+    assert sofle["vial"] == vial
+    assert sofle["keymaps"][-1]["vil"] == odd
+
+
 def test_the_options_give_the_port_whether_the_access_log_is_on_and_the_recordings(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     assert vars(options([])) == {
