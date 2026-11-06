@@ -38,6 +38,7 @@ const keyboards: KeyboardCatalogue = [
 function setup(
   selection: RecordingSelection | null,
   keyboardsOutdated = false,
+  analysisUrl: string | null = null,
 ) {
   const selected: (RecordingSelection | null)[] = [];
   const state: RecordingState = {
@@ -46,6 +47,7 @@ function setup(
     status: null,
     keyboards,
     keyboardsOutdated,
+    analysisUrl,
     selection,
   };
   const view = render(
@@ -97,6 +99,23 @@ test("one line says when keyboards from typokiller are missing", (t) => {
   const outdated = setup(null, true);
   t.after(() => outdated.view.unmount());
   assert.ok(outdated.view.getByText(line));
+});
+
+test("a link next to the keyboard chooser opens the analysis page, only with its address", (t) => {
+  const linked = setup(null, false, "http://127.0.0.1:8000/analysis");
+  t.after(() => linked.view.unmount());
+  const links = (page: ReturnType<typeof setup>) =>
+    [...page.view.container.querySelectorAll("a")].map((a) => [
+      a.textContent,
+      a.getAttribute("href"),
+      a.getAttribute("target"), // null: the same tab
+    ]);
+  assert.deepEqual(links(linked), [
+    ["analysis", "http://127.0.0.1:8000/analysis", null],
+  ]);
+  const none = setup(null);
+  t.after(() => none.view.unmount());
+  assert.deepEqual(links(none), []);
 });
 
 test("an unavailable remembered layout is shown as unselected, not replaced", (t) => {
@@ -153,6 +172,19 @@ test("layouts that differ only in layer names have different labels", () => {
       "QWERTY · 3a7e9c85 · layers A, B · version 11111111",
       "QWERTY · 3a7e9c85 · layers A, B · version 22222222",
     ],
+  );
+});
+
+test("with no keyboards, the status says to add one on the analysis page", (t) => {
+  const view = render(
+    <IntlProvider locale="en">
+      <RecordingActivityText type="no-keyboards" />
+    </IntlProvider>,
+  );
+  t.after(() => view.unmount());
+  assert.equal(
+    view.container.textContent,
+    "inactive; no keyboards: add a keyboard on the analysis page, then reload this page",
   );
 });
 

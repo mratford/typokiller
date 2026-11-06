@@ -44,6 +44,11 @@ layout added in typokiller appears after you reload the practice page. Without
 `TYPOKILLER_URL`, keybr does not ask typokiller, and the keyboards are the ones
 imported before.
 
+With `TYPOKILLER_URL`, the config also has `analysisUrl`, the address of
+typokiller's `/analysis` page. The practice page shows a link "analysis" next to
+the keyboard chooser, which opens that page in the same tab. Without
+`TYPOKILLER_URL` there is no link.
+
 The import validates the whole export first and then writes it in one
 transaction, so an invalid or failed import changes nothing. Importing the same
 content again adds nothing. After typokiller saves a new .vil, changes a Board's

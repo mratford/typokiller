@@ -51,7 +51,7 @@ test("reject unsupported schemas, invalid identities, causal links, and splices"
   assert.throws(() => parseAttempt(badState));
 });
 
-test("a config without keyboardsOutdated, as cached by an older page, reads as up to date", () => {
+test("a config without keyboardsOutdated and analysisUrl, as cached by an older page, reads as up to date with no link", () => {
   const config = {
     enabled: true,
     schemaVersion: 1,
@@ -61,5 +61,6 @@ test("a config without keyboardsOutdated, as cached by an older page, reads as u
   assert.deepEqual(recordingConfigSchema.parse(config), {
     ...config,
     keyboardsOutdated: false,
+    analysisUrl: null,
   });
 });

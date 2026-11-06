@@ -82,7 +82,7 @@ INSERT INTO key_event VALUES (1, 0);
 """
 
 
-def test_the_first_start_deletes_every_table_but_the_boards_and_keymap_versions_and_keeps_their_rows(
+def test_the_first_start_deletes_every_table_but_the_boards_and_keymap_versions_and_keeps_their_rows_with_no_dates(
     db_path, settings_path, recordings
 ):
     with sqlite3.connect(db_path) as db:
@@ -97,7 +97,7 @@ def test_the_first_start_deletes_every_table_but_the_boards_and_keymap_versions_
         ("index", "sqlite_autoindex_keymap_version_1"),
     ]
     assert rows(db_path, "SELECT * FROM board") == [(1, "Sweep", "{}")]
-    assert rows(db_path, "SELECT * FROM keymap_version") == [("abc", 1, "{}")]
+    assert rows(db_path, "SELECT * FROM keymap_version") == [("abc", 1, "{}", None)]
 
 
 def test_a_missing_settings_file_is_created_with_defaults_and_comments(client, settings_path):
@@ -176,11 +176,10 @@ def test_a_settings_file_with_a_missing_table_gets_it_with_its_comments(db_path,
     assert 'layers = ["Base"]' in text
 
 
-def test_the_first_page_says_that_typing_has_moved_and_links_to_the_typing_page(client):
-    page = client.get("/").text
+def test_the_first_page_sends_the_browser_to_the_analysis_page(client):
+    found = client.get("/", follow_redirects=False)
 
-    assert re.findall(r"<p>(.*)</p>", page) == ['Typing has moved to <a id="typing" href="http://localhost:3100/">the typing page</a>.']
-    assert "document.getElementById('typing').hostname = location.hostname;" in page
+    assert found.is_redirect and found.headers["location"] == "/analysis"
 
 
 def test_a_vil_is_stored_whole_by_hash_and_a_reimport_does_nothing(client, db_path):
@@ -306,20 +305,89 @@ def test_key_positions_come_from_the_vial_json_with_rotation_and_without_encoder
 
 
 
-def test_each_keymap_has_its_letter_layout_and_version(client):
-    add_board(client, "Sofle", "sofle.vil", "sofle")
-    add_board(client, "Sweep", "ferris_sweep_qwerty.vil", "sweep")
-    add_board(client, "Sweep", "ferris_sweep_freerange.vil", "sweep")
-    add_board(client, "Q4", "q4.vil", "q4")
-
+def keymaps(client):
+    """Each Board's name and its Keymaps' Letter layouts with their numbers of versions."""
     boards = client.get("/api/boards").json()["boards"]
-    assert [(b["name"], [k["letter_layout"] for k in b["keymaps"]]) for b in boards] == [
-        ("Sofle", ["free-range"]),
-        ("Sweep", ["QWERTY", "free-range"]),
-        ("Q4", ["QWERTY"]),
+    return [(b["name"], [(k["letter_layout"], k["versions"]) for k in b["keymaps"]]) for b in boards]
+
+
+def test_keyboards_are_added_from_the_fixtures_and_a_name_that_exists_adds_the_vil_and_replaces_the_vial_json(
+    client, db_path
+):
+    # The Sofle's vial.json has no name, so the page asks for one.
+    assert "name" not in json.loads((SWEEP_LAYOUTS / "boards" / "sofle" / "vial.json").read_text())
+
+    assert add_board(client, "Sofle", "sofle.vil", "sofle").json() == {"letter_layout": "free-range"}
+    add_board(client, "Ferris Sweep", "ferris_sweep_qwerty.vil", "sweep")
+    add_board(client, "Cheapino V2", "cheapino.vil", "cheapino")
+    add_board(client, "Keychron Q4", "q4.vil", "q4")
+    sweep = (SWEEP_LAYOUTS / "boards" / "sweep" / "vial.json").read_text()
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE board SET vial = ? WHERE name = 'Ferris Sweep'", (sweep.replace("Ferris", "Old"),))
+    add_board(client, "Ferris Sweep", "ferris_sweep_freerange.vil", "sweep")
+
+    assert keymaps(client) == [
+        ("Sofle", [("free-range", 1)]),
+        ("Ferris Sweep", [("QWERTY", 1), ("free-range", 1)]),
+        ("Cheapino V2", [("QWERTY", 1)]),
+        ("Keychron Q4", [("QWERTY", 1)]),
     ]
-    vil = (SWEEP_LAYOUTS / "vil" / "ferris_sweep_freerange.vil").read_text()
-    assert boards[1]["keymaps"][1]["version"] == hashlib.sha256(vil.encode()).hexdigest()
+    assert rows(db_path, "SELECT vial FROM board WHERE name = 'Ferris Sweep'") == [(sweep,)]
+
+
+def test_a_vil_saved_on_a_keyboard_with_the_letters_of_a_saved_layout_is_a_new_version_and_others_a_new_layout(client):
+    add_board(client, "Sweep", "ferris_sweep_qwerty.vil", "sweep")
+    (board,) = client.get("/api/boards").json()["boards"]
+    qwerty = (SWEEP_LAYOUTS / "vil" / "ferris_sweep_qwerty.vil").read_text()
+    changed = qwerty.replace('{"version": 1,', '{ "version": 1,')
+    freerange = (SWEEP_LAYOUTS / "vil" / "ferris_sweep_freerange.vil").read_text()
+
+    assert client.post(f"/api/boards/{board['id']}/keymaps", json={"vil": changed}).json() == {"letter_layout": "QWERTY"}
+    assert keymaps(client) == [("Sweep", [("QWERTY", 2)])]
+    assert client.post(f"/api/boards/{board['id']}/keymaps", json={"vil": freerange}).json() == {
+        "letter_layout": "free-range"
+    }
+    assert keymaps(client) == [("Sweep", [("QWERTY", 2), ("free-range", 1)])]
+
+
+def test_each_layout_has_the_date_of_its_newest_version_its_layer_names_and_plain_pictures(
+    client, db_path, settings_path
+):
+    settings_path.write_text(EXPORT_SETTINGS.replace("[keymaps.Q4", 'letters = "abc"\n\n[keymaps.Q4'))
+    add_board(client, "Sweep", "ferris_sweep_qwerty.vil", "sweep")
+    with sqlite3.connect(db_path) as db:
+        db.execute("UPDATE keymap_version SET saved = '2026-10-01'")
+    add_board(client, "Sweep", "ferris_sweep_freerange.vil", "sweep")
+
+    found = client.get("/api/boards").json()
+    qwerty, freerange = found["boards"][0]["keymaps"]
+
+    assert found["letters"] == "sadflewcmpgh"
+    assert (qwerty["saved"], freerange["saved"]) == ("2026-10-01", datetime.now().date().isoformat())
+    assert qwerty["names"] == qwerty["layer_names"] == ["Base", "Sym", "Nav", "Stack", "Num"] and len(qwerty["layers"]) == 5
+    # No names in the settings: the drawn names are those of the keys that open the layers.
+    assert freerange["names"][:2] == ["L0", "Space"] and freerange["layer_names"] == []
+    assert "<svg" in qwerty["layers"][0] and "half" not in qwerty["layers"][0]  # no heat
+
+
+def test_saving_layer_names_writes_them_to_the_settings_file_and_the_keyboard_export_gives_them(
+    exporting, settings_path
+):
+    settings_path.write_text("# my settings\n\n" + EXPORT_SETTINGS)
+
+    def save(board, letters, layers):
+        found = exporting.put("/api/layers", json={"board": board, "letter_layout": letters, "layers": layers})
+        assert found.status_code == 204
+
+    save("Sweep", "QWERTY", ["Main", "Symbols"])
+    save("Q3 Max", "free-range", ["Base"])
+
+    assert settings_path.read_text().startswith("# my settings\n")
+    assert '[keymaps.Sweep.QWERTY]\nlayers = ["Main", "Symbols"]\n' in settings_path.read_text()
+    assert '[keymaps."Q3 Max".free-range]\nlayers = ["Base"]\n' in settings_path.read_text()
+    assert '[keymaps.Q4.QWERTY]\nlayers = ["Base", "Fn"]\n' in settings_path.read_text()
+    sweep = exporting.get("/api/keyboards/export").json()["boards"][0]
+    assert [k["layers"] for k in sweep["keymaps"]] == [["Main", "Symbols"], []]
 
 
 # The keyboard export, which keybr reads each time its typing page loads. The Boards are those of

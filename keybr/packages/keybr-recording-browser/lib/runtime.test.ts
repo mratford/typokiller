@@ -80,6 +80,7 @@ test("disabled recording never opens browser storage or installs a sink", async 
     status: null,
     keyboards: null,
     keyboardsOutdated: false,
+    analysisUrl: null,
     selection: null,
   });
   runtime.close();
@@ -209,6 +210,7 @@ test("configuration failure without an enabled cache stays silent", async () => 
     status: null,
     keyboards: null,
     keyboardsOutdated: false,
+    analysisUrl: null,
     selection: null,
   });
   runtime.close();

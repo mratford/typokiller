@@ -3,6 +3,7 @@ import { type ReactNode, useSyncExternalStore } from "react";
 import { FormattedMessage, type IntlShape, useIntl } from "react-intl";
 import { RecordingContext } from "./context.ts";
 import {
+  initialState,
   type RecordingActivity,
   RecordingRuntime,
   type RecordingSelection,
@@ -10,14 +11,6 @@ import {
 } from "./runtime.ts";
 
 let runtime: RecordingRuntime | undefined;
-const initialState: RecordingState = {
-  options: null,
-  activity: null,
-  status: null,
-  keyboards: null,
-  keyboardsOutdated: false,
-  selection: null,
-};
 const getSnapshot = () => runtime?.state ?? initialState;
 function subscribe(listener: () => void) {
   const current = (runtime ??= new RecordingRuntime());
@@ -93,7 +86,7 @@ export function RecordingActivityText(activity: RecordingActivity): ReactNode {
       return (
         <FormattedMessage
           id="recording.noKeyboards"
-          defaultMessage="inactive; no keyboards: add a keyboard in typokiller, then reload this page"
+          defaultMessage="inactive; no keyboards: add a keyboard on the analysis page, then reload this page"
         />
       );
     case "choose-keyboard":
@@ -212,7 +205,7 @@ export function layoutLabel(
 
 /** The physical keyboard and saved layout, separate from keybr's virtual keyboard layout. */
 export function RecordingSelector({
-  state: { keyboards, keyboardsOutdated, selection },
+  state: { keyboards, keyboardsOutdated, analysisUrl, selection },
   onSelect,
 }: {
   readonly state: RecordingState;
@@ -285,6 +278,17 @@ export function RecordingSelector({
             ))}
           </select>
         </label>
+        {analysisUrl && (
+          <>
+            {" "}
+            <a href={analysisUrl}>
+              <FormattedMessage
+                id="recording.analysis"
+                defaultMessage="analysis"
+              />
+            </a>
+          </>
+        )}
       </p>
     </>
   );

@@ -26,7 +26,8 @@ export class RecordingController {
       return;
     }
     const store = this.#open();
-    const updated = await updateKeyboards(store);
+    const typokillerUrl = Env.getString("TYPOKILLER_URL", "");
+    const updated = await updateKeyboards(store, typokillerUrl);
     ctx.response.body = {
       enabled: true,
       schemaVersion,
@@ -34,6 +35,9 @@ export class RecordingController {
       // Imported from typokiller; snapshots stay on the server.
       keyboards: store.keyboards(),
       keyboardsOutdated: !updated,
+      analysisUrl: typokillerUrl
+        ? new URL("/analysis", typokillerUrl).href
+        : null,
     };
   }
 
@@ -68,13 +72,15 @@ export class RecordingController {
 }
 
 /**
- * Gets the keyboard export from typokiller at `TYPOKILLER_URL` and imports it.
- * Does nothing when `TYPOKILLER_URL` is not set. Returns false, and writes the
+ * Gets the keyboard export from typokiller at `url` (`TYPOKILLER_URL`) and
+ * imports it. Does nothing when `url` is empty. Returns false, and writes the
  * reason to the log, when typokiller does not answer within 2 seconds or the
  * import rejects the answer. The import changes nothing then.
  */
-async function updateKeyboards(store: RecordingStore): Promise<boolean> {
-  const url = Env.getString("TYPOKILLER_URL", "");
+async function updateKeyboards(
+  store: RecordingStore,
+  url: string,
+): Promise<boolean> {
   if (!url) return true;
   try {
     const response = await fetch(new URL("/api/keyboards/export", url), {

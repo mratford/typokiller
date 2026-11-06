@@ -37,7 +37,9 @@ uv run pyright             # type check
 
 The database is `typokiller.db` in the folder that the server runs in. The settings are in `typokiller.toml` next to it, created with defaults and comments on first use. Edit it in any editor.
 
-The keyboard pictures name the layers of a layout with the names in `[keymaps]` in `typokiller.toml`, for example:
+`/` opens the analysis page. On it, `b` opens the keyboards panel and `t` opens the typing page. The panel has one line for each keyboard and layout. Type a line's label, or move with `j`/`k` and press `Enter`, to see the analysis of that layout. In the panel, `n` adds a keyboard (choose its `vial.json`, give it a name, then choose a `.vil`), `v` saves a `.vil` on the selected keyboard (the same letters as a saved layout make a new version of it, other letters make a new layout), and `r` sets the layer names of the selected layout, separated by spaces. `Esc` stops a form. `Esc` or `b` closes the panel. The typing page has a link "analysis" back to this page.
+
+The keyboard pictures name the layers of a layout with the names in `[keymaps]` in `typokiller.toml` (the `r` key in the panel writes them there), for example:
 
 ```toml
 [keymaps.Sweep.QWERTY]

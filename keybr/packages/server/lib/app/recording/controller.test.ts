@@ -75,6 +75,7 @@ test("recording routes are independent of login, bounded, versioned, transaction
     applicationRevision: "local",
     keyboards: [],
     keyboardsOutdated: false,
+    analysisUrl: null,
   });
   const record: RecordingRecord = {
     schemaVersion: 1,
@@ -273,6 +274,7 @@ test("config gets the keyboards from typokiller each time", async (t) => {
     "Sweep: free-range, QWERTY",
   ]);
   assert.equal(first.keyboardsOutdated, false);
+  assert.match(first.analysisUrl!, /^http:\/\/127\.0\.0\.1:\d+\/analysis$/);
   // The same export again adds nothing.
   assert.deepEqual(await config(), first);
   answer.export = keyboardExport("updated");
@@ -333,6 +335,7 @@ test("without TYPOKILLER_URL, config does not ask typokiller", async (t) => {
     applicationRevision: "local",
     keyboards: [],
     keyboardsOutdated: false,
+    analysisUrl: null,
   });
   assert.deepEqual(requests, []);
 });

@@ -9,7 +9,7 @@ import polars as pl
 import tomlkit
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -24,7 +24,7 @@ STATIC = Path(__file__).parent / "static"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS board (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, vial TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS keymap_version (hash TEXT PRIMARY KEY, board INTEGER NOT NULL, vil TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS keymap_version (hash TEXT PRIMARY KEY, board INTEGER NOT NULL, vil TEXT NOT NULL, saved TEXT);
 """
 
 # The tables of typokiller's own practice, from before keybr was the typing app (ADR 0004).
@@ -36,9 +36,9 @@ DEFAULT_SETTINGS = """\
 # typokiller settings. Edit this file in any editor.
 
 [lists]
-# The letters that label the items of a list, such as the Board list. An item is chosen by
-# typing its label. The first items get one letter, in this order, and the others two. j and k,
-# and n in the Board list, are never labels.
+# The letters that label the items of a list, such as the list of Keymaps in the keyboards
+# panel. An item is chosen by typing its label. The first items get one letter, in this order,
+# and the others two. j, k, n, v, r and b, the keys of the keyboards panel, are never labels.
 letters = "sadflewcmpgh"
 
 [keymaps]
@@ -106,18 +106,42 @@ class NewBoard(BaseModel):
     vial: str  # the text of the vial.json file
 
 
+class NewKeymap(BaseModel):
+    vil: str  # the text of the .vil file
+
+
+class LayerNames(BaseModel):
+    board: str  # the Board's name
+    letter_layout: str
+    layers: list[str]
+
+
 def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
     db = sqlite3.connect(db_path, check_same_thread=False)
     with db:
         for table in PRACTICE_TABLES:
             db.execute(f"DROP TABLE IF EXISTS {table}")
     db.executescript(SCHEMA)
+    # A database made before this column has no dates for the .vil files stored then.
+    if "saved" not in [column for _, column, *_ in db.execute("PRAGMA table_info(keymap_version)")]:
+        db.execute("ALTER TABLE keymap_version ADD COLUMN saved TEXT")
     read_settings(settings_path)
 
     app = FastAPI()
 
+    # Stores a .vil of a Board, with the date. A .vil that is already stored changes nothing.
+    # Its Letter layout tells whether it is a new Keymap or a new version of one.
+    def save_vil(board: int, vil: str) -> dict[str, str]:
+        with db:
+            db.execute(
+                "INSERT OR IGNORE INTO keymap_version VALUES (?, ?, ?, ?)",
+                (hashlib.sha256(vil.encode()).hexdigest(), board, vil, datetime.now().date().isoformat()),
+            )
+            (vial,) = db.execute("SELECT vial FROM board WHERE id = ?", (board,)).fetchone()
+        return {"letter_layout": keymap_letters(vil, vial)}
+
     # Adding a Board with a name that exists adds the .vil to that Board and
-    # replaces its vial.json. A .vil that is already stored changes nothing.
+    # replaces its vial.json.
     @app.post("/api/boards")
     async def add_board(new: NewBoard):
         with db:
@@ -126,26 +150,53 @@ def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
                 " ON CONFLICT (name) DO UPDATE SET vial = excluded.vial RETURNING id",
                 (new.name, new.vial),
             ).fetchone()
-            db.execute(
-                "INSERT OR IGNORE INTO keymap_version VALUES (?, ?, ?)",
-                (hashlib.sha256(new.vil.encode()).hexdigest(), board, new.vil),
-            )
-        return {"board": board}
+        return save_vil(board, new.vil)
 
-    # A Keymap is a Board with one Letter layout. Its versions are the .vil files with that
-    # Letter layout. Each Board lists its Keymaps in the order they were first added, each
-    # with its newest version.
+    @app.post("/api/boards/{board}/keymaps")
+    async def add_keymap(board: int, new: NewKeymap):
+        return save_vil(board, new.vil)
+
+    # What the keyboards panel shows: the Boards of the keyboard export, with their Keymaps in
+    # the order they were first added. A Keymap is a Board with one Letter layout; its versions
+    # are the .vil files with that Letter layout. Each Keymap has the number of its versions, the
+    # date of the newest, and the layer names and plain Keymap drawings of the newest. `names` are
+    # the names drawn, and `layer_names` only those in the settings file. `letters` label the list.
     @app.get("/api/boards")
     async def boards():
-        found: dict[int, dict] = {}
-        for board, name, vial, version, vil in db.execute(
-            "SELECT board.id, name, vial, hash, vil FROM board JOIN keymap_version ON board = board.id"
-            " ORDER BY board.id, keymap_version.rowid"  # oldest version first
-        ):
-            keymaps = found.setdefault(board, {"id": board, "name": name, "keymaps": {}})["keymaps"]
-            letters = keymap_letters(vil, vial)
-            keymaps[letters] = {"letter_layout": letters, "version": version}
-        return {"boards": [b | {"keymaps": list(b["keymaps"].values())} for b in found.values()]}
+        settings = read_settings(settings_path)
+        saved = dict(db.execute("SELECT hash, saved FROM keymap_version"))
+        found = []
+        for board in export_keyboards(db, settings)["boards"]:
+            versions: dict[str, list[dict]] = {}
+            for version in board["keymaps"]:  # oldest first
+                versions.setdefault(version["letterLayout"], []).append(version)
+            keymaps = []
+            for letters, same in versions.items():
+                newest = same[-1]
+                layers = draw_layers(newest["vil"], board["vial"], newest["layers"])
+                keymaps.append({
+                    "letter_layout": letters,
+                    "versions": len(same),
+                    "saved": saved[newest["sourceHash"]],
+                    "names": [name for name, _ in layers],
+                    "layer_names": newest["layers"],
+                    "layers": [svg for _, svg in layers],
+                })
+            found.append({"id": board["sourceId"], "name": board["name"], "keymaps": keymaps})
+        return {"letters": settings["lists"]["letters"], "boards": found}
+
+    # Writes the layer names of a Keymap to the settings file. The other settings and the
+    # comments stay.
+    @app.put("/api/layers", status_code=204)
+    async def save_layers(names: LayerNames):
+        doc = read_settings(settings_path)
+        board = doc["keymaps"].setdefault(names.board, tomlkit.table(True))
+        board.setdefault(names.letter_layout, tomlkit.table())["layers"] = names.layers
+        settings_path.write_text(tomlkit.dumps(doc))
+
+    @app.get("/")
+    async def first_page():
+        return RedirectResponse("/analysis")
 
     # keybr reads this each time its typing page loads (see `keyboard_export`).
     @app.get("/api/keyboards/export")

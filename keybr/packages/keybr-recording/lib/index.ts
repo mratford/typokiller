@@ -378,6 +378,11 @@ export const recordingConfigSchema = z.discriminatedUnion("enabled", [
      * browser before this field existed reads as false.
      */
     keyboardsOutdated: z.boolean().default(false),
+    /**
+     * The address of typokiller's analysis page, from `TYPOKILLER_URL`, or null
+     * without it. A config cached before this field existed reads as null.
+     */
+    analysisUrl: z.string().nullable().default(null),
   }),
 ]);
 export type RecordingConfig = z.infer<typeof recordingConfigSchema>;

@@ -46,7 +46,20 @@ export type RecordingState = {
   keyboards: KeyboardCatalogue | null;
   /** The server could not update the keyboards from typokiller. */
   keyboardsOutdated: boolean;
+  /** The address of typokiller's analysis page, or null when keybr has none. */
+  analysisUrl: string | null;
   selection: RecordingSelection | null;
+};
+
+/** The state before the configuration is read. */
+export const initialState: RecordingState = {
+  options: null,
+  activity: null,
+  status: null,
+  keyboards: null,
+  keyboardsOutdated: false,
+  analysisUrl: null,
+  selection: null,
 };
 
 const sameReference = (
@@ -56,14 +69,7 @@ const sameReference = (
 
 /** Kept alive across practice navigation so queued records and late releases keep draining. */
 export class RecordingRuntime {
-  state: RecordingState = {
-    options: null,
-    activity: null,
-    status: null,
-    keyboards: null,
-    keyboardsOutdated: false,
-    selection: null,
-  };
+  state: RecordingState = initialState;
   readonly listeners = new Set<(state: RecordingState) => void>();
   #started = false;
   #queue?: RecordingQueue;
@@ -308,6 +314,7 @@ export class RecordingRuntime {
       activity,
       keyboards: config.keyboards,
       keyboardsOutdated: config.keyboardsOutdated,
+      analysisUrl: config.analysisUrl,
       selection,
     });
     this.#render();

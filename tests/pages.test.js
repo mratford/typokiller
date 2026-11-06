@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { listLabels } from '../src/typokiller/static/lists.js';
-import { pressed } from '../src/typokiller/static/analysis.js';
+import { PANEL_KEYS, pressed, vialName } from '../src/typokiller/static/analysis.js';
 
 test('with no more items than letters, every label is one letter, in the order of the letters', () => {
   assert.deepEqual(listLabels(3, 'sadflewcmpgh', 'jk'), ['s', 'a', 'd']);
@@ -17,6 +17,20 @@ test('with more items than letters, no label is the start of another, and the fi
 
 test('the keys that the list uses are never labels, even when the letters have them', () => {
   assert.deepEqual(listLabels(3, 'jsknad', 'jkn'), ['s', 'a', 'd']);
+});
+
+test('the keys of the keyboards panel are never labels of its lines', () => {
+  const labels = listLabels(20, 'sadflewcmpghjknvrb', PANEL_KEYS);
+  assert.deepEqual(labels.filter(l => [...PANEL_KEYS].some(key => l.includes(key))), []);
+  assert.deepEqual(labels.slice(10), ['g', 'hs', 'ha', 'hd', 'hf', 'hl', 'he', 'hw', 'hc', 'hm']);
+});
+
+test('the name of a new keyboard comes from its vial.json, and the Sofle\'s has none', async () => {
+  const names = {};
+  for (const board of ['cheapino', 'q4', 'sofle', 'sweep']) {
+    names[board] = vialName(await readFile(new URL(`fixtures/boards/${board}/vial.json`, import.meta.url), 'utf8'));
+  }
+  assert.deepEqual(names, { cheapino: 'Cheapino V2', q4: 'Keychron Q4', sofle: '', sweep: 'Ferris Sweep' });
 });
 
 test('on the analysis page, h and l move between the entries, a number picks the layer, and j and k move the arc', () => {
