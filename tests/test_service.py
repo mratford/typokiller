@@ -15,7 +15,7 @@ NODE = "/Users/me/.nvm/versions/node/v24.22.0/bin/node"
 
 class FakeRun:
     """Stands in for service.run: records each command and the folder it runs in, and answers it
-    with the (returncode, output) of the first entry in `results` that the command starts with,
+    with the (returncode, output) of the longest entry in `results` that the command starts with,
     or with (0, "")."""
 
     def __init__(self, results: dict[tuple, tuple[int, str]]):
