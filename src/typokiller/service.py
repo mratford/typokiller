@@ -211,8 +211,15 @@ def start():
 
 
 def stop():
+    """Unloads both agents. bootout returns before launchd has unloaded an agent, and a bootstrap
+    before that fails, so this waits until launchd no longer finds each one (at most 10 s)."""
     for app in APPS:
         run("launchctl", "bootout", target(app))
+    for app in APPS:
+        for _ in range(50):
+            if run("launchctl", "print", target(app)).returncode:
+                break
+            time.sleep(0.2)
 
 
 def install():

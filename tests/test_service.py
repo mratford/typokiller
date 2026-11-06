@@ -27,7 +27,7 @@ class FakeRun:
         args = tuple(str(arg) for arg in args)
         self.calls.append(args)
         self.folders[args] = str(cwd)
-        for start, (code, output) in self.results.items():
+        for start, (code, output) in sorted(self.results.items(), key=lambda item: -len(item[0])):
             if args[: len(start)] == tuple(str(word) for word in start):
                 return subprocess.CompletedProcess(args, code, output)
         return subprocess.CompletedProcess(args, 0, "")
@@ -37,7 +37,11 @@ class FakeRun:
 
     def launchctl(self) -> list[tuple[str, str]]:
         """The launchctl commands, each with the label it acts on."""
-        return [(call[1], call[-1].split("/")[-1].removesuffix(".plist")) for call in self.calls if call[0] == "launchctl"]
+        return [
+            (call[1], call[-1].split("/")[-1].removesuffix(".plist"))
+            for call in self.calls
+            if call[0] == "launchctl" and call[1] != "print"
+        ]
 
 
 @pytest.fixture
@@ -56,8 +60,15 @@ def tools(monkeypatch) -> dict[str, str]:
 
 @pytest.fixture
 def fake(home, tools, monkeypatch) -> FakeRun:
-    """This Mac is named marge, node is version 24, and both servers answer at once."""
-    fake = FakeRun({("scutil", "--get", "LocalHostName"): (0, "marge\n"), ("node", "--version"): (0, "v24.22.0\n")})
+    """This Mac is named marge, node is version 24, launchd unloads an agent at once, and both
+    servers answer at once."""
+    fake = FakeRun(
+        {
+            ("scutil", "--get", "LocalHostName"): (0, "marge\n"),
+            ("node", "--version"): (0, "v24.22.0\n"),
+            ("launchctl", "print"): (113, "Could not find service"),
+        }
+    )
     monkeypatch.setattr(service, "run", fake)
     monkeypatch.setattr(service, "get", lambda url: "<html>")
     return fake
@@ -202,6 +213,23 @@ def test_update_fetches_backs_up_both_databases_then_restarts_keybr_then_typokil
     assert fake.launchctl() == [("bootout", "local.keybr"), ("bootout", "local.typokiller"), ("bootstrap", "local.keybr"), ("bootstrap", "local.typokiller")]
     assert f"APPLICATION_REVISION={NEW}" in (home / ".local/share/keybr/data/.env").read_text()
     assert "http://marge.local:3100/" in capsys.readouterr().out
+
+
+def test_stop_waits_until_launchd_has_unloaded_both_agents(fake, monkeypatch):
+    # bootout returns before launchd has unloaded the agent, and a bootstrap before that fails.
+    still_loaded = {"local.keybr": 2, "local.typokiller": 1}
+
+    def run(*args, cwd=None):
+        label = str(args[-1]).split("/")[-1]
+        if args[:2] == ("launchctl", "print") and still_loaded[label]:
+            still_loaded[label] -= 1
+            return subprocess.CompletedProcess(args, 0, "")
+        return fake(*args, cwd=cwd)
+
+    monkeypatch.setattr(service, "run", run)
+    monkeypatch.setattr(service.time, "sleep", lambda seconds: None)
+    service.main(["stop"])
+    assert still_loaded == {"local.keybr": 0, "local.typokiller": 0}
 
 
 def test_update_keeps_the_other_lines_of_typokillers_env(home, installed, fake):
