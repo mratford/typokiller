@@ -1,12 +1,9 @@
 # Detailed local recording
 
 Set `DETAILED_RECORDING=true` in `.env`, then restart the server and reload the
-practice page. The default is `false`. The server binds to `127.0.0.1` in
-recording mode. Use `http://localhost:3000/` locally; no login is required.
-This is a personal local mode. Keep it on loopback when configuring a proxy.
-The proxy must forward `Host: localhost:<port>` or `Host: 127.0.0.1:<port>`,
-using the backend listening port (omit the port for port 80). Other Host values
-receive an empty 403 response in recording mode.
+practice page. The default is `false`. No login is required. On the computer
+that runs keybr, use `http://localhost:3000/`.
+
 `APPLICATION_REVISION` optionally labels the application revision (default `local`).
 
 The practice page shows whether recording is active, the selected keyboard and
@@ -27,6 +24,47 @@ schema version 1 JSON with `snapshots`, `records` and `recovery` arrays. Limits 
 bodies/versions return 400, conflicts return 409 and oversized bodies return 413.
 Disabled batch routes return 404 and never open the recording database.
 
+## Opening keybr from another computer
+
+In recording mode, both servers (`SERVER_PORT` and `SERVER_PORT_WS`) listen on
+all network interfaces, so another computer on the local network can open the
+practice page, for example as `http://marge.local:3000/`. The server accepts a
+request only when its `Host` header (with or without the port) is:
+
+- `localhost`,
+- an IPv4 address, such as `192.168.1.20`,
+- an IPv6 address in brackets, such as `[::1]`,
+- or a name that ends in `.local`, such as `marge.local`.
+
+Any other `Host`, and a request with no `Host`, gets an empty 403 response.
+A web page that uses DNS rebinding (a domain name of its own that points to
+this computer) sends that domain name as the `Host`. A domain name on the
+internet is not an IP address and does not end in `.local`, so the rule refuses
+that page. typokiller uses the same rule. A proxy in
+front of keybr must forward a `Host` that this rule accepts.
+
+Nothing else protects the recordings: any computer on the local network can
+send records. There is no login.
+
+keybr keeps its own typing progress in the browser, separately for each address.
+So each computer has its own keybr progress, and on one computer `localhost`
+and `marge.local` are two separate progresses. All records go into the one
+recording database, so typokiller's analysis page shows them together.
+
+The page is plain HTTP, which is not a secure context when it is not opened as
+`localhost`. Browsers give `crypto.randomUUID()` and Web Locks only to a secure
+context. So the recorder makes its UUIDs with `crypto.getRandomValues()`, and
+recording works without Web Locks. Without them, keybr cannot tell a closed tab
+from an open one, so the Attempts of a closed tab are not marked interrupted
+(see [Delivery and recovery](#delivery-and-recovery)). They still have no end
+record.
+
+Recording does not use the session cookie: the recording routes do not read the
+session (the test "recording routes are independent of login" in
+`packages/server/lib/app/recording/controller.test.ts` runs them with no
+session). `COOKIE_DOMAIN=localhost` stays in `.env`. On another address the
+browser refuses keybr's session cookie, which only login uses.
+
 ## Keyboards
 
 Every recorded Attempt names its physical keyboard (a typokiller Board) and the
@@ -46,8 +84,10 @@ imported before.
 
 With `TYPOKILLER_URL`, the config also has `analysisUrl`, the address of
 typokiller's `/analysis` page. The practice page shows a link "analysis" next to
-the keyboard chooser, which opens that page in the same tab. Without
-`TYPOKILLER_URL` there is no link.
+the keyboard chooser, which opens that page in the same tab. The link has the
+host name from the browser's address and the port of `TYPOKILLER_URL`, so it
+also works from another computer: on `http://marge.local:3000/` it is
+`http://marge.local:8000/analysis`. Without `TYPOKILLER_URL` there is no link.
 
 The import validates the whole export first and then writes it in one
 transaction, so an invalid or failed import changes nothing. Importing the same
@@ -221,11 +261,12 @@ own test fixtures.
 
 A dedicated IndexedDB database, `keybr-detailed-recording` (version 1), stores
 records before transmission. Keep using the same browser profile and origin to
-recover its pending data. IndexedDB and Web Locks are required. Each tab has
+recover its pending data. IndexedDB is required. Each tab has
 independent Attempt UUIDs; transactions share the queue safely between tabs.
 A Web Lock identifies a live tab. On a later visit, Attempts belonging to a dead
-tab without an end record are marked interrupted in recovery metadata. No end
-record or missing key release is synthesized.
+tab without an end record are marked interrupted in recovery metadata. Without
+Web Locks (see [Opening keybr from another computer](#opening-keybr-from-another-computer)),
+they are not marked. No end record or missing key release is synthesized.
 
 The last enabled server configuration is cached in localStorage so recording can resume
 after an offline reload. A successful disabled configuration clears that cache.
@@ -294,5 +335,3 @@ with sqlite3.connect('/tmp/recordings-export.sqlite') as db:
 Tests use temporary SQLite databases and isolated IndexedDB factories, including
 Python readback with a live source connection, overlapping delivery, lost
 acknowledgements, browser transaction aborts and concurrent queue connections.
-
-With recording enabled, `npm run start-docker` listens only on the container loopback address and cannot be reached from the host.

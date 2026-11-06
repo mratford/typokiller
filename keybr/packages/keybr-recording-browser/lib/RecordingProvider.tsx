@@ -209,6 +209,20 @@ export function layoutLabel(
     : text;
 }
 
+/**
+ * `url` with the host name of this page. The port of `url` stays. So the link to
+ * typokiller works on the address that the browser used, for example
+ * `marge.local` on another computer.
+ */
+export function withPageHost(
+  url: string,
+  hostname = window.location.hostname,
+): string {
+  const found = new URL(url);
+  found.hostname = hostname;
+  return found.href;
+}
+
 /** The physical keyboard and saved layout, separate from keybr's virtual keyboard layout. */
 export function RecordingSelector({
   state: { keyboards, keyboardsOutdated, analysisUrl, selection },
@@ -287,7 +301,7 @@ export function RecordingSelector({
         {analysisUrl && (
           <>
             {" "}
-            <a href={analysisUrl}>
+            <a href={withPageHost(analysisUrl)}>
               <FormattedMessage
                 id="recording.analysis"
                 defaultMessage="analysis"

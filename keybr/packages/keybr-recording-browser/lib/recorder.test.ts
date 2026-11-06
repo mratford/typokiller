@@ -269,3 +269,38 @@ test("releases keep their owner across practice remounts and superseded presses 
   ))
     parseAttempt(attempt);
 });
+
+test("without crypto.randomUUID, as on a page that is not a secure context, each Attempt gets a new UUID", (t) => {
+  t.mock.property(Object.getPrototypeOf(crypto), "randomUUID", undefined);
+  const records: RecordingRecord[] = [];
+  const recorder = new PracticeRecorder(
+    {
+      applicationRevision: "test",
+      board: null,
+      keymap: null,
+      onRecord: (record) => records.push(record),
+    },
+    { releaseTarget: document.createElement("div") },
+  );
+  recorder.prepare(() => ({
+    text: "abc",
+    applicationRevision: "test",
+    board: null,
+    keymap: null,
+    settings: { typing: {}, exercise: {}, layout: {} },
+  }));
+  for (const key of ["a", "b"]) {
+    recorder.onEvent(new KeyboardEvent("keydown", { code: `Key${key}`, key }));
+    recorder.end("navigation");
+  }
+  const [first, second] = Object.keys(
+    Object.groupBy(records, (r) => r.attemptId),
+  );
+  assert.notEqual(first, second);
+  for (const id of [first, second])
+    assert.match(
+      id,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  for (const record of records) recordSchema.parse(record);
+});

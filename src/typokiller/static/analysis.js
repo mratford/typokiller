@@ -68,8 +68,9 @@ function loadBoards() {
   return boardsRead = fetch('/api/boards').then(r => r.json()).then(found => ({ boards, letters } = found), () => {});
 }
 
-// The typing page runs on port 3100 of the same computer (ADR 0006).
-const typingUrl = () => `http://${location.hostname}:3100/`;
+// The typing page runs on port 3100 of the same computer (ADR 0006). The link has the host name
+// that the browser used for this page, so it works from another computer too.
+export const typingUrl = (hostname = location.hostname) => `http://${hostname}:3100/`;
 
 // Draws the whole page. The chart is drawn only here, so it is not drawn again for each key.
 function draw() {

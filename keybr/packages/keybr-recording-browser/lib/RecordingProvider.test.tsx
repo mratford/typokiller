@@ -7,6 +7,7 @@ import {
   layoutLabel,
   RecordingActivityText,
   RecordingSelector,
+  withPageHost,
 } from "./RecordingProvider.tsx";
 import { type RecordingSelection, type RecordingState } from "./runtime.ts";
 
@@ -101,6 +102,18 @@ test("one line says when keyboards from typokiller are missing", (t) => {
   assert.ok(outdated.view.getByText(line));
 });
 
+test("the link to the analysis page has the host name of the page, and the port of TYPOKILLER_URL", () => {
+  const url = "http://127.0.0.1:8000/analysis";
+  assert.equal(
+    withPageHost(url, "localhost"),
+    "http://localhost:8000/analysis",
+  );
+  assert.equal(
+    withPageHost(url, "marge.local"),
+    "http://marge.local:8000/analysis",
+  );
+});
+
 test("a link next to the keyboard chooser opens the analysis page, only with its address", (t) => {
   const linked = setup(null, false, "http://127.0.0.1:8000/analysis");
   t.after(() => linked.view.unmount());
@@ -111,7 +124,8 @@ test("a link next to the keyboard chooser opens the analysis page, only with its
       a.getAttribute("target"), // null: the same tab
     ]);
   assert.deepEqual(links(linked), [
-    ["analysis", "http://127.0.0.1:8000/analysis", null],
+    // The test page is https://www.keybr.com/.
+    ["analysis", "http://www.keybr.com:8000/analysis", null],
   ]);
   const none = setup(null);
   t.after(() => none.view.unmount());

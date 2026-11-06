@@ -9,7 +9,7 @@ import {
 import { z } from "zod";
 import { RecordingDelivery } from "./delivery.ts";
 import { RecordingQueue } from "./queue.ts";
-import { type RecorderOptions } from "./recorder.ts";
+import { randomUuid, type RecorderOptions } from "./recorder.ts";
 
 /** The physical keyboard and saved layout chosen for recording, remembered per browser. */
 export type RecordingSelection = {
@@ -132,32 +132,41 @@ export class RecordingRuntime {
         return;
       }
       available = true;
-      this.#owner ||= crypto.randomUUID();
+      this.#owner ||= randomUuid();
       this.update({ status: "Starting" });
-      if (!navigator.locks || !globalThis.indexedDB)
-        throw new Error("Recording requires IndexedDB and Web Locks");
+      if (!globalThis.indexedDB)
+        throw new Error("Recording requires IndexedDB");
+      // Web Locks tell a live tab from a closed one. Browsers give them only
+      // to a secure context, so a page opened from another computer, such as
+      // http://marge.local:3000, has none. Then the Attempts of closed tabs
+      // are not marked interrupted.
+      const { locks } = navigator as { locks?: LockManager };
       // Acquire ownership before exposing the sink. The lock survives React unmounts.
-      await new Promise<void>((resolve, reject) => {
-        void navigator.locks
-          .request(`keybr-recording:${this.#owner}`, async () => {
-            resolve();
-            await new Promise<void>((release) => {
-              this.#release = release;
-            });
-          })
-          .catch(reject);
-      });
+      if (locks) {
+        await new Promise<void>((resolve, reject) => {
+          void locks
+            .request(`keybr-recording:${this.#owner}`, async () => {
+              resolve();
+              await new Promise<void>((release) => {
+                this.#release = release;
+              });
+            })
+            .catch(reject);
+        });
+      }
       const queue = (this.#queue = await this.openQueue());
       this.#delivery = new RecordingDelivery(queue, this.request);
-      for (const owner of await queue.owners()) {
-        if (owner === this.#owner) continue;
-        await navigator.locks.request(
-          `keybr-recording:${owner}`,
-          { ifAvailable: true },
-          async (lock) => {
-            if (lock) await queue.interrupt(owner);
-          },
-        );
+      if (locks) {
+        for (const owner of await queue.owners()) {
+          if (owner === this.#owner) continue;
+          await locks.request(
+            `keybr-recording:${owner}`,
+            { ifAvailable: true },
+            async (lock) => {
+              if (lock) await queue.interrupt(owner);
+            },
+          );
+        }
       }
       this.#config = config;
       this.#sink = {

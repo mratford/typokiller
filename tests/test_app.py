@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import re
@@ -33,7 +34,7 @@ def recordings(tmp_path):
 
 @pytest.fixture
 def client(db_path, settings_path, recordings):
-    return TestClient(create_app(db_path, settings_path, recordings))
+    return TestClient(create_app(db_path, settings_path, recordings), base_url="http://localhost:8000")
 
 
 # Real .vil and vial.json files from the sweep-layouts repo, as of its commit 67c9332 (2026-10-25).
@@ -180,6 +181,53 @@ def test_the_first_page_sends_the_browser_to_the_analysis_page(client):
     found = client.get("/", follow_redirects=False)
 
     assert found.is_redirect and found.headers["location"] == "/analysis"
+
+
+# The Host values that typokiller accepts, as keybr does in recording mode: localhost, an IP
+# address or a name that ends in .local, with or without the port. A page that uses DNS rebinding
+# sends its own domain name, such as one of the refused values.
+ACCEPTED_HOSTS = [
+    "localhost",
+    "localhost:8000",
+    "127.0.0.1:8000",
+    "192.168.1.20",
+    "192.168.1.20:8000",
+    "[::1]",
+    "[::1]:8000",
+    "[fe80::1c2b:3aff:fe4d:5e6f]:8000",
+    "marge.local",
+    "Marge.local:8000",
+]
+REFUSED_HOSTS = ["example.com", "example.com:8000", "marge.local.example.com", "localhost.example.com", "local", ".local", "::1", ""]
+
+
+@pytest.mark.parametrize("host", ACCEPTED_HOSTS)
+def test_a_request_from_localhost_an_ip_address_or_a_local_name_is_answered(client, host):
+    assert client.get("/analysis", headers={"host": host}).status_code == 200
+
+
+@pytest.mark.parametrize("path", ["/api/keyboards/export", "/analysis.js"])
+@pytest.mark.parametrize("host", REFUSED_HOSTS)
+def test_a_request_for_any_other_host_gets_an_empty_403(client, host, path):
+    found = client.get(path, headers={"host": host})
+
+    assert (found.status_code, found.content) == (403, b"")
+
+
+def test_a_request_with_no_host_gets_an_empty_403(db_path, settings_path, recordings):
+    # The test client always sends a Host, so this calls the app directly.
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "method": "GET", "path": "/analysis.js", "query_string": b"", "headers": []}
+    asyncio.run(create_app(db_path, settings_path, recordings)(scope, receive, send))
+
+    assert (sent[0]["status"], b"".join(m.get("body", b"") for m in sent)) == (403, b"")
 
 
 def test_a_vil_is_stored_whole_by_hash_and_a_reimport_does_nothing(client, db_path):

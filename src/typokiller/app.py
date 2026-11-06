@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,8 +9,8 @@ import altair as alt
 import polars as pl
 import tomlkit
 import uvicorn
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -21,6 +22,13 @@ from typokiller.recording import NewerRecordings, read_recordings
 from typokiller.service import recordings_path
 
 STATIC = Path(__file__).parent / "static"
+
+# The Host that a request may name: localhost, an IPv4 address, an IPv6 address in brackets or a
+# name that ends in .local, with or without the port. A web page that uses DNS rebinding (its own
+# domain name, pointed at this computer) sends that domain name as the Host. A domain name on the
+# internet is not an IP address and does not end in .local, so the page is refused. keybr uses the
+# same rule in recording mode (`allowedHost` in keybr/packages/server/lib/server/service.ts).
+ALLOWED_HOST = re.compile(r"(localhost|\d+\.\d+\.\d+\.\d+|\[[0-9a-f:.]+\]|([a-z0-9-]+\.)+local)(:\d+)?", re.IGNORECASE)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS board (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, vial TEXT NOT NULL);
@@ -128,6 +136,13 @@ def create_app(db_path: Path, settings_path: Path, recordings: Path) -> FastAPI:
     read_settings(settings_path)
 
     app = FastAPI()
+
+    # A request whose Host does not match ALLOWED_HOST gets an empty 403.
+    @app.middleware("http")
+    async def check_host(request: Request, call_next):
+        if not ALLOWED_HOST.fullmatch(request.headers.get("host", "")):
+            return Response(status_code=403)
+        return await call_next(request)
 
     # Stores a .vil of a Board, with the date. A .vil that is already stored changes nothing.
     # Its Letter layout tells whether it is a new Keymap or a new version of one.

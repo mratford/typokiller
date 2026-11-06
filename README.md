@@ -67,3 +67,7 @@ keybr (in `keybr/`) records in detail everything that you type there, for the ke
    It reads keybr's recorded lessons in `~/.local/share/keybr/data/recordings.sqlite` once, read only, while keybr runs. To open another file, such as a backup, add `-- --recordings /path/to/recordings.sqlite`. It never opens the typokiller database. It has filters for the keyboard, the layout, the saved version of the layout and the days. It shows keybr's own progress, the first-input accuracy, the weakest characters and pairs, fix times, timings, the keyboard picture with heat, and how complete the recordings are.
 
 The server tests read copies of real `.vil` and `vial.json` files, kept in `tests/fixtures/`. They come from the `sweep-layouts` repo (commit 67c9332), which the tests do not need. They do not follow that repo. To refresh them, copy the files that a test needs from `sweep-layouts`, then change the commit in this line and in `tests/test_app.py`.
+
+### From another computer
+
+keybr and typokiller can also be opened from another computer on the home network, with the name of this Mac, for example `http://marge.local:8000/` for the analysis page. On this Mac, use `localhost`. Both apps (keybr when it records) answer only when the address is `localhost`, an IP address or a name that ends in `.local`. Each computer has its own keybr progress. See [keybr/docs/detailed_recording.md](keybr/docs/detailed_recording.md#opening-keybr-from-another-computer).

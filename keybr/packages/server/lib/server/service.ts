@@ -10,6 +10,16 @@ import { type Closer, createCloser } from "./closer.ts";
 const { pid } = process;
 const { username } = userInfo();
 
+// In recording mode, the Host that a request may name: localhost, an IPv4
+// address, an IPv6 address in brackets or a name that ends in .local, with or
+// without the port. A web page that uses DNS rebinding (its own domain name,
+// pointed at this computer) sends that domain name as the Host. A domain name
+// on the internet is not an IP address and does not end in .local, so the page
+// is refused. typokiller uses the same rule (`ALLOWED_HOST` in
+// src/typokiller/app.py).
+const allowedHost =
+  /^(localhost|\d+\.\d+\.\d+\.\d+|\[[0-9a-f:.]+\]|([a-z0-9-]+\.)+local)(:\d+)?$/i;
+
 @injectable({ singleton: true })
 export class Service {
   readonly #server: Server;
@@ -26,13 +36,7 @@ export class Service {
     const application = app.callback();
     const recording = Env.getBoolean("DETAILED_RECORDING", false);
     const callback: typeof application = (req, res) => {
-      const address = this.#server.address();
-      const listeningPort =
-        address && typeof address === "object" ? address.port : port;
-      const allowed = ["localhost", "127.0.0.1", "[::1]"].map((host) =>
-        listeningPort === 80 ? host : `${host}:${listeningPort}`,
-      );
-      if (recording && !allowed.includes(req.headers.host ?? "")) {
+      if (recording && !allowedHost.test(req.headers.host ?? "")) {
         res.statusCode = 403;
         res.end();
         return;
@@ -49,10 +53,7 @@ export class Service {
       res.shouldKeepAlive = false;
       callback(req, res);
     });
-    this.#server.listen(
-      port,
-      Env.getBoolean("DETAILED_RECORDING", false) ? "127.0.0.1" : undefined,
-    );
+    this.#server.listen(port);
     process.on("SIGINT", () => {
       this.stop();
     });

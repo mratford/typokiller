@@ -14,6 +14,21 @@ import {
   type InputObserver,
 } from "@keybr/textinput-events";
 
+/**
+ * A new random (version 4) UUID. It is made with `crypto.getRandomValues()`,
+ * because browsers give `crypto.randomUUID()` only to a secure context, and a
+ * page opened from another computer as `http://marge.local:3000` is not one.
+ */
+export function randomUuid(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // the RFC 9562 variant
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return hex.replace(/^(.{8})(.{4})(.{4})(.{4})/, "$1-$2-$3-$4-");
+}
+
 type Attempt = { id: string; next: number; ended: boolean; inputTail: boolean };
 const releaseOwners = new WeakMap<Event, PracticeRecorder>();
 const keyOwners = new Map<string, PracticeRecorder>();
@@ -55,7 +70,7 @@ export class PracticeRecorder implements InputObserver {
   constructor(
     options: RecorderOptions,
     {
-      uuid = () => crypto.randomUUID(),
+      uuid = randomUuid,
       now = () => performance.now(),
       timeOrigin = performance.timeOrigin,
       releaseTarget = window,

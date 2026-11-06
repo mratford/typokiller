@@ -52,13 +52,19 @@ const offline: typeof fetch = async (url) => {
   if (url === "/_/recording/config") return Response.json(config);
   throw new Error("offline");
 };
-/** Web Locks for enabled runtimes, and a remembered valid keyboard selection. */
-function installLocks(t: { after: (fn: () => void) => void }) {
+/**
+ * Web Locks for enabled runtimes (or none, as on a page that is not a secure
+ * context), and a remembered valid keyboard selection.
+ */
+function installLocks(
+  t: { after: (fn: () => void) => void },
+  value: LockManager | null = locks,
+) {
   window.localStorage.setItem(selectionKey, JSON.stringify(freeRange));
   const previous = Object.getOwnPropertyDescriptor(navigator, "locks");
   Object.defineProperty(navigator, "locks", {
     configurable: true,
-    value: locks,
+    value,
   });
   t.after(() => {
     if (previous) Object.defineProperty(navigator, "locks", previous);
@@ -531,4 +537,21 @@ test("default requests call fetch as browsers require, not as a method", async (
     /Invalid recording acknowledgement/,
   );
   assert.deepEqual(calls, ["/_/recording/config", "/_/recording/batches"]);
+});
+
+test("recording works without crypto.randomUUID and Web Locks, as on a page that is not a secure context", async (t) => {
+  const record = start();
+  // Browsers give both only to a secure context, such as localhost.
+  t.mock.property(Object.getPrototypeOf(crypto), "randomUUID", undefined);
+  installLocks(t, null);
+  const factory = new IDBFactory();
+  const runtime = new RecordingRuntime(offline, () =>
+    RecordingQueue.open(factory),
+  );
+  t.after(() => runtime.close());
+  await runtime.start();
+  runtime.state.options!.onRecord(record);
+  const inspect = await RecordingQueue.open(factory);
+  t.after(() => inspect.close());
+  assert.equal((await inspect.status()).queued, 1);
 });
