@@ -1,14 +1,14 @@
 # English
 
-Translated: 359 messages, 4842 words
+Translated: 357 messages, 4840 words
 
 Untranslated: 0 messages, 0 words
 
 # Afrikaans
 
-Translated: 339 messages, 4744 words
+Translated: 336 messages, 4729 words
 
-Untranslated: 11 messages, 52 words
+Untranslated: 12 messages, 65 words
 
 * *Layout*
 * *Choose…*
@@ -19,14 +19,15 @@ Untranslated: 11 messages, 52 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Arabic
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -35,14 +36,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Bulgarian
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -51,14 +53,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Bangla
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -67,14 +70,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Catalan
 
-Translated: 310 messages, 3556 words
+Translated: 307 messages, 3541 words
 
-Untranslated: 38 messages, 1218 words
+Untranslated: 39 messages, 1231 words
 
 * *Errors*
 * *Layout*
@@ -90,19 +94,19 @@ Untranslated: 38 messages, 1218 words
 * *Repeat each word:*
 * *inactive; choose a keyboard and layout*
 * *The previous keys are also above the target speed*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *Generate lessons that resemble the specified programming lan...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *Practice punctuation characters that are specific to a progr...*
 * *This is a histogram of the accuracies of all users, and your...*
 * *Show color coding of the keyboard zones. Use this option to ...*
-* *Generate typing lessons from the text of a book. All keys ar...*
 * ...
 
 # Czech
 
-Translated: 338 messages, 4742 words
+Translated: 335 messages, 4727 words
 
-Untranslated: 12 messages, 54 words
+Untranslated: 13 messages, 67 words
 
 * *Font:*
 * *Layout*
@@ -114,14 +118,15 @@ Untranslated: 12 messages, 54 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Danish
 
-Translated: 331 messages, 4689 words
+Translated: 328 messages, 4674 words
 
-Untranslated: 17 messages, 85 words
+Untranslated: 18 messages, 98 words
 
 * *Score*
 * *Layout*
@@ -137,15 +142,16 @@ Untranslated: 17 messages, 85 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 * *Repeat each word a number of times. Type a word for the firs...*
 
 # German
 
-Translated: 339 messages, 4744 words
+Translated: 336 messages, 4729 words
 
-Untranslated: 11 messages, 52 words
+Untranslated: 12 messages, 65 words
 
 * *Layout*
 * *Choose…*
@@ -156,14 +162,15 @@ Untranslated: 11 messages, 52 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Greek
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -172,14 +179,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Esperanto
 
-Translated: 77 messages, 1126 words
+Translated: 76 messages, 1116 words
 
-Untranslated: 266 messages, 3612 words
+Untranslated: 265 messages, 3620 words
 
 * *GO!*
 * *Copy*
@@ -205,9 +213,9 @@ Untranslated: 266 messages, 3612 words
 
 # Spanish
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -216,14 +224,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Estonian
 
-Translated: 338 messages, 4743 words
+Translated: 335 messages, 4728 words
 
-Untranslated: 12 messages, 53 words
+Untranslated: 13 messages, 66 words
 
 * *GO!*
 * *Font:*
@@ -235,14 +244,15 @@ Untranslated: 12 messages, 53 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Persian
 
-Translated: 295 messages, 2959 words
+Translated: 292 messages, 2944 words
 
-Untranslated: 53 messages, 1815 words
+Untranslated: 54 messages, 1828 words
 
 * *Books*
 * *Layout*
@@ -260,17 +270,17 @@ Untranslated: 53 messages, 1815 words
 * *Keyboard hardware emulates layout*
 * *inactive; choose a keyboard and layout*
 * *Circle color: {label1} – hit count, {label2} – miss count.*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *Practice punctuation characters that are specific to a progr...*
 * *Show color coding of the keyboard zones. Use this option to ...*
-* *Bar color: {label1} – hit count, {label2} – miss count, {lab...*
 * ...
 
 # Finnish
 
-Translated: 208 messages, 2284 words
+Translated: 205 messages, 2269 words
 
-Untranslated: 136 messages, 2456 words
+Untranslated: 137 messages, 2469 words
 
 * *GO!*
 * *Time*
@@ -296,9 +306,9 @@ Untranslated: 136 messages, 2456 words
 
 # Faroese
 
-Translated: 44 messages, 583 words
+Translated: 43 messages, 573 words
 
-Untranslated: 298 messages, 4144 words
+Untranslated: 297 messages, 4152 words
 
 * *GO!*
 * *Copy*
@@ -324,9 +334,9 @@ Untranslated: 298 messages, 4144 words
 
 # French
 
-Translated: 333 messages, 4544 words
+Translated: 330 messages, 4529 words
 
-Untranslated: 17 messages, 252 words
+Untranslated: 18 messages, 265 words
 
 * *Layout*
 * *Zones:*
@@ -340,6 +350,7 @@ Untranslated: 17 messages, 252 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 * *Above are listed the longest continuous sequences of lessons...*
@@ -348,9 +359,9 @@ Untranslated: 17 messages, 252 words
 
 # Irish
 
-Translated: 337 messages, 4735 words
+Translated: 334 messages, 4720 words
 
-Untranslated: 13 messages, 61 words
+Untranslated: 14 messages, 74 words
 
 * *Layout*
 * *Zones:*
@@ -363,14 +374,15 @@ Untranslated: 13 messages, 61 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Hebrew
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -379,14 +391,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Croatian
 
-Translated: 337 messages, 4740 words
+Translated: 334 messages, 4725 words
 
-Untranslated: 13 messages, 56 words
+Untranslated: 14 messages, 69 words
 
 * *Font:*
 * *Reset*
@@ -399,14 +412,15 @@ Untranslated: 13 messages, 56 words
 * *Key sounds only*
 * *Premium account price:*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Hungarian
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -415,14 +429,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Indonesian
 
-Translated: 339 messages, 4744 words
+Translated: 336 messages, 4729 words
 
-Untranslated: 11 messages, 52 words
+Untranslated: 12 messages, 65 words
 
 * *GO!*
 * *Layout*
@@ -433,14 +448,15 @@ Untranslated: 11 messages, 52 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Icelandic
 
-Translated: 95 messages, 1742 words
+Translated: 94 messages, 1732 words
 
-Untranslated: 248 messages, 2996 words
+Untranslated: 247 messages, 3004 words
 
 * *GO!*
 * *Copy*
@@ -466,9 +482,9 @@ Untranslated: 248 messages, 2996 words
 
 # Italian
 
-Translated: 334 messages, 4738 words
+Translated: 331 messages, 4723 words
 
-Untranslated: 15 messages, 56 words
+Untranslated: 16 messages, 69 words
 
 * *Font:*
 * *Layout*
@@ -483,14 +499,15 @@ Untranslated: 15 messages, 56 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Japanese
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -499,14 +516,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Korean
 
-Translated: 145 messages, 1297 words
+Translated: 142 messages, 1282 words
 
-Untranslated: 203 messages, 3477 words
+Untranslated: 204 messages, 3490 words
 
 * *Copy*
 * *Done*
@@ -532,9 +550,9 @@ Untranslated: 203 messages, 3477 words
 
 # Lithuanian
 
-Translated: 305 messages, 3388 words
+Translated: 302 messages, 3373 words
 
-Untranslated: 42 messages, 1377 words
+Untranslated: 43 messages, 1390 words
 
 * *Layout*
 * *Choose…*
@@ -550,19 +568,19 @@ Untranslated: 42 messages, 1377 words
 * *The difference from the average value.*
 * *Download all your typing data in JSON format.*
 * *The detailed statistics regarding your learning progress.*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *Permanently delete all of your typing data and reset statist...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *This is a histogram of the accuracies of all users, and your...*
 * *Adjust the number of words in the lesson text. Making lesson...*
 * *Show color coding of the keyboard zones. Use this option to ...*
-* *Are you sure you want to delete all data and reset your prof...*
 * ...
 
 # Mongolian
 
 Translated: 16 messages, 378 words
 
-Untranslated: 324 messages, 4320 words
+Untranslated: 322 messages, 4318 words
 
 * *GO!*
 * *Copy*
@@ -588,9 +606,9 @@ Untranslated: 324 messages, 4320 words
 
 # Norwegian Bokmål
 
-Translated: 211 messages, 2446 words
+Translated: 208 messages, 2431 words
 
-Untranslated: 134 messages, 2297 words
+Untranslated: 135 messages, 2310 words
 
 * *Done*
 * *Help*
@@ -616,9 +634,9 @@ Untranslated: 134 messages, 2297 words
 
 # Nepali
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -627,14 +645,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Dutch
 
-Translated: 333 messages, 4736 words
+Translated: 330 messages, 4721 words
 
-Untranslated: 16 messages, 58 words
+Untranslated: 17 messages, 71 words
 
 * *Score*
 * *Layout*
@@ -650,14 +669,15 @@ Untranslated: 16 messages, 58 words
 * *Key sounds only*
 * *Premium account*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Polish
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -666,14 +686,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Brazilian Portuguese
 
-Translated: 338 messages, 4743 words
+Translated: 335 messages, 4728 words
 
-Untranslated: 12 messages, 53 words
+Untranslated: 13 messages, 66 words
 
 * *Layout*
 * *Layout*
@@ -685,14 +706,15 @@ Untranslated: 12 messages, 53 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # European Portuguese
 
-Translated: 319 messages, 4618 words
+Translated: 316 messages, 4603 words
 
-Untranslated: 29 messages, 156 words
+Untranslated: 30 messages, 169 words
 
 * *Books*
 * *Layout*
@@ -718,9 +740,9 @@ Untranslated: 29 messages, 156 words
 
 # Romanian
 
-Translated: 298 messages, 3587 words
+Translated: 295 messages, 3572 words
 
-Untranslated: 45 messages, 1165 words
+Untranslated: 46 messages, 1178 words
 
 * *Font:*
 * *Layout*
@@ -746,9 +768,9 @@ Untranslated: 45 messages, 1165 words
 
 # Russian
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -757,14 +779,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Slovak
 
-Translated: 340 messages, 4745 words
+Translated: 337 messages, 4730 words
 
-Untranslated: 10 messages, 51 words
+Untranslated: 11 messages, 64 words
 
 * *Layout*
 * *Choose…*
@@ -774,14 +797,15 @@ Untranslated: 10 messages, 51 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Slovenian
 
-Translated: 340 messages, 4745 words
+Translated: 337 messages, 4730 words
 
-Untranslated: 10 messages, 51 words
+Untranslated: 11 messages, 64 words
 
 * *Font:*
 * *Layout*
@@ -791,14 +815,15 @@ Untranslated: 10 messages, 51 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Albanian
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -807,14 +832,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Swedish
 
-Translated: 338 messages, 4743 words
+Translated: 335 messages, 4728 words
 
-Untranslated: 12 messages, 53 words
+Untranslated: 13 messages, 66 words
 
 * *Layout*
 * *Layout*
@@ -826,14 +852,15 @@ Untranslated: 12 messages, 53 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Thai
 
-Translated: 329 messages, 4635 words
+Translated: 326 messages, 4620 words
 
-Untranslated: 19 messages, 139 words
+Untranslated: 20 messages, 152 words
 
 * *Layout*
 * *Zones:*
@@ -849,6 +876,7 @@ Untranslated: 19 messages, 139 words
 * *Repeat each word:*
 * *Premium account price:*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *This is a histogram of the accuracies of all users, and your...*
 * *The analysis page is not running: there is no keyboard pictu...*
@@ -857,9 +885,9 @@ Untranslated: 19 messages, 139 words
 
 # Turkish
 
-Translated: 227 messages, 2126 words
+Translated: 224 messages, 2111 words
 
-Untranslated: 118 messages, 2615 words
+Untranslated: 119 messages, 2628 words
 
 * *Books*
 * *Font:*
@@ -885,9 +913,9 @@ Untranslated: 118 messages, 2615 words
 
 # Ukrainian
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -896,14 +924,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Vietnamese
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -912,14 +941,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Simplified Chinese
 
-Translated: 340 messages, 4739 words
+Translated: 337 messages, 4724 words
 
-Untranslated: 10 messages, 57 words
+Untranslated: 11 messages, 70 words
 
 * *Layout*
 * *Choose…*
@@ -929,14 +959,15 @@ Untranslated: 10 messages, 57 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Traditional Chinese
 
-Translated: 341 messages, 4746 words
+Translated: 338 messages, 4731 words
 
-Untranslated: 9 messages, 50 words
+Untranslated: 10 messages, 63 words
 
 * *Layout*
 * *Choose…*
@@ -945,14 +976,15 @@ Untranslated: 9 messages, 50 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*
 
 # Chinese (Taiwan)
 
-Translated: 340 messages, 4745 words
+Translated: 337 messages, 4730 words
 
-Untranslated: 10 messages, 51 words
+Untranslated: 11 messages, 64 words
 
 * *GO!*
 * *Layout*
@@ -962,5 +994,6 @@ Untranslated: 10 messages, 51 words
 * *no layer names*
 * *Key sounds only*
 * *inactive; choose a keyboard and layout*
+* *This is a changed copy of keybr.com. Its source is on GitHub...*
 * *inactive; no keyboards: add a keyboard on the analysis page,...*
 * *The analysis page is not running: there is no keyboard pictu...*

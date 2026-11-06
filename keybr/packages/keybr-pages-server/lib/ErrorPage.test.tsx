@@ -23,7 +23,7 @@ test("render", () => {
 
   like($("html").attr(), {
     "lang": "en",
-    "data-color": "system",
+    "data-color": "typokiller",
     "data-font": "open-sans",
   });
   equal($("title").text(), "400 - Bad Request");

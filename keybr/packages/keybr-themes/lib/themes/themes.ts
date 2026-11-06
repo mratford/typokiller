@@ -23,7 +23,12 @@ export class ThemeList implements Iterable<Theme> {
   }
 }
 
+// The first theme is the default.
 export const COLORS = new ThemeList([
+  {
+    id: "typokiller",
+    name: "typokiller",
+  },
   {
     id: "system",
     name: "System",

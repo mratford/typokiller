@@ -11,18 +11,11 @@ import { Link as RouterLink } from "react-router";
 import * as styles from "./SubMenu.module.less";
 
 export function SubMenu({ currentPath }: { readonly currentPath: string }) {
-  const { formatMessage } = useIntl();
   return (
     <div className={styles.root}>
       <MailLink />
       <DiscordLink />
-      <GithubLink />
-      <RouterLink to={Pages.termsOfService.path}>
-        {formatMessage(Pages.termsOfService.link.label)}
-      </RouterLink>
-      <RouterLink to={Pages.privacyPolicy.path}>
-        {formatMessage(Pages.privacyPolicy.link.label)}
-      </RouterLink>
+      <SourceLink />
       <LocaleSwitcher currentPath={currentPath} />
       <TranslateLink />
       <RemoveAdsLink />
@@ -62,18 +55,15 @@ function DiscordLink() {
   );
 }
 
-function GithubLink() {
-  const { formatMessage } = useIntl();
+// The AGPL asks that the users of a changed copy that runs on a server
+// can get its source.
+function SourceLink() {
   return (
-    <StaticLink
-      href="https://github.com/aradzie/keybr.com"
-      target="github"
-      title={formatMessage({
-        id: "footer.githubLink.description",
-        defaultMessage: "The source code of keybr.com is available on Github.",
-      })}
-    >
-      Github
+    <StaticLink href="https://github.com/mratford/typokiller" target="github">
+      <FormattedMessage
+        id="footer.sourceLink.text"
+        defaultMessage="This is a changed copy of keybr.com. Its source is on GitHub."
+      />
     </StaticLink>
   );
 }

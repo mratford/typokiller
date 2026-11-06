@@ -37,12 +37,21 @@ test("render", () => {
     "prefix": "og: http://ogp.me/ns#",
     "lang": "en",
     "dir": "ltr",
-    "data-color": "system",
+    "data-color": "typokiller",
     "data-font": "open-sans",
   });
   isTrue(html.includes("google"));
   isTrue(html.includes("cloudflare"));
   equal($("nav").length, 0);
+  equal($('meta[property="og:site_name"]').attr("content"), "typokiller");
+  equal(
+    $('link[rel="icon"][type="image/svg+xml"]').attr("href"),
+    "/assets/favicon.svg",
+  );
+  equal(
+    $('link[rel="apple-touch-icon"]').attr("href"),
+    "/assets/app-icon-180.png",
+  );
 });
 
 test("render alt", () => {
@@ -75,7 +84,7 @@ test("render alt", () => {
     "prefix": "og: http://ogp.me/ns#",
     "lang": "en",
     "dir": "ltr",
-    "data-color": "system",
+    "data-color": "typokiller",
     "data-font": "open-sans",
   });
   isFalse(html.includes("google"));
@@ -115,7 +124,7 @@ test("render for a bot", () => {
     "prefix": "og: http://ogp.me/ns#",
     "lang": "en",
     "dir": "ltr",
-    "data-color": "system",
+    "data-color": "typokiller",
     "data-font": "open-sans",
   });
   equal($("nav").length, 1);

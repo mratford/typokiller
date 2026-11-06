@@ -4,15 +4,7 @@ export type FontWeight = "100" | "200" | "300" | "400" | "500" | "600" | "700" |
 export type FontStyle = "normal" | "italic";
 export type Fallback = "cursive" | "fantasy" | "monospace" | "sans-serif" | "serif" | "whitespace" | string;
 export type Script =
-  | "arabic"
-  | "armenian"
-  | "cyrillic"
-  | "greek"
-  | "hebrew"
-  | "hiragana"
-  | "katakana"
-  | "latin"
-  | "thai";
+  "arabic" | "armenian" | "cyrillic" | "greek" | "hebrew" | "hiragana" | "katakana" | "latin" | "thai";
 
 export class FontFace {
   readonly family: string;
@@ -119,6 +111,8 @@ export const MONOSPACE = new FontFace("monospace", "400", "normal", ["whitespace
 export const MONOSPACE_I = new FontFace("monospace", "400", "italic", ["whitespace"], aacghlt);
 export const MONOSPACE_B = new FontFace("monospace", "700", "normal", ["whitespace"], aacghlt);
 export const MONOSPACE_BI = new FontFace("monospace", "700", "italic", ["whitespace"], aacghlt);
+// The Mac's own monospaced font (SF Mono), as on typokiller's page.
+export const UI_MONOSPACE = new FontFace("ui-monospace", "400", "normal", ['"SF Mono"', "Menlo", "monospace"], cgl);
 export const CURSIVE = new FontFace("cursive", "400", "normal", ["whitespace"], aacghlt);
 export const CURSIVE_I = new FontFace("cursive", "400", "italic", ["whitespace"], aacghlt);
 export const CURSIVE_B = new FontFace("cursive", "700", "normal", ["whitespace"], aacghlt);
@@ -189,6 +183,7 @@ export const FONTS_FACES: readonly FontFace[] = [
   MONOSPACE_I,
   MONOSPACE_B,
   MONOSPACE_BI,
+  UI_MONOSPACE,
   CURSIVE,
   CURSIVE_I,
   CURSIVE_B,

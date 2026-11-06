@@ -4,7 +4,7 @@ import {
   type FontFace,
   FONTS_FACES,
   type Script,
-  UBUNTU_MONO,
+  UI_MONOSPACE,
 } from "@keybr/themes";
 import { type CSSProperties } from "react";
 
@@ -15,7 +15,7 @@ export class Font implements EnumItem {
 
   static get default() {
     return (
-      Font.ALL.find(({ name }) => name === UBUNTU_MONO.name) ?? Font.ALL.at(0)
+      Font.ALL.find(({ name }) => name === UI_MONOSPACE.name) ?? Font.ALL.at(0)
     );
   }
 

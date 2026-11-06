@@ -37,23 +37,30 @@ export function AltLangLinks({ page }: { readonly page: PageInfo }): ReactNode {
     .map((link) => <link key={link.href} {...link} />);
 }
 
+// typokiller's icons, from assets/branding/ at the top of the repo.
+// The browser also finds root/public/favicon.ico by itself.
 export const favIcons: readonly FavIconLink[] = [
   {
-    href: "/assets/favicon-16x16.png",
+    href: "/assets/favicon.svg",
     rel: "icon",
-    type: "image/png",
-    sizes: "16x16",
+    type: "image/svg+xml",
+    sizes: "any",
   },
   {
-    href: "/assets/favicon-32x32.png",
+    href: "/assets/app-icon-192.png",
     rel: "icon",
     type: "image/png",
-    sizes: "32x32",
+    sizes: "192x192",
   },
   {
-    href: "/assets/favicon-96x96.png",
+    href: "/assets/app-icon-512.png",
     rel: "icon",
     type: "image/png",
-    sizes: "96x96",
+    sizes: "512x512",
+  },
+  {
+    href: "/assets/app-icon-180.png",
+    rel: "apple-touch-icon",
+    sizes: "180x180",
   },
 ];

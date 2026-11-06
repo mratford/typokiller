@@ -33,8 +33,8 @@ export namespace Pages {
     { property: "fb:app_id", content: "545353762151265" },
     { property: "og:type", content: "website" },
     { property: "og:url", content: "https://www.keybr.com/" },
-    { property: "og:site_name", content: "keybr.com - Typing lessons" },
-    { property: "og:title", content: "keybr.com - Typing lessons" },
+    { property: "og:site_name", content: "typokiller" },
+    { property: "og:title", content: "typokiller" },
     {
       property: "og:description",
       content:
@@ -256,36 +256,6 @@ export namespace Pages {
         }),
       },
     ],
-  } satisfies PageInfo;
-
-  export const termsOfService = {
-    path: "/terms-of-service",
-    title: defineMessage({
-      id: "t_Terms_of_Service",
-      defaultMessage: "Terms of Service",
-    }),
-    link: {
-      label: defineMessage({
-        id: "t_Terms_of_Service",
-        defaultMessage: "Terms of Service",
-      }),
-    },
-    meta: [{ name: "robots", content: "noindex" }],
-  } satisfies PageInfo;
-
-  export const privacyPolicy = {
-    path: "/privacy-policy",
-    title: defineMessage({
-      id: "t_Privacy_Policy",
-      defaultMessage: "Privacy Policy",
-    }),
-    link: {
-      label: defineMessage({
-        id: "t_Privacy_Policy",
-        defaultMessage: "Privacy Policy",
-      }),
-    },
-    meta: [{ name: "robots", content: "noindex" }],
   } satisfies PageInfo;
 
   export function profileOf(arg: string): string;

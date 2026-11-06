@@ -1,0 +1,102 @@
+@import "palettes.less";
+
+// typokiller's own page colours. The comments give their names on
+// typokiller's page. The logo's orange is used for the highlights.
+@typokiller-orange: #c94708;
+
+.typokiller-light-theme-props() {
+  @colors: {
+    @primary: #fbfaf7;
+    @secondary: #23221f;
+    @accent: @typokiller-orange;
+    @error: #c62828; // --bad
+  };
+
+  --primary-d2: #d9d5cc; // --faint
+  --primary-d1: #e5e1d8; // --line
+  --primary: @colors[@primary];
+  --primary-l1: #ffffff; // --panel
+  --primary-l2: #ffffff;
+  --secondary-d1: darken(@colors[@secondary], 10);
+  --secondary: @colors[@secondary];
+  --secondary-l1: lighten(@colors[@secondary], 10);
+  --secondary-l2: lighten(@colors[@secondary], 20);
+  --secondary-f1: mix(@colors[@primary], @colors[@secondary], 20);
+  --secondary-f2: #a29e94; // --dim
+  --accent-d2: darken(@colors[@accent], 20);
+  --accent-d1: darken(@colors[@accent], 10);
+  --accent: @colors[@accent];
+  --accent-l1: lighten(@colors[@accent], 10);
+  --accent-l2: lighten(@colors[@accent], 20);
+  --error-d1: darken(@colors[@error], 10);
+  --error: @colors[@error];
+  --error-l1: lighten(@colors[@error], 10);
+  --shadow-color: #00000044;
+  --slow-key-color: #cc0000;
+  --fast-key-color: #60d788;
+  --effort-color: #6699ff;
+  .use-textinput-colors(@colors);
+  --textinput--hit__color: #a29e94; // --dim
+  .use-interface-colors(@colors);
+  .use-chart-colors(@colors, 0);
+  .use-keyboard-colors(@colors, 0);
+  --KeyboardKey-pointer__color: @colors[@accent];
+  .use-syntax-colors();
+}
+
+.typokiller-dark-theme-props() {
+  @colors: {
+    @primary: #16171a;
+    @secondary: #e8e6e1;
+    @accent: @typokiller-orange;
+    @error: #ff7070; // --bad
+  };
+
+  --primary-d2: #3a3a3d; // --faint
+  --primary-d1: #2d2e33; // --line
+  --primary: @colors[@primary];
+  --primary-l1: #1f2024; // --panel
+  --primary-l2: #1f2024;
+  --secondary-d1: lighten(@colors[@secondary], 10);
+  --secondary: @colors[@secondary];
+  --secondary-l1: darken(@colors[@secondary], 10);
+  --secondary-l2: darken(@colors[@secondary], 20);
+  --secondary-f1: mix(@colors[@primary], @colors[@secondary], 20);
+  --secondary-f2: #75726b; // --dim
+  --accent-d2: darken(@colors[@accent], 10);
+  --accent-d1: darken(@colors[@accent], 5);
+  --accent: @colors[@accent];
+  --accent-l1: lighten(@colors[@accent], 5);
+  --accent-l2: lighten(@colors[@accent], 10);
+  --error-d1: lighten(@colors[@error], 10);
+  --error: @colors[@error];
+  --error-l1: darken(@colors[@error], 10);
+  --shadow-color: #00000088;
+  --slow-key-color: #8c1818;
+  --fast-key-color: #448154;
+  --effort-color: #2d4a86;
+  .use-textinput-colors(@colors);
+  --textinput--hit__color: #75726b; // --dim
+  .use-interface-colors(@colors);
+  .use-chart-colors(@colors, 50);
+  .use-keyboard-colors(@colors, 50);
+  --KeyboardKey-pointer__color: @colors[@accent];
+  --syntax-keyword: #5991cd;
+  --syntax-string: #72b172;
+  --syntax-number: #b281d3;
+  --syntax-comment: #9f8484;
+  --header-logo: url(../../assets/header-dark.svg);
+}
+
+// Light or dark, as the Mac is set.
+@media (prefers-color-scheme: light) {
+  html[data-color="typokiller"] {
+    .typokiller-light-theme-props();
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-color="typokiller"] {
+    .typokiller-dark-theme-props();
+  }
+}

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { Language } from "@keybr/keyboard";
-import { isNotNull, isTrue } from "rich-assert";
+import { equal, isNotNull, isTrue } from "rich-assert";
 import { Font } from "./font.ts";
 
 test("select fonts for each language", () => {
@@ -11,4 +11,11 @@ test("select fonts for each language", () => {
       isNotNull(Font.find(fonts, font));
     }
   }
+});
+
+test("the typed text uses the Mac's monospaced font by default", () => {
+  equal(
+    Font.default.cssProperties.fontFamily,
+    'ui-monospace,"SF Mono",Menlo,monospace',
+  );
 });

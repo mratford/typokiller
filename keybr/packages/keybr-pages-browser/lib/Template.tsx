@@ -1,7 +1,8 @@
-import { isPremiumUser, usePageData } from "@keybr/pages-shared";
+import { isPremiumUser, Pages, usePageData } from "@keybr/pages-shared";
 import { AdBanner } from "@keybr/thirdparties";
 import { PortalContainer, Toaster } from "@keybr/widget";
 import { type ReactNode } from "react";
+import { Link } from "react-router";
 import { NavMenu } from "./NavMenu.tsx";
 import * as styles from "./Template.module.less";
 
@@ -36,7 +37,12 @@ export function Template({
         <NavMenu currentPath={path} />
       </nav>
       <div className={styles.topbar}>
-        <AdBanner name="BANNER_970X90_1" />
+        {/* The theme gives the light or the dark logo. */}
+        <Link
+          className={styles.logo}
+          to={Pages.practice.path}
+          aria-label="typokiller"
+        />
       </div>
       <div className={styles.sidebar}>
         <AdBanner name="BANNER_160X600_1" />

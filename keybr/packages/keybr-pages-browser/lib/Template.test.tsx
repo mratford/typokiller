@@ -3,7 +3,7 @@ import { FakeIntlProvider } from "@keybr/intl";
 import { PageDataContext } from "@keybr/pages-shared";
 import { render } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { isNotNull } from "rich-assert";
+import { equal, isNotNull } from "rich-assert";
 import { Template } from "./Template.tsx";
 
 test("render", () => {
@@ -32,6 +32,7 @@ test("render", () => {
   );
 
   isNotNull(r.queryByText("hello"));
+  equal(r.getByRole("link", { name: "typokiller" }).getAttribute("href"), "/");
 
   r.unmount();
 });

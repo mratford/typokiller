@@ -14,7 +14,6 @@
     "@keybr/page-multiplayer": "*",
     "@keybr/page-practice": "*",
     "@keybr/page-profile": "*",
-    "@keybr/page-static": "*",
     "@keybr/page-typing-test": "*",
     "@keybr/pages-shared": "*",
     "@keybr/request": "*",

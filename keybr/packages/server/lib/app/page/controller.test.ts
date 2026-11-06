@@ -23,8 +23,6 @@ for (const path of [
   "/profile/example4",
   "/profile/example5",
   "/typing-test",
-  "/terms-of-service",
-  "/privacy-policy",
 ]) {
   test(`load page "${path}"`, async () => {
     // Arrange.
@@ -47,6 +45,25 @@ for (const path of [
     const $ = load(await response.body.text());
     equal($("script#page-data").length, 1);
     equal($("#root").length, 1);
+  });
+}
+
+for (const path of [
+  "/terms-of-service",
+  "/privacy-policy",
+  "/de/terms-of-service",
+  "/de/privacy-policy",
+]) {
+  test(`the removed page "${path}" is not found`, async () => {
+    const request = startApp(context.get(Application, kMain));
+
+    const response = await request
+      .GET(path)
+      .header("X-Forwarded-Host", "www.keybr.com")
+      .header("X-Forwarded-Proto", "https")
+      .send();
+
+    equal(response.status, 404);
   });
 }
 
@@ -99,6 +116,6 @@ test(`ignore invalid theme cookie`, async () => {
   deepEqual(response.headers.getAll("Set-Cookie"), []);
 
   const $ = load(await response.body.text());
-  equal($("html").attr("data-color"), "system");
+  equal($("html").attr("data-color"), "typokiller");
   equal($("html").attr("data-font"), "open-sans");
 });

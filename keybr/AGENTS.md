@@ -71,7 +71,7 @@ lage's scoping, e.g. `npx lage test --scope @keybr/lesson`.
   `tsconfig.json`, and its own `package.json` declaring intra-repo deps via `"@keybr/x": "*"`.
   Type declarations land in `.types/` (gitignored); package compilation is declaration-only.
 - `packages/page-*` — one package per top-level app section (`page-practice`, `page-profile`,
-  `page-account`, `page-multiplayer`, `page-highscores`, `page-help`, `page-static`,
+  `page-account`, `page-multiplayer`, `page-highscores`, `page-help`,
   `page-typing-test`, `page-layouts`). Each is UI-only React code for that section.
 - `packages/keybr-pages-shared`, `keybr-pages-browser`, `keybr-pages-server` — the three
   compose the page-* packages into the actual app:

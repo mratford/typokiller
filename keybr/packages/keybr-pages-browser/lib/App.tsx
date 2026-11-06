@@ -29,8 +29,6 @@ const MultiplayerPage = lazy(() => import("./pages/multiplayer.tsx"));
 const PracticePage = lazy(() => import("./pages/practice.tsx"));
 const ProfilePage = lazy(() => import("./pages/profile.tsx"));
 const TypingTestPage = lazy(() => import("./pages/typing-test.tsx"));
-const TermsOfServicePage = lazy(() => import("./pages/terms-of-service.tsx"));
-const PrivacyPolicyPage = lazy(() => import("./pages/privacy-policy.tsx"));
 
 export function App() {
   return (
@@ -149,28 +147,6 @@ function PageRoutes() {
               <Title page={Pages.typingTest} />
               <Suspense fallback={<LoadingProgress />}>
                 <TypingTestPage />
-              </Suspense>
-            </Template>
-          }
-        />
-        <Route
-          path={Pages.termsOfService.path}
-          element={
-            <Template path={Pages.termsOfService.path}>
-              <Title page={Pages.termsOfService} />
-              <Suspense fallback={<LoadingProgress />}>
-                <TermsOfServicePage />
-              </Suspense>
-            </Template>
-          }
-        />
-        <Route
-          path={Pages.privacyPolicy.path}
-          element={
-            <Template path={Pages.privacyPolicy.path}>
-              <Title page={Pages.privacyPolicy} />
-              <Suspense fallback={<LoadingProgress />}>
-                <PrivacyPolicyPage />
               </Suspense>
             </Template>
           }
